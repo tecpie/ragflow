@@ -1859,7 +1859,8 @@ Retrieves chunks from specified datasets.
   - `"rerank_id"`: `string`  
   - `"keyword"`: `boolean`  
   - `"highlight"`: `boolean`
-  - `"cross_languages"`: `list[string]`  
+  - `"cross_languages"`: `list[string]`
+  - `"metadata_condition"`: `object`
 
 ##### Request example
 
@@ -1906,7 +1907,8 @@ curl --request POST \
   - `false`: Disable highlighting of matched terms (default).
 - `"cross_languages"`: (*Body parameter*) `list[string]`  
   The languages that should be translated into, in order to achieve keywords retrievals in different languages.
-
+- `"metadata_condition"`: (*Body parameter*), `object`
+  The metadata condition for filtering chunks.
 #### Response
 
 Success:
@@ -3863,7 +3865,7 @@ Lists agents.
 #### Request
 
 - Method: GET
-- URL: `/api/v1/agents?page={page}&page_size={page_size}&orderby={orderby}&desc={desc}&name={agent_name}&id={agent_id}`
+- URL: `/api/v1/agents?page={page}&page_size={page_size}&orderby={orderby}&desc={desc}&title={agent_name}&id={agent_id}`
 - Headers:
   - `'Authorization: Bearer <YOUR_API_KEY>'`
 
@@ -3871,7 +3873,7 @@ Lists agents.
 
 ```bash
 curl --request GET \
-     --url http://{address}/api/v1/agents?page={page}&page_size={page_size}&orderby={orderby}&desc={desc}&name={agent_name}&id={agent_id} \
+     --url http://{address}/api/v1/agents?page={page}&page_size={page_size}&orderby={orderby}&desc={desc}&title={agent_name}&id={agent_id} \
      --header 'Authorization: Bearer <YOUR_API_KEY>'
 ```
 
@@ -3889,7 +3891,7 @@ curl --request GET \
   Indicates whether the retrieved agents should be sorted in descending order. Defaults to `true`.
 - `id`: (*Filter parameter*), `string`  
   The ID of the agent to retrieve.
-- `name`: (*Filter parameter*), `string`  
+- `title`: (*Filter parameter*), `string`  
   The name of the agent to retrieve.
 
 #### Response
