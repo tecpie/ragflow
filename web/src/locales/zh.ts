@@ -632,6 +632,8 @@ General：实体和关系提取提示来自 GitHub - microsoft/graphrag：基于
       },
       cancel: '取消',
       chatSetting: '聊天设置',
+      avatarHidden: '隐藏头像',
+      locale: '地区',
     },
     setting: {
       profile: '概要',
@@ -1535,6 +1537,14 @@ General：实体和关系提取提示来自 GitHub - microsoft/graphrag：基于
       parseSummaryTip: '解析器: deepdoc',
       rerunFromCurrentStep: '从当前步骤重新运行',
       rerunFromCurrentStepTip: '已修改，点击重新运行。',
+    },
+    dataflow: {
+      parser: '解析器',
+      parserDescription: '解析器',
+      chunker: '分块器',
+      chunkerDescription: '分块器',
+      tokenizer: '分词器',
+      tokenizerDescription: '分词器',
     },
   },
 };
