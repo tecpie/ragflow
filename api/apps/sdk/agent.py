@@ -79,7 +79,7 @@ def create_agent(tenant_id: str):
         dsl=req["dsl"]
     )
 
-    return get_json_result(data=True)
+    return get_json_result(data=agent_id)
 
 
 @manager.route("/agents/<agent_id>", methods=["PUT"])  # noqa: F821
