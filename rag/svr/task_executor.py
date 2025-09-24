@@ -605,26 +605,6 @@ async def do_handle_task(task):
             await run_graphrag(task, task_language, with_resolution, with_community, chat_model, embedding_model, progress_callback)
         progress_callback(prog=1.0, msg="Knowledge Graph done ({:.2f}s)".format(timer() - start_ts))
         return
-    elif task.get("task_type", "") == "convert2pdf":
-        start_ts = timer()
-        bucket, name = File2DocumentService.get_storage_address(doc_id=task["doc_id"])
-        binary = await get_storage_binary(bucket, name)
-        pdf = convert_to_pdf(binary)
-        pdf_name = os.path.splitext(name)[0] + ".pdf"
-        file = {
-            "id": get_uuid(),
-            "parent_id": task["kb_id"],
-            "type": "pdf",
-            "name": pdf_name,
-            "location": pdf_name,
-            "size": len(pdf),
-        }
-        file = FileService.insert(file)
-        File2DocumentService.update_by_doc_id(task["doc_id"], {"pdf_file_id":file.id})
-        STORAGE_IMPL.put(task["kb_id"],pdf_name, pdf)
-        progress_callback(prog=1.0, msg="Convert to Pdf done ({:.2f}s)".format(
-            timer() - start_ts))
-        return
     else:
         # Standard chunking methods
         start_ts = timer()

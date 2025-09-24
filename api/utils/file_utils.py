@@ -22,7 +22,6 @@ import subprocess
 import sys
 import tempfile
 import threading
-import platform
 from io import BytesIO
 
 import pdfplumber
@@ -155,7 +154,7 @@ def filename_type(filename):
     if re.match(r".*\.pdf$", filename):
         return FileType.PDF.value
 
-    if re.match(r".*\.(eml|doc|docx|ppt|pptx|yml|xml|htm|json|jsonl|ldjson|csv|txt|ini|xls|xlsx|wps|rtf|hlp|pages|numbers|key|md|py|js|java|c|cpp|h|php|go|ts|sh|cs|kt|html|sql)$", filename):
+    if re.match(r".*\.(eml|doc|docx|ppt|pptx|yml|xml|htm|json|csv|txt|ini|xls|xlsx|wps|rtf|hlp|pages|numbers|key|md|py|js|java|c|cpp|h|php|go|ts|sh|cs|kt|html|sql)$", filename):
         return FileType.DOC.value
 
     if re.match(r".*\.(wav|flac|ape|alac|wavpack|wv|mp3|aac|ogg|vorbis|opus)$", filename):
@@ -284,81 +283,3 @@ def read_potential_broken_pdf(blob):
         return repaired
 
     return blob
-
-
-def get_libreoffice_path():
-    system = platform.system()
-
-    if system == "Windows":
-        possible_paths = [
-            r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
-            r"C:\Program Files\LibreOffice\program\soffice.exe",
-            r"C:\Program Files\LibreOffice\bin\soffice.exe"
-        ]
-    elif system == "Darwin":  # macOS
-        possible_paths = [
-            "/Applications/LibreOffice.app/Contents/MacOS/soffice"
-        ]
-    else:
-        possible_paths = [
-            "/usr/bin/libreoffice",
-            "/usr/bin/soffice",
-            "/usr/local/bin/libreoffice"
-        ]
-
-    for path in possible_paths:
-        if os.path.exists(path):
-            return path
-
-    try:
-        if system == "Windows":
-            return subprocess.check_output("where soffice",
-                                           shell=True).decode().strip()
-        else:
-            return subprocess.check_output("which libreoffice || which soffice",
-                                           shell=True).decode().strip()
-    except (subprocess.CalledProcessError,OSError):
-        raise RuntimeError(
-            "LibreOffice not found. Please install LibreOffice or specify the path manually.")
-
-
-def convert_to_pdf(blob: bytes, output_dir: str = None) -> bytes:
-    import os
-    os.environ[
-        "LD_LIBRARY_PATH"] = "/usr/lib/libreoffice/program:/usr/lib/x86_64-linux-gnu:" + os.environ.get(
-        "LD_LIBRARY_PATH", "")
-
-    if output_dir is None:
-        output_dir = tempfile.gettempdir()
-    libreoffice_path = get_libreoffice_path()
-    if not os.path.exists(libreoffice_path):
-        raise FileNotFoundError(
-            f"LibreOffice executable not found at: {libreoffice_path}")
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".doc") as tmp_file:
-        tmp_file.write(blob)
-        tmp_file.flush()
-        input_path = tmp_file.name
-    try:
-        cmd = [
-            libreoffice_path,
-            '--headless',
-            '--convert-to',
-            'pdf',
-            '--outdir',
-            output_dir,
-            input_path
-        ]
-        subprocess.run(cmd, check=True, capture_output=True)
-    except subprocess.CalledProcessError as e:
-        error_msg = f"Convert Failed: {e.stderr.decode('utf-8') if e.stderr else 'Unknown Error'}"
-        raise RuntimeError(f"File can't convert to PDF: {error_msg}") from e
-    base_name = os.path.splitext(os.path.basename(input_path))[0]
-    pdf_path = os.path.join(output_dir, f"{base_name}.pdf")
-
-    if not os.path.exists(pdf_path):
-        raise FileNotFoundError("PDF file dose not generated")
-    with open(pdf_path, "rb") as file:
-        pdf =  file.read()
-    # delete tmp file
-    os.remove(pdf_path)
-    return pdf
