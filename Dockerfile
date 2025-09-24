@@ -137,9 +137,6 @@ RUN --mount=type=bind,from=registry.cn-hangzhou.aliyuncs.com/tecpie/ragflow_deps
         dpkg -i /deps/libssl1.1_1.1.1f-1ubuntu2_arm64.deb; \
     fi
 
-# Install LibreOffice
-RUN apt update && \
-    apt install -y libreoffice
 
 # builder stage
 FROM base AS builder
