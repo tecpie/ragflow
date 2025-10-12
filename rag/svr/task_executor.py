@@ -58,7 +58,6 @@ from api.db.services.file_service import FileService
 from api import settings
 from api.versions import get_ragflow_version
 from api.db.db_models import close_connection
-from api.utils.file_utils import convert_to_pdf
 from api.utils import get_uuid
 from rag.app import laws, paper, presentation, manual, qa, table, book, resume, picture, naive, one, audio, \
     email, tag
