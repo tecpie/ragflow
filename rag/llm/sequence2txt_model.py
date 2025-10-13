@@ -236,11 +236,20 @@ class DeepInfraSeq2txt(Base):
         self.model_name = model_name
         
         
-class CometSeq2txt(Base):
+class CometAPISeq2txt(Base):
     _FACTORY_NAME = "CometAPI"
 
     def __init__(self, key, model_name="whisper-1", base_url="https://api.cometapi.com/v1", **kwargs):
         if not base_url:
             base_url = "https://api.cometapi.com/v1"
+        self.client = OpenAI(api_key=key, base_url=base_url)
+        self.model_name = model_name
+        
+class DeerAPISeq2txt(Base):
+    _FACTORY_NAME = "DeerAPI"
+
+    def __init__(self, key, model_name="whisper-1", base_url="https://api.deerapi.com/v1", **kwargs):
+        if not base_url:
+            base_url = "https://api.deerapi.com/v1"
         self.client = OpenAI(api_key=key, base_url=base_url)
         self.model_name = model_name

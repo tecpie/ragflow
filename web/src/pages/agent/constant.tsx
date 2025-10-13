@@ -7,6 +7,7 @@ import {
   AgentGlobalsSysQueryWithBrace,
   CodeTemplateStrMap,
   ProgrammingLanguage,
+  initialLlmBaseValues,
 } from '@/constants/agent';
 
 export enum AgentDialogueMode {
@@ -14,13 +15,8 @@ export enum AgentDialogueMode {
   Task = 'task',
 }
 
-import {
-  ChatVariableEnabledField,
-  variableEnabledFieldMap,
-} from '@/constants/chat';
 import { ModelVariableType } from '@/constants/knowledge';
 import i18n from '@/locales/config';
-import { setInitialChatVariableEnabledFieldValue } from '@/utils/chat';
 import { t } from 'i18next';
 
 // DuckDuckGo's channel options
@@ -73,7 +69,6 @@ export enum Operator {
   AkShare = 'AkShare',
   YahooFinance = 'YahooFinance',
   Jin10 = 'Jin10',
-  Concentrator = 'Concentrator',
   TuShare = 'TuShare',
   Note = 'Note',
   Crawler = 'Crawler',
@@ -90,6 +85,7 @@ export enum Operator {
   UserFillUp = 'UserFillUp',
   StringTransform = 'StringTransform',
   SearXNG = 'SearXNG',
+  Placeholder = 'Placeholder',
 }
 
 export const SwitchLogicOperatorOptions = ['and', 'or'];
@@ -105,7 +101,6 @@ export const AgentOperatorList = [
   Operator.RewriteQuestion,
   Operator.KeywordExtract,
   Operator.Switch,
-  Operator.Concentrator,
   Operator.Iteration,
   Operator.WaitingDialogue,
   Operator.Note,
@@ -131,9 +126,6 @@ export const componentMenuList = [
   },
   {
     name: Operator.Switch,
-  },
-  {
-    name: Operator.Concentrator,
   },
   {
     name: Operator.Iteration,
@@ -257,6 +249,7 @@ export const initialRetrievalValues = {
   ...initialSimilarityThresholdValue,
   ...initialKeywordsSimilarityWeightValue,
   use_kg: false,
+  toc_enhance: false,
   cross_languages: [],
   outputs: {
     formalized_content: {
@@ -273,24 +266,6 @@ export const initialRetrievalValues = {
 export const initialBeginValues = {
   mode: AgentDialogueMode.Conversational,
   prologue: `Hi! I'm your assistant. What can I do for you?`,
-};
-
-export const variableCheckBoxFieldMap = Object.keys(
-  variableEnabledFieldMap,
-).reduce<Record<string, boolean>>((pre, cur) => {
-  pre[cur] = setInitialChatVariableEnabledFieldValue(
-    cur as ChatVariableEnabledField,
-  );
-  return pre;
-}, {});
-
-const initialLlmBaseValues = {
-  ...variableCheckBoxFieldMap,
-  temperature: 0.1,
-  top_p: 0.3,
-  frequency_penalty: 0.7,
-  presence_penalty: 0.4,
-  max_tokens: 256,
 };
 
 export const initialGenerateValues = {
@@ -564,8 +539,6 @@ export const initialJin10Values = {
   ...initialQueryBaseValues,
 };
 
-export const initialConcentratorValues = {};
-
 export const initialTuShareValues = {
   token: 'xxx',
   src: 'eastmoney',
@@ -780,6 +753,11 @@ export const initialTavilyExtractValues = {
   },
 };
 
+export const initialPlaceholderValues = {
+  // Placeholder node doesn't need any specific form values
+  // It's just a visual placeholder
+};
+
 export const CategorizeAnchorPointPositions = [
   { top: 1, right: 34 },
   { top: 8, right: 18 },
@@ -839,7 +817,6 @@ export const RestrictedUpstreamMap = {
   [Operator.AkShare]: [Operator.Begin],
   [Operator.YahooFinance]: [Operator.Begin],
   [Operator.Jin10]: [Operator.Begin],
-  [Operator.Concentrator]: [Operator.Begin],
   [Operator.TuShare]: [Operator.Begin],
   [Operator.Crawler]: [Operator.Begin],
   [Operator.Note]: [],
@@ -855,6 +832,7 @@ export const RestrictedUpstreamMap = {
   [Operator.StringTransform]: [Operator.Begin],
   [Operator.UserFillUp]: [Operator.Begin],
   [Operator.Tool]: [Operator.Begin],
+  [Operator.Placeholder]: [Operator.Begin],
 };
 
 export const NodeMap = {
@@ -880,7 +858,6 @@ export const NodeMap = {
   [Operator.SearXNG]: 'ragNode',
   [Operator.ExeSQL]: 'ragNode',
   [Operator.Switch]: 'switchNode',
-  [Operator.Concentrator]: 'logicNode',
   [Operator.WenCai]: 'ragNode',
   [Operator.AkShare]: 'ragNode',
   [Operator.YahooFinance]: 'ragNode',
@@ -900,6 +877,7 @@ export const NodeMap = {
   [Operator.UserFillUp]: 'ragNode',
   [Operator.StringTransform]: 'ragNode',
   [Operator.TavilyExtract]: 'ragNode',
+  [Operator.Placeholder]: 'placeholderNode',
 };
 
 export enum BeginQueryType {
@@ -922,7 +900,6 @@ export const BeginQueryTypeIconMap = {
 
 export const NoDebugOperatorsList = [
   Operator.Begin,
-  Operator.Concentrator,
   Operator.Message,
   Operator.RewriteQuestion,
   Operator.Switch,
@@ -950,3 +927,14 @@ export enum AgentExceptionMethod {
   Comment = 'comment',
   Goto = 'goto',
 }
+
+export const PLACEHOLDER_NODE_WIDTH = 200;
+export const PLACEHOLDER_NODE_HEIGHT = 60;
+export const DROPDOWN_SPACING = 25;
+export const DROPDOWN_ADDITIONAL_OFFSET = 50;
+export const HALF_PLACEHOLDER_NODE_WIDTH = PLACEHOLDER_NODE_WIDTH / 2;
+export const HALF_PLACEHOLDER_NODE_HEIGHT =
+  PLACEHOLDER_NODE_HEIGHT + DROPDOWN_SPACING + DROPDOWN_ADDITIONAL_OFFSET;
+export const DROPDOWN_HORIZONTAL_OFFSET = 28;
+export const DROPDOWN_VERTICAL_OFFSET = 74;
+export const PREVENT_CLOSE_DELAY = 300;

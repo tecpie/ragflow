@@ -671,6 +671,10 @@ export default {
       baseUrl: 'Базовый URL',
       baseUrlTip:
         'Если ваш API ключ от OpenAI, оставьте пустым. Другие провайдеры предоставляют базовый URL с API ключом.',
+      tongyiBaseUrlTip:
+        'Для китайских пользователей не нужно заполнять, используйте https://dashscope.aliyuncs.com/compatible-mode/v1. Для международных пользователей используйте https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+      tongyiBaseUrlPlaceholder:
+        '(Только для международных пользователей, см. подсказку)',
       modify: 'Изменить',
       systemModelSettings: 'Установить модели по умолчанию',
       chatModel: 'Модель чата',
@@ -949,7 +953,8 @@ export default {
       multimodalModels: 'Мультимодальные модели',
       textOnlyModels: 'Только текстовые модели',
       allModels: 'Все модели',
-      codeExecDescription: 'Напишите свою пользовательскую логику на Python или Javascript.',
+      codeExecDescription:
+        'Напишите свою пользовательскую логику на Python или Javascript.',
       stringTransformDescription:
         'Изменяет текстовое содержимое. В настоящее время поддерживает: разделение или объединение текста.',
       foundation: 'Основа',
@@ -1322,6 +1327,8 @@ export default {
       cleanHtml: 'Очистить HTML',
       cleanHtmlTip:
         'Включите, если нужен только основной контент из HTML-ответа.',
+      invalidUrl:
+        'Должен быть действительный URL или URL с заполнителями переменных в формате {имя_переменной} или {компонент@переменная}',
       reference: 'Ссылка',
       input: 'Вход',
       output: 'Выход',

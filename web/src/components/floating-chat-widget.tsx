@@ -1,3 +1,5 @@
+import PdfDrawer from '@/components/pdf-drawer';
+import { useClickDrawer } from '@/components/pdf-drawer/hooks';
 import { MessageType, SharedFrom } from '@/constants/chat';
 import { useFetchNextConversationSSE } from '@/hooks/chat-hooks';
 import { useFetchFlowSSE } from '@/hooks/flow-hooks';
@@ -15,6 +17,7 @@ import {
   useGetSharedChatSearchParams,
   useSendSharedMessage,
 } from '../pages/next-chats/hooks/use-send-shared-message';
+import FloatingChatWidgetMarkdown from './floating-chat-widget-markdown';
 
 const FloatingChatWidget = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -62,6 +65,14 @@ const FloatingChatWidget = () => {
   }, [from]);
 
   const { data: avatarData } = useFetchAvatar();
+
+  const { visible, hideModal, documentId, selectedChunk, clickDocumentButton } =
+    useClickDrawer();
+
+  // PDF drawer state tracking
+  useEffect(() => {
+    // Drawer state management
+  }, [visible, documentId, selectedChunk]);
 
   // Play sound when opening
   const playNotificationSound = useCallback(() => {
@@ -367,127 +378,150 @@ const FloatingChatWidget = () => {
   if (mode === 'window') {
     // Only render the chat window (always open)
     return (
-      <div
-        className={`fixed top-0 left-0 z-50 bg-blue-600 rounded-2xl transition-all duration-300 ease-out h-[500px] w-[380px] overflow-hidden ${isLoaded ? 'opacity-100' : 'opacity-0'}`}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-t-2xl">
-          <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-white bg-opacity-20 rounded-full flex items-center justify-center">
-              <MessageCircle size={18} />
-            </div>
-            <div>
-              <h3 className="font-semibold text-sm">
-                {chatInfo?.title || 'Chat Support'}
-              </h3>
-              <p className="text-xs text-blue-100">
-                We typically reply instantly
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Messages and Input */}
+      <>
         <div
-          className="flex flex-col h-[436px] bg-white"
-          style={{ borderRadius: '0 0 16px 16px' }}
+          className={`fixed top-0 left-0 z-50 bg-blue-600 rounded-2xl transition-all duration-300 ease-out h-[500px] w-[380px] overflow-hidden ${isLoaded ? 'opacity-100' : 'opacity-0'}`}
         >
-          <div
-            className="flex-1 overflow-y-auto p-4 space-y-4"
-            onWheel={(e) => {
-              const element = e.currentTarget;
-              const isAtTop = element.scrollTop === 0;
-              const isAtBottom =
-                element.scrollTop + element.clientHeight >=
-                element.scrollHeight - 1;
-
-              // Allow scroll to pass through to parent when at boundaries
-              if ((isAtTop && e.deltaY < 0) || (isAtBottom && e.deltaY > 0)) {
-                e.preventDefault();
-                // Let the parent handle the scroll
-                window.parent.postMessage(
-                  {
-                    type: 'SCROLL_PASSTHROUGH',
-                    deltaY: e.deltaY,
-                  },
-                  '*',
-                );
-              }
-            }}
-          >
-            {displayMessages?.map((message, index) => (
-              <div
-                key={index}
-                className={`flex ${message.role === MessageType.User ? 'justify-end' : 'justify-start'}`}
-              >
-                <div
-                  className={`max-w-[280px] px-4 py-2 rounded-2xl ${
-                    message.role === MessageType.User
-                      ? 'bg-blue-600 text-white rounded-br-md'
-                      : 'bg-gray-100 text-gray-800 rounded-bl-md'
-                  }`}
-                >
-                  <p className="text-sm leading-relaxed whitespace-pre-wrap">
-                    {message.content}
-                  </p>
-                </div>
+          {/* Header */}
+          <div className="flex items-center justify-between p-4 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-t-2xl">
+            <div className="flex items-center space-x-3">
+              <div className="w-8 h-8 bg-white bg-opacity-20 rounded-full flex items-center justify-center">
+                <MessageCircle size={18} />
               </div>
-            ))}
-
-            {/* Clean Typing Indicator */}
-            {sendLoading && !enableStreaming && (
-              <div className="flex justify-start pl-4">
-                <div className="flex space-x-1">
-                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"></div>
-                  <div
-                    className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"
-                    style={{ animationDelay: '0.1s' }}
-                  ></div>
-                  <div
-                    className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"
-                    style={{ animationDelay: '0.2s' }}
-                  ></div>
-                </div>
+              <div>
+                <h3 className="font-semibold text-sm">
+                  {chatInfo?.title || 'Chat Support'}
+                </h3>
+                <p className="text-xs text-blue-100">
+                  We typically reply instantly
+                </p>
               </div>
-            )}
-
-            <div ref={messagesEndRef} />
+            </div>
           </div>
 
-          {/* Input Area */}
-          <div className="border-t border-gray-200 p-4">
-            <div className="flex items-end space-x-3">
-              <div className="flex-1">
-                <textarea
-                  value={inputValue}
-                  onChange={(e) => {
-                    const newValue = e.target.value;
-                    setInputValue(newValue);
-                    handleInputChange(e);
-                  }}
-                  onKeyPress={handleKeyPress}
-                  placeholder="Type your message..."
-                  rows={1}
-                  className="w-full resize-none border border-gray-300 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  style={{ minHeight: '44px', maxHeight: '120px' }}
-                  disabled={hasError || sendLoading}
-                />
+          {/* Messages and Input */}
+          <div
+            className="flex flex-col h-[436px] bg-white"
+            style={{ borderRadius: '0 0 16px 16px' }}
+          >
+            <div
+              className="flex-1 overflow-y-auto p-4 space-y-4"
+              onWheel={(e) => {
+                const element = e.currentTarget;
+                const isAtTop = element.scrollTop === 0;
+                const isAtBottom =
+                  element.scrollTop + element.clientHeight >=
+                  element.scrollHeight - 1;
+
+                // Allow scroll to pass through to parent when at boundaries
+                if ((isAtTop && e.deltaY < 0) || (isAtBottom && e.deltaY > 0)) {
+                  e.preventDefault();
+                  // Let the parent handle the scroll
+                  window.parent.postMessage(
+                    {
+                      type: 'SCROLL_PASSTHROUGH',
+                      deltaY: e.deltaY,
+                    },
+                    '*',
+                  );
+                }
+              }}
+            >
+              {displayMessages?.map((message, index) => (
+                <div
+                  key={index}
+                  className={`flex ${message.role === MessageType.User ? 'justify-end' : 'justify-start'}`}
+                >
+                  <div
+                    className={`max-w-[280px] px-4 py-2 rounded-2xl ${
+                      message.role === MessageType.User
+                        ? 'bg-blue-600 text-white rounded-br-md'
+                        : 'bg-gray-100 text-gray-800 rounded-bl-md'
+                    }`}
+                  >
+                    {message.role === MessageType.User ? (
+                      <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                        {message.content}
+                      </p>
+                    ) : (
+                      <FloatingChatWidgetMarkdown
+                        loading={false}
+                        content={message.content}
+                        reference={
+                          message.reference || {
+                            doc_aggs: [],
+                            chunks: [],
+                            total: 0,
+                          }
+                        }
+                        clickDocumentButton={clickDocumentButton}
+                      />
+                    )}
+                  </div>
+                </div>
+              ))}
+
+              {/* Clean Typing Indicator */}
+              {sendLoading && !enableStreaming && (
+                <div className="flex justify-start pl-4">
+                  <div className="flex space-x-1">
+                    <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"></div>
+                    <div
+                      className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"
+                      style={{ animationDelay: '0.1s' }}
+                    ></div>
+                    <div
+                      className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"
+                      style={{ animationDelay: '0.2s' }}
+                    ></div>
+                  </div>
+                </div>
+              )}
+
+              <div ref={messagesEndRef} />
+            </div>
+
+            {/* Input Area */}
+            <div className="border-t border-gray-200 p-4">
+              <div className="flex items-end space-x-3">
+                <div className="flex-1">
+                  <textarea
+                    value={inputValue}
+                    onChange={(e) => {
+                      const newValue = e.target.value;
+                      setInputValue(newValue);
+                      handleInputChange(e);
+                    }}
+                    onKeyPress={handleKeyPress}
+                    placeholder="Type your message..."
+                    rows={1}
+                    className="w-full resize-none border border-gray-300 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    style={{ minHeight: '44px', maxHeight: '120px' }}
+                    disabled={hasError || sendLoading}
+                  />
+                </div>
+                <button
+                  onClick={handleSendMessage}
+                  disabled={!inputValue.trim() || sendLoading}
+                  className="p-3 bg-blue-600 text-white rounded-full hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  <Send size={18} />
+                </button>
               </div>
-              <button
-                onClick={handleSendMessage}
-                disabled={!inputValue.trim() || sendLoading}
-                className="p-3 bg-blue-600 text-white rounded-full hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                <Send size={18} />
-              </button>
             </div>
           </div>
         </div>
-      </div>
+        <PdfDrawer
+          visible={visible}
+          hideModal={hideModal}
+          documentId={documentId}
+          chunk={selectedChunk}
+          width={'100vw'}
+          height={'100vh'}
+        />
+      </>
     );
-  }
-
-  // Full mode - render everything together (original behavior)
+  } // Full mode - render everything together (original behavior)
   return (
     <div
       className={`transition-opacity duration-300 ${isLoaded ? 'opacity-100' : 'opacity-0'}`}
@@ -574,9 +608,24 @@ const FloatingChatWidget = () => {
                           : 'bg-gray-100 text-gray-800 rounded-bl-md'
                       }`}
                     >
-                      <p className="text-sm leading-relaxed whitespace-pre-wrap">
-                        {message.content}
-                      </p>
+                      {message.role === MessageType.User ? (
+                        <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                          {message.content}
+                        </p>
+                      ) : (
+                        <FloatingChatWidgetMarkdown
+                          loading={false}
+                          content={message.content}
+                          reference={
+                            message.reference || {
+                              doc_aggs: [],
+                              chunks: [],
+                              total: 0,
+                            }
+                          }
+                          clickDocumentButton={clickDocumentButton}
+                        />
+                      )}
                     </div>
                   </div>
                 ))}
@@ -659,6 +708,12 @@ const FloatingChatWidget = () => {
           </div>
         )}
       </div>
+      <PdfDrawer
+        visible={visible}
+        hideModal={hideModal}
+        documentId={documentId}
+        chunk={selectedChunk}
+      />
     </div>
   );
 };
