@@ -696,7 +696,7 @@ class Knowledgebase(DataBaseModel):
     mindmap_task_finish_at = DateTimeField(null=True)
 
     status = CharField(max_length=1, null=True, help_text="is it validate(0: wasted, 1: validate)", default="1", index=True)
-
+    type = IntegerField(null=True)
     def __str__(self):
         return self.name
 
@@ -743,7 +743,7 @@ class File(DataBaseModel):
     size = IntegerField(default=0, index=True)
     type = CharField(max_length=32, null=False, help_text="file extension", index=True)
     source_type = CharField(max_length=128, null=False, default="", help_text="where dose this document come from", index=True)
-
+    status = IntegerField(default=-1)
     class Meta:
         db_table = "file"
 
@@ -752,7 +752,6 @@ class File2Document(DataBaseModel):
     id = CharField(max_length=32, primary_key=True)
     file_id = CharField(max_length=32, null=True, help_text="file id", index=True)
     document_id = CharField(max_length=32, null=True, help_text="document id", index=True)
-    pdf_file_id = CharField(max_length=32, null=True, help_text="pdf file id", index=True)
 
     class Meta:
         db_table = "file2document"
@@ -1090,7 +1089,11 @@ def migrate_db():
     except Exception:
         pass
     try:
-        migrate(migrator.add_column("file2document", "pdf_file_id", CharField(max_length=32,null=False, help_text="pdf file id", index=True)))
+        migrate(migrator.add_column("file", "status", IntegerField(default=-1)))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("knowledgebase", "type", IntegerField(null=True)))
     except Exception:
         pass
     try:
