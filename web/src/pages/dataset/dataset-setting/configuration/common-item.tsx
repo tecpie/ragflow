@@ -7,7 +7,6 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Radio } from '@/components/ui/radio';
-import { RAGFlowSelect } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { useTranslate } from '@/hooks/common-hooks';
 import { cn } from '@/lib/utils';
@@ -46,7 +45,7 @@ export function ChunkMethodItem(props: IProps) {
             </FormLabel>
             <div className={line === 1 ? 'w-3/4 ' : 'w-full'}>
               <FormControl>
-                <RAGFlowSelect
+                <SelectWithSearch
                   {...field}
                   options={parserList}
                   placeholder={t('chunkMethodPlaceholder')}
@@ -100,6 +99,7 @@ export function EmbeddingModelItem({ line = 1, isEdit = true }: IProps) {
                     options={embeddingModelOptions}
                     disabled={isEdit ? disabled : false}
                     placeholder={t('embeddingModelPlaceholder')}
+                    triggerClassName="!bg-bg-base"
                   />
                 </FormControl>
               </div>
@@ -144,7 +144,12 @@ export function ParseTypeItem({ line = 2 }: { line?: number }) {
             >
               <FormControl>
                 <Radio.Group {...field}>
-                  <div className="w-1/2 flex gap-2 justify-between text-muted-foreground">
+                  <div
+                    className={cn(
+                      'flex gap-2 justify-between text-muted-foreground',
+                      line === 1 ? 'w-1/2' : 'w-3/4',
+                    )}
+                  >
                     <Radio value={1}>{t('builtIn')}</Radio>
                     <Radio value={2}>{t('manualSetup')}</Radio>
                   </div>

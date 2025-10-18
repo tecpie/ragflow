@@ -311,6 +311,7 @@ const FloatingChatWidget = () => {
         className={`fixed bottom-6 right-6 z-50 transition-opacity duration-300 ${isLoaded ? 'opacity-100' : 'opacity-0'}`}
       >
         <button
+          type="button"
           onClick={() => {
             const newIsOpen = !isOpen;
             setIsOpen(newIsOpen);
@@ -353,6 +354,7 @@ const FloatingChatWidget = () => {
         className={`fixed bottom-6 right-6 z-50 transition-opacity duration-300 ${isLoaded ? 'opacity-100' : 'opacity-0'}`}
       >
         <button
+          type="button"
           onClick={toggleChat}
           className={`w-14 h-14 bg-blue-600 hover:bg-blue-700 text-white rounded-full transition-all duration-300 flex items-center justify-center group ${
             isOpen ? 'scale-95' : 'scale-100 hover:scale-105'
@@ -495,12 +497,13 @@ const FloatingChatWidget = () => {
                     onKeyPress={handleKeyPress}
                     placeholder="Type your message..."
                     rows={1}
-                    className="w-full resize-none border border-gray-300 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full resize-none border border-gray-300 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black"
                     style={{ minHeight: '44px', maxHeight: '120px' }}
                     disabled={hasError || sendLoading}
                   />
                 </div>
                 <button
+                  type="button"
                   onClick={handleSendMessage}
                   disabled={!inputValue.trim() || sendLoading}
                   className="p-3 bg-blue-600 text-white rounded-full hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
@@ -550,12 +553,14 @@ const FloatingChatWidget = () => {
             </div>
             <div className="flex items-center space-x-1">
               <button
+                type="button"
                 onClick={minimizeChat}
                 className="p-1.5 hover:bg-white hover:bg-opacity-20 rounded-full transition-colors"
               >
                 <Minimize2 size={16} />
               </button>
               <button
+                type="button"
                 onClick={toggleChat}
                 className="p-1.5 hover:bg-white hover:bg-opacity-20 rounded-full transition-colors"
               >
@@ -667,7 +672,7 @@ const FloatingChatWidget = () => {
                       onKeyPress={handleKeyPress}
                       placeholder="Type your message..."
                       rows={1}
-                      className="w-full resize-none border border-gray-300 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-full resize-none border border-gray-300 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black"
                       style={{ minHeight: '44px', maxHeight: '120px' }}
                       disabled={hasError || sendLoading}
                     />
@@ -689,6 +694,7 @@ const FloatingChatWidget = () => {
       {/* Floating Button */}
       <div className="fixed bottom-6 right-6 z-50">
         <button
+          type="button"
           onClick={toggleChat}
           className={`w-14 h-14 bg-blue-600 hover:bg-blue-700 text-white rounded-full transition-all duration-300 flex items-center justify-center group ${
             isOpen ? 'scale-95' : 'scale-100 hover:scale-105'
