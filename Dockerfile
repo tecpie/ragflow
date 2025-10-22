@@ -204,7 +204,6 @@ COPY agentic_reasoning agentic_reasoning
 COPY pyproject.toml uv.lock ./
 COPY mcp mcp
 COPY plugin plugin
-COPY mineru mineru
 
 COPY docker/service_conf.yaml.template ./conf/service_conf.yaml.template
 COPY docker/entrypoint.sh ./
