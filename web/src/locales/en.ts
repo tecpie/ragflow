@@ -6,8 +6,9 @@ export default {
       selectAll: 'Select All',
       delete: 'Delete',
       deleteModalTitle: 'Are you sure to delete this item?',
-      ok: 'Yes',
-      cancel: 'No',
+      ok: 'Ok',
+      cancel: 'Cancel',
+      yes: 'Yes',
       no: 'No',
       total: 'Total',
       rename: 'Rename',
@@ -137,7 +138,7 @@ export default {
       completed: 'Completed',
       datasetLog: 'Dataset Log',
       created: 'Created',
-      learnMore: 'Learn More',
+      learnMore: 'Built-in pipeline introduction',
       general: 'General',
       chunkMethodTab: 'Chunk Method',
       testResults: 'Test Results',
@@ -697,7 +698,7 @@ This auto-tagging feature enhances retrieval by adding another layer of domain-s
       system: 'System',
       logout: 'Log out',
       api: 'API',
-      username: 'Username',
+      username: 'Name',
       usernameMessage: 'Please input your username!',
       photo: 'Your photo',
       photoDescription: 'This will be displayed on your profile.',
@@ -1533,8 +1534,8 @@ This delimiter is used to split the input text into several text pieces echo of 
         'Your users will see this welcome message at the beginning.',
       modeTip: 'The mode defines how the workflow is initiated.',
       mode: 'Mode',
-      conversational: 'conversational',
-      task: 'task',
+      conversational: 'Conversational',
+      task: 'Task',
       beginInputTip:
         'By defining input parameters, this content can be accessed by other components in subsequent processes.',
       query: 'Query variables',
@@ -1605,107 +1606,6 @@ This delimiter is used to split the input text into several text pieces echo of 
       ceateAgent: 'Agent flow',
       createPipeline: 'Ingestion pipeline',
       chooseAgentType: 'Choose Agent Type',
-    },
-    llmTools: {
-      bad_calculator: {
-        name: 'Calculator',
-        description:
-          'A tool to calculate the sum of two numbers (will give wrong answer)',
-        params: {
-          a: 'The first number',
-          b: 'The second number',
-        },
-      },
-    },
-    modal: {
-      okText: 'Confirm',
-      cancelText: 'Cancel',
-    },
-    mcp: {
-      export: 'Export',
-      import: 'Import',
-      url: 'URL',
-      serverType: 'Server Type',
-      addMCP: 'Add MCP',
-      editMCP: 'Edit MCP',
-      toolsAvailable: 'tools available',
-      mcpServers: 'MCP Servers',
-      customizeTheListOfMcpServers: 'Customize the list of MCP servers',
-    },
-    search: {
-      searchApps: 'Search Apps',
-      createSearch: 'Create Search',
-      searchGreeting: 'How can I help you today ？',
-      profile: 'Hide Profile',
-      locale: 'Locale',
-      embedCode: 'Embed code',
-      id: 'ID',
-      copySuccess: 'Copy Success',
-      welcomeBack: 'Welcome back',
-      searchSettings: 'Search Settings',
-      name: 'Name',
-      avatar: 'Avatar',
-      description: 'Description',
-      datasets: 'Datasets',
-      rerankModel: 'Rerank Model',
-      AISummary: 'AI Summary',
-      enableWebSearch: 'Enable Web Search',
-      enableRelatedSearch: 'Enable Related Search',
-      showQueryMindmap: 'Show Query Mindmap',
-      embedApp: 'Embed App',
-      relatedSearch: 'Related Search',
-      descriptionValue: 'You are an intelligent assistant.',
-      okText: 'Save',
-      cancelText: 'Cancel',
-      chooseDataset: 'Please select a dataset first',
-    },
-    language: {
-      english: 'English',
-      chinese: 'Chinese',
-      spanish: 'Spanish',
-      french: 'French',
-      german: 'German',
-      japanese: 'Japanese',
-      korean: 'Korean',
-      vietnamese: 'Vietnamese',
-    },
-    pagination: {
-      total: 'Total {{total}}',
-      page: '{{page}} /Page',
-    },
-    dataflowParser: {
-      result: 'Result',
-      parseSummary: 'Parse Summary',
-      parseSummaryTip: 'Parser：deepdoc',
-      rerunFromCurrentStep: 'Rerun From Current Step',
-      rerunFromCurrentStepTip: 'Changes detected. Click to re-run.',
-      confirmRerun: 'Confirm Rerun Process',
-      confirmRerunModalContent: `
-      <p class="text-sm text-text-disabled font-medium mb-2">
-        You are about to rerun the process starting from the <strong class="text-text-primary">{{step}}</strong> step.
-      </p>
-      <p class="text-sm mb-3 text-text-secondary">This will:</p>
-      <ul class="list-disc list-inside space-y-1 text-sm text-text-secondary">
-        <li>Overwrite existing results from the current step onwards</li>
-        <li>Create a new log entry for tracking</li>
-        <li>Previous steps will remain unchanged</li>
-      </ul>`,
-      changeStepModalTitle: 'Step Switch Warning',
-      changeStepModalContent: `
-      <p>You are currently editing the results of this stage.</p> 
-      <p>If you switch to a later stage, your changes will be lost. </p> 
-      <p>To keep them, please click Rerun to re-run the current stage.</p> `,
-      changeStepModalConfirmText: 'Switch Anyway',
-      changeStepModalCancelText: 'Cancel',
-      unlinkPipelineModalTitle: 'Unlink Ingestion pipeline',
-      unlinkPipelineModalContent: `
-      <p>Once unlinked, this Dataset will no longer be connected to the current Ingestion pipeline.</p> 
-      <p>Files that are already being parsed  will continue until completion</p> 
-      <p>Files that are not yet parsed will no longer be processed</p> <br/>
-      <p>Are you sure you want to proceed?</p> `,
-      unlinkPipelineModalConfirmText: 'Unlink',
-    },
-    dataflow: {
       parser: 'Parser',
       parserDescription:
         'Extracts raw text and structure from files for downstream processing.',
@@ -1723,7 +1623,6 @@ This delimiter is used to split the input text into several text pieces echo of 
       extractorDescription:
         'Use an LLM to extract structured insights from document chunks—such as summaries, classifications, etc.',
       outputFormat: 'Output format',
-      lang: 'Language',
       fileFormats: 'File format',
       fileFormatOptions: {
         pdf: 'PDF',
@@ -1743,9 +1642,9 @@ This delimiter is used to split the input text into several text pieces echo of 
       searchMethod: 'Search method',
       searchMethodTip: `Defines how the content can be searched — by full-text, embedding, or both.
 The Indexer will store the content in the corresponding data structures for the selected methods.`,
-      begin: 'File',
+      // file: 'File',
       parserMethod: 'Parsing method',
-      systemPrompt: 'System Prompt',
+      // systemPrompt: 'System Prompt',
       systemPromptPlaceholder:
         'Enter system prompt for image analysis, if empty the system default value will be used',
       exportJson: 'Export JSON',
@@ -1820,9 +1719,108 @@ Important structured information may include: names, dates, locations, events, k
       imageParseMethodOptions: {
         ocr: 'OCR',
       },
-      note: 'Note',
-      noteDescription: 'Note',
-      notePlaceholder: 'Please enter a note',
+    },
+    llmTools: {
+      bad_calculator: {
+        name: 'Calculator',
+        description:
+          'A tool to calculate the sum of two numbers (will give wrong answer)',
+        params: {
+          a: 'The first number',
+          b: 'The second number',
+        },
+      },
+    },
+    modal: {
+      okText: 'Confirm',
+      cancelText: 'Cancel',
+    },
+    mcp: {
+      export: 'Export',
+      import: 'Import',
+      url: 'URL',
+      serverType: 'Server Type',
+      addMCP: 'Add MCP',
+      editMCP: 'Edit MCP',
+      toolsAvailable: 'tools available',
+      mcpServers: 'MCP Servers',
+      customizeTheListOfMcpServers: 'Customize the list of MCP servers',
+      cachedTools: 'cached tools',
+    },
+    search: {
+      searchApps: 'Search Apps',
+      createSearch: 'Create Search',
+      searchGreeting: 'How can I help you today ？',
+      profile: 'Hide Profile',
+      locale: 'Locale',
+      embedCode: 'Embed code',
+      id: 'ID',
+      copySuccess: 'Copy Success',
+      welcomeBack: 'Welcome back',
+      searchSettings: 'Search Settings',
+      name: 'Name',
+      avatar: 'Avatar',
+      description: 'Description',
+      datasets: 'Datasets',
+      rerankModel: 'Rerank Model',
+      AISummary: 'AI Summary',
+      enableWebSearch: 'Enable Web Search',
+      enableRelatedSearch: 'Enable Related Search',
+      showQueryMindmap: 'Show Query Mindmap',
+      embedApp: 'Embed App',
+      relatedSearch: 'Related Search',
+      descriptionValue: 'You are an intelligent assistant.',
+      okText: 'Save',
+      cancelText: 'Cancel',
+      chooseDataset: 'Please select a dataset first',
+    },
+    language: {
+      english: 'English',
+      chinese: 'Chinese',
+      spanish: 'Spanish',
+      french: 'French',
+      german: 'German',
+      japanese: 'Japanese',
+      korean: 'Korean',
+      vietnamese: 'Vietnamese',
+    },
+    pagination: {
+      total: 'Total {{total}}',
+      page: '{{page}} /Page',
+    },
+    dataflowParser: {
+      result: 'Result',
+      parseSummary: 'Parse Summary',
+      parseSummaryTip: 'Parser：deepdoc',
+      parserMethod: 'Parser Method',
+      outputFormat: 'Output Format',
+      rerunFromCurrentStep: 'Rerun From Current Step',
+      rerunFromCurrentStepTip: 'Changes detected. Click to re-run.',
+      confirmRerun: 'Confirm Rerun Process',
+      confirmRerunModalContent: `
+      <p class="text-sm text-text-disabled font-medium mb-2">
+        You are about to rerun the process starting from the <strong class="text-text-primary">{{step}}</strong> step.
+      </p>
+      <p class="text-sm mb-3 text-text-secondary">This will:</p>
+      <ul class="list-disc list-inside space-y-1 text-sm text-text-secondary">
+        <li>Overwrite existing results from the current step onwards</li>
+        <li>Create a new log entry for tracking</li>
+        <li>Previous steps will remain unchanged</li>
+      </ul>`,
+      changeStepModalTitle: 'Step Switch Warning',
+      changeStepModalContent: `
+      <p>You are currently editing the results of this stage.</p> 
+      <p>If you switch to a later stage, your changes will be lost. </p> 
+      <p>To keep them, please click Rerun to re-run the current stage.</p> `,
+      changeStepModalConfirmText: 'Switch Anyway',
+      changeStepModalCancelText: 'Cancel',
+      unlinkPipelineModalTitle: 'Unlink Ingestion pipeline',
+      unlinkPipelineModalContent: `
+      <p>Once unlinked, this Dataset will no longer be connected to the current Ingestion pipeline.</p> 
+      <p>Files that are already being parsed  will continue until completion</p> 
+      <p>Files that are not yet parsed will no longer be processed</p> <br/>
+      <p>Are you sure you want to proceed?</p> `,
+      unlinkPipelineModalConfirmText: 'Unlink',
     },
     datasetOverview: {
       downloadTip: 'Files being downloaded from data sources. ',

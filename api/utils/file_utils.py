@@ -212,40 +212,31 @@ def thumbnail_img(filename, blob):
 
     elif re.match(r".*\.(ppt|pptx)$", filename):
         try:
-            with tempfile.NamedTemporaryFile(suffix='.ppt',
-                                             delete=False) as tmp_ppt:
+            os.environ[
+                "LD_LIBRARY_PATH"] = "/usr/lib/libreoffice/program:" + os.environ.get(
+                "LD_LIBRARY_PATH", "")
+            with tempfile.NamedTemporaryFile(suffix='.ppt') as tmp_ppt:
                 tmp_ppt.write(blob)
                 tmp_ppt_path = tmp_ppt.name
 
-            with tempfile.NamedTemporaryFile(suffix='.pdf',
-                                             delete=False) as tmp_pdf:
-                tmp_pdf_path = tmp_pdf.name
-            cmd = [
-                "libreoffice",
-                "--headless",
-                "--convert-to", "pdf",
-                "--outdir", os.path.dirname(tmp_pdf_path),
-                tmp_ppt_path
-            ]
-            subprocess.run(cmd, check=True, capture_output=True)
-            with pdfplumber.open(tmp_pdf_path) as pdf:
-                if pdf.pages:
-                    buffered = BytesIO()
-                    scale = 0.03
-                    img = None
-                    for _ in range(10):
-                        pdf.pages[0].to_image(resolution=int(72 * scale)).save(
-                            buffered, format="PNG")
-                        img = buffered.getvalue()
-                        if len(img) >= 64000 and scale >= 0.01:
-                            scale = scale / 2.0
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    cmd = [
+                        "libreoffice",
+                        "--headless",
+                        "--convert-to", "pdf",
+                        "--outdir", os.path.dirname(tmp_dir),
+                        tmp_ppt_path
+                    ]
+                    subprocess.run(cmd, check=True, capture_output=True,
+                                   text=True)
+                    pdf_name = os.path.splitext(tmp_ppt_path)[0] + '.pdf'
+                    pdf_path = os.path.join(tmp_dir, pdf_name)
+                    with pdfplumber.open(pdf_path) as pdf:
+                        if pdf.pages:
                             buffered = BytesIO()
-                        else:
-                            break
-                    return img
-            os.unlink(tmp_ppt_path)
-            os.unlink(tmp_pdf_path)
-
+                            pdf.pages[0].to_image(resolution=int(72)).save(buffered)
+                            img = buffered.getvalue()
+                            return img
         except Exception:
             pass
     return None

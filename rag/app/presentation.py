@@ -25,17 +25,16 @@ from rag.nlp import tokenize, is_english
 from rag.nlp import rag_tokenizer
 from deepdoc.parser import PdfParser, PptParser, PlainParser
 from PyPDF2 import PdfReader as pdf2_read
-
+import tempfile
+import subprocess
+import os
+import pdfplumber
 
 class Ppt(PptParser):
     def __call__(self, fnm, from_page, to_page, callback=None):
         txts = super().__call__(fnm, from_page, to_page)
 
         callback(0.5, "Text extraction finished.")
-        from pdf2image import convert_from_path
-        import tempfile
-        import subprocess
-        import os
         with tempfile.NamedTemporaryFile(suffix='.pptx') as tmp_input:
             tmp_input.write(
                 fnm if isinstance(fnm, bytes) else open(fnm, 'rb').read())
@@ -49,17 +48,10 @@ class Ppt(PptParser):
                     input_path
                 ]
                 subprocess.run(cmd, check=True, capture_output=True)
-                pdf_files = [f for f in os.listdir(tmp_dir) if
-                             f.endswith('.pdf')]
-                if pdf_files:
-                    output_path = os.path.join(tmp_dir, pdf_files[0])
-                    pdf_images = convert_from_path(
-                        output_path,
-                        first_page=from_page + 1,
-                        last_page=to_page if to_page < 1000000 else len(txts),
-                        dpi=100
-                    )
-                    imgs = pdf_images
+                pdf_name = os.path.splitext(os.path.basename(input_path))[0] + '.pdf'
+                pdf_path = os.path.join(tmp_dir, pdf_name)
+                with pdfplumber.open(pdf_path) as pdf:
+                    imgs = [p.to_image(resolution=72).annotated for i, p in enumerate(pdf.pages[from_page:to_page])]
         assert len(imgs) == len(
             txts), "Slides text and image do not match: {} vs. {}".format(len(imgs), len(txts))
         callback(0.9, "Image extraction finished")

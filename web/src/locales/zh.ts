@@ -6,8 +6,10 @@ export default {
       selectAll: '全选',
       delete: '删除',
       deleteModalTitle: '确定删除吗?',
-      ok: '是',
-      cancel: '否',
+      ok: '确认',
+      cancel: '取消',
+      yes: '是',
+      no: '否',
       total: '总共',
       rename: '重命名',
       name: '名称',
@@ -125,7 +127,7 @@ export default {
       completed: '已完成',
       datasetLog: '知识库日志',
       created: '创建于',
-      learnMore: '了解更多',
+      learnMore: '内置pipeline简介',
       general: '通用',
       chunkMethodTab: '切片方法',
       testResults: '测试结果',
@@ -1511,114 +1513,6 @@ General：实体和关系提取提示来自 GitHub - microsoft/graphrag：基于
       createFromTemplate: '从模板创建',
       importJsonFile: '导入 JSON 文件',
       chooseAgentType: '选择智能体类型',
-    },
-    footer: {
-      profile: 'All rights reserved @ React',
-    },
-    layout: {
-      file: 'file',
-      knowledge: 'knowledge',
-      chat: 'chat',
-    },
-    llmTools: {
-      bad_calculator: {
-        name: '计算器',
-        description: '用于计算两个数的和的工具（会给出错误答案）',
-        params: {
-          a: '第一个数',
-          b: '第二个数',
-        },
-      },
-    },
-    modal: {
-      okText: '确认',
-      cancelText: '取消',
-    },
-    mcp: {
-      export: '导出',
-      import: '导入',
-      url: 'URL',
-      serverType: '服务器类型',
-      addMCP: '添加 MCP',
-      editMCP: '编辑 MCP',
-      toolsAvailable: '可用的工具',
-      mcpServers: 'MCP 服务器',
-      customizeTheListOfMcpServers: '自定义 MCP 服务器列表',
-    },
-    search: {
-      searchApps: '搜索',
-      createSearch: '创建查询',
-      searchGreeting: '今天我能为你做些什么？',
-      profile: '隐藏个人资料',
-      locale: '语言',
-      embedCode: '嵌入代码',
-      id: 'ID',
-      copySuccess: '复制成功',
-      welcomeBack: '欢迎回来',
-      searchSettings: '搜索设置',
-      name: '姓名',
-      avatar: '头像',
-      description: '描述',
-      datasets: '知识库',
-      rerankModel: 'rerank 模型',
-      AISummary: 'AI 总结',
-      enableWebSearch: '启用网页搜索',
-      enableRelatedSearch: '启用相关搜索',
-      showQueryMindmap: '显示查询思维导图',
-      embedApp: '嵌入网站',
-      relatedSearch: '相关搜索',
-      descriptionValue: '你是一位智能助手。',
-      okText: '保存',
-      cancelText: '返回',
-      chooseDataset: '请先选择知识库',
-    },
-    language: {
-      english: '英语',
-      chinese: '中文',
-      spanish: '西班牙语',
-      french: '法语',
-      german: '德语',
-      japanese: '日语',
-      korean: '韩语',
-      vietnamese: '越南语',
-    },
-    pagination: {
-      total: '总共 {{total}} 条',
-      page: '{{page}}条/页',
-    },
-    dataflowParser: {
-      result: '结果',
-      parseSummary: '解析摘要',
-      parseSummaryTip: '解析器: deepdoc',
-      rerunFromCurrentStep: '从当前步骤重新运行',
-      rerunFromCurrentStepTip: '已修改，点击重新运行。',
-      confirmRerun: '确认重新运行流程',
-      confirmRerunModalContent: `
-      <p class="text-sm text-text-disabled font-medium mb-2">
-        您即将从 <strong class="text-text-primary">{{step}}</strong> 步骤开始重新运行该过程
-      </p>
-      <p class="text-sm mb-3 text-text-secondary">这将:</p>
-      <ul class="list-disc list-inside space-y-1 text-sm text-text-secondary">
-        <li>从当前步骤开始覆盖现有结果</li>
-        <li>创建新的日志条目进行跟踪</li>
-        <li>之前的步骤将保持不变</li>
-      </ul>`,
-      changeStepModalTitle: '切换步骤警告',
-      changeStepModalContent: `
-      <p>您目前正在编辑此阶段的结果。</p>
-      <p>如果您切换到后续阶段，您的更改将会丢失。</p>
-      <p>要保留这些更改，请点击“重新运行”以重新运行当前阶段。</p> `,
-      changeStepModalConfirmText: '继续切换',
-      changeStepModalCancelText: '取消',
-      unlinkPipelineModalTitle: '解绑pipeline',
-      unlinkPipelineModalContent: `
-      <p>一旦取消链接，该数据集将不再连接到当前数据管道。</p> 
-      <p>正在解析的文件将继续解析，直到完成。</p> 
-      <p>尚未解析的文件将不再被处理。</p> <br/>
-      <p>你确定要继续吗?</p> `,
-      unlinkPipelineModalConfirmText: '解绑',
-    },
-    dataflow: {
       parser: '解析器',
       parserDescription: '从文件中提取原始文本和结构以供下游处理。',
       tokenizer: '分词器',
@@ -1635,7 +1529,6 @@ General：实体和关系提取提示来自 GitHub - microsoft/graphrag：基于
       extractorDescription:
         '使用 LLM 从文档块（例如摘要、分类等）中提取结构化见解。',
       outputFormat: '输出格式',
-      lang: '语言',
       fileFormats: '文件格式',
       fields: '字段',
       addParser: '增加解析器',
@@ -1646,9 +1539,7 @@ General：实体和关系提取提示来自 GitHub - microsoft/graphrag：基于
       searchMethodTip: `决定该数据集启用的搜索方式，可选择全文、向量，或两者兼有。
 Tokenizer 会根据所选方式将内容存储为对应的数据结构。`,
       filenameEmbdWeight: '文件名嵌入权重',
-      begin: '文件',
       parserMethod: '解析方法',
-      systemPrompt: '系统提示词',
       systemPromptPlaceholder:
         '请输入用于图像分析的系统提示词，若为空则使用系统缺省值',
       exportJson: '导出 JSON',
@@ -1709,9 +1600,115 @@ Tokenizer 会根据所选方式将内容存储为对应的数据结构。`,
       cancel: '取消',
       filenameEmbeddingWeight: '文件名嵌入权重',
       switchPromptMessage: '提示词将发生变化，请确认是否放弃已有提示词？',
-      note: '注释',
-      noteDescription: '注释',
-      notePlaceholder: '请输入注释',
+    },
+    footer: {
+      profile: 'All rights reserved @ React',
+    },
+    layout: {
+      file: 'file',
+      knowledge: 'knowledge',
+      chat: 'chat',
+    },
+    llmTools: {
+      bad_calculator: {
+        name: '计算器',
+        description: '用于计算两个数的和的工具（会给出错误答案）',
+        params: {
+          a: '第一个数',
+          b: '第二个数',
+        },
+      },
+    },
+    modal: {
+      okText: '确认',
+      cancelText: '取消',
+    },
+    mcp: {
+      export: '导出',
+      import: '导入',
+      url: 'URL',
+      serverType: '服务器类型',
+      addMCP: '添加 MCP',
+      editMCP: '编辑 MCP',
+      toolsAvailable: '可用的工具',
+      mcpServers: 'MCP 服务器',
+      customizeTheListOfMcpServers: '自定义 MCP 服务器列表',
+      cachedTools: '缓存工具',
+    },
+    search: {
+      searchApps: '搜索',
+      createSearch: '创建查询',
+      searchGreeting: '今天我能为你做些什么？',
+      profile: '隐藏个人资料',
+      locale: '语言',
+      embedCode: '嵌入代码',
+      id: 'ID',
+      copySuccess: '复制成功',
+      welcomeBack: '欢迎回来',
+      searchSettings: '搜索设置',
+      name: '姓名',
+      avatar: '头像',
+      description: '描述',
+      datasets: '知识库',
+      rerankModel: 'rerank 模型',
+      AISummary: 'AI 总结',
+      enableWebSearch: '启用网页搜索',
+      enableRelatedSearch: '启用相关搜索',
+      showQueryMindmap: '显示查询思维导图',
+      embedApp: '嵌入网站',
+      relatedSearch: '相关搜索',
+      descriptionValue: '你是一位智能助手。',
+      okText: '保存',
+      cancelText: '返回',
+      chooseDataset: '请先选择知识库',
+    },
+    language: {
+      english: '英语',
+      chinese: '中文',
+      spanish: '西班牙语',
+      french: '法语',
+      german: '德语',
+      japanese: '日语',
+      korean: '韩语',
+      vietnamese: '越南语',
+    },
+    pagination: {
+      total: '总共 {{total}} 条',
+      page: '{{page}}条/页',
+    },
+    dataflowParser: {
+      result: '结果',
+      parseSummary: '解析摘要',
+      parseSummaryTip: '解析器: deepdoc',
+      parserMethod: '解析方法',
+      outputFormat: '输出格式',
+      rerunFromCurrentStep: '从当前步骤重新运行',
+      rerunFromCurrentStepTip: '已修改，点击重新运行。',
+      confirmRerun: '确认重新运行流程',
+      confirmRerunModalContent: `
+      <p class="text-sm text-text-disabled font-medium mb-2">
+        您即将从 <strong class="text-text-primary">{{step}}</strong> 步骤开始重新运行该过程
+      </p>
+      <p class="text-sm mb-3 text-text-secondary">这将:</p>
+      <ul class="list-disc list-inside space-y-1 text-sm text-text-secondary">
+        <li>从当前步骤开始覆盖现有结果</li>
+        <li>创建新的日志条目进行跟踪</li>
+        <li>之前的步骤将保持不变</li>
+      </ul>`,
+      changeStepModalTitle: '切换步骤警告',
+      changeStepModalContent: `
+      <p>您目前正在编辑此阶段的结果。</p>
+      <p>如果您切换到后续阶段，您的更改将会丢失。</p>
+      <p>要保留这些更改，请点击“重新运行”以重新运行当前阶段。</p> `,
+      changeStepModalConfirmText: '继续切换',
+      changeStepModalCancelText: '取消',
+      unlinkPipelineModalTitle: '解绑pipeline',
+      unlinkPipelineModalContent: `
+      <p>一旦取消链接，该数据集将不再连接到当前数据管道。</p> 
+      <p>正在解析的文件将继续解析，直到完成。</p> 
+      <p>尚未解析的文件将不再被处理。</p> <br/>
+      <p>你确定要继续吗?</p> `,
+      unlinkPipelineModalConfirmText: '解绑',
     },
     datasetOverview: {
       downloadTip: '正在从数据源下载文件。',

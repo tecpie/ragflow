@@ -17,7 +17,9 @@
 import logging
 from io import BytesIO
 from pptx import Presentation
-
+import tempfile
+import subprocess
+import os
 
 class RAGFlowPptParser:
     def __init__(self):
@@ -75,38 +77,27 @@ class RAGFlowPptParser:
             return ""
 
     def __call__(self, fnm, from_page, to_page, callback=None):
-        import tempfile
-        import subprocess
-        import os
         os.environ[
             "LD_LIBRARY_PATH"] = "/usr/lib/libreoffice/program:" + os.environ.get(
             "LD_LIBRARY_PATH", "")
-        if isinstance(fnm, str) and fnm.lower().endswith('.ppt'):
-            with tempfile.NamedTemporaryFile(suffix='.pptx') as tmp_file:
-                cmd = [
-                    "libreoffice",
-                    "--headless",
-                    "--convert-to", "pptx",
-                    "--outdir", os.path.dirname(tmp_file.name),
-                    fnm
-                ]
-                subprocess.run(cmd, check=True, capture_output=True)
-                converted_file = tmp_file.name
-                ppt = Presentation(converted_file)
-        elif isinstance(fnm, bytes) and fnm[:8] == b'\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1':
+        if (isinstance(fnm, str) and fnm.lower().endswith('.ppt')) or (isinstance(fnm, bytes) and fnm[:8] == b'\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1'):
             with tempfile.NamedTemporaryFile(suffix='.ppt') as tmp_ppt:
-                tmp_ppt.write(fnm)
-                tmp_ppt.flush()
+                if isinstance(fnm, bytes):
+                    tmp_ppt.write(fnm)
+                    tmp_ppt.flush()
+                    ppt_path = tmp_ppt.name
+                else:
+                    ppt_path = fnm
                 with tempfile.TemporaryDirectory() as tmp_dir:
                     cmd = [
                         "libreoffice",
                         "--headless",
                         "--convert-to", "pptx",
-                        "--outdir", os.path.dirname(tmp_dir),
-                        tmp_ppt.name
+                        "--outdir", tmp_dir,
+                        ppt_path
                     ]
-                    subprocess.run(cmd, check=True, capture_output=True,text=True)
-                    pptx_name = os.path.splitext(tmp_ppt.name)[0] + '.pptx'
+                    subprocess.run(cmd, check=True, capture_output=True)
+                    pptx_name = os.path.splitext(os.path.basename(tmp_ppt.name))[0] + '.pptx'
                     pptx_path = os.path.join(tmp_dir, pptx_name)
                     ppt = Presentation(pptx_path)
         else:
