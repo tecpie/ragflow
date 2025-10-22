@@ -75,9 +75,44 @@ class RAGFlowPptParser:
             return ""
 
     def __call__(self, fnm, from_page, to_page, callback=None):
-        ppt = Presentation(fnm) if isinstance(
-            fnm, str) else Presentation(
-            BytesIO(fnm))
+        import tempfile
+        import subprocess
+        import os
+        os.environ[
+            "LD_LIBRARY_PATH"] = "/usr/lib/libreoffice/program:" + os.environ.get(
+            "LD_LIBRARY_PATH", "")
+        if isinstance(fnm, str) and fnm.lower().endswith('.ppt'):
+            with tempfile.NamedTemporaryFile(suffix='.pptx') as tmp_file:
+                cmd = [
+                    "libreoffice",
+                    "--headless",
+                    "--convert-to", "pptx",
+                    "--outdir", os.path.dirname(tmp_file.name),
+                    fnm
+                ]
+                subprocess.run(cmd, check=True, capture_output=True)
+                converted_file = tmp_file.name
+                ppt = Presentation(converted_file)
+        elif isinstance(fnm, bytes) and fnm[:8] == b'\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1':
+            with tempfile.NamedTemporaryFile(suffix='.ppt') as tmp_ppt:
+                tmp_ppt.write(fnm)
+                tmp_ppt.flush()
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    cmd = [
+                        "libreoffice",
+                        "--headless",
+                        "--convert-to", "pptx",
+                        "--outdir", os.path.dirname(tmp_dir),
+                        tmp_ppt.name
+                    ]
+                    subprocess.run(cmd, check=True, capture_output=True,text=True)
+                    pptx_name = os.path.splitext(tmp_ppt.name)[0] + '.pptx'
+                    pptx_path = os.path.join(tmp_dir, pptx_name)
+                    ppt = Presentation(pptx_path)
+        else:
+            ppt = Presentation(fnm) if isinstance(fnm, str) else Presentation(
+                BytesIO(fnm))
+
         txts = []
         self.total_page = len(ppt.slides)
         for i, slide in enumerate(ppt.slides):

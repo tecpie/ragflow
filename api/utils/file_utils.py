@@ -211,24 +211,41 @@ def thumbnail_img(filename, blob):
         return buffered.getvalue()
 
     elif re.match(r".*\.(ppt|pptx)$", filename):
-        import aspose.pydrawing as drawing
-        import aspose.slides as slides
-
         try:
-            with slides.Presentation(BytesIO(blob)) as presentation:
-                buffered = BytesIO()
-                scale = 0.03
-                img = None
-                for _ in range(10):
-                    # https://reference.aspose.com/slides/python-net/aspose.slides/slide/get_thumbnail/#float-float
-                    presentation.slides[0].get_thumbnail(scale, scale).save(buffered, drawing.imaging.ImageFormat.png)
-                    img = buffered.getvalue()
-                    if len(img) >= 64000:
-                        scale = scale / 2.0
-                        buffered = BytesIO()
-                    else:
-                        break
-                return img
+            with tempfile.NamedTemporaryFile(suffix='.ppt',
+                                             delete=False) as tmp_ppt:
+                tmp_ppt.write(blob)
+                tmp_ppt_path = tmp_ppt.name
+
+            with tempfile.NamedTemporaryFile(suffix='.pdf',
+                                             delete=False) as tmp_pdf:
+                tmp_pdf_path = tmp_pdf.name
+            cmd = [
+                "libreoffice",
+                "--headless",
+                "--convert-to", "pdf",
+                "--outdir", os.path.dirname(tmp_pdf_path),
+                tmp_ppt_path
+            ]
+            subprocess.run(cmd, check=True, capture_output=True)
+            with pdfplumber.open(tmp_pdf_path) as pdf:
+                if pdf.pages:
+                    buffered = BytesIO()
+                    scale = 0.03
+                    img = None
+                    for _ in range(10):
+                        pdf.pages[0].to_image(resolution=int(72 * scale)).save(
+                            buffered, format="PNG")
+                        img = buffered.getvalue()
+                        if len(img) >= 64000 and scale >= 0.01:
+                            scale = scale / 2.0
+                            buffered = BytesIO()
+                        else:
+                            break
+                    return img
+            os.unlink(tmp_ppt_path)
+            os.unlink(tmp_pdf_path)
+
         except Exception:
             pass
     return None

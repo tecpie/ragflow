@@ -18,8 +18,6 @@ import copy
 import re
 from io import BytesIO
 
-from PIL import Image
-
 from api.db import LLMType
 from api.db.services.llm_service import LLMBundle
 from deepdoc.parser.pdf_parser import VisionParser
@@ -34,20 +32,34 @@ class Ppt(PptParser):
         txts = super().__call__(fnm, from_page, to_page)
 
         callback(0.5, "Text extraction finished.")
-        import aspose.slides as slides
-        import aspose.pydrawing as drawing
-        imgs = []
-        with slides.Presentation(BytesIO(fnm)) as presentation:
-            for i, slide in enumerate(presentation.slides[from_page: to_page]):
-                try:
-                    with BytesIO() as buffered:
-                        slide.get_thumbnail(
-                            0.1, 0.1).save(
-                            buffered, drawing.imaging.ImageFormat.jpeg)
-                        buffered.seek(0)
-                        imgs.append(Image.open(buffered).copy())
-                except RuntimeError as e:
-                    raise RuntimeError(f'ppt parse error at page {i+1}, original error: {str(e)}') from e
+        from pdf2image import convert_from_path
+        import tempfile
+        import subprocess
+        import os
+        with tempfile.NamedTemporaryFile(suffix='.pptx') as tmp_input:
+            tmp_input.write(
+                fnm if isinstance(fnm, bytes) else open(fnm, 'rb').read())
+            input_path = tmp_input.name
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                cmd = [
+                    "libreoffice",
+                    "--headless",
+                    "--convert-to", "pdf",
+                    "--outdir", tmp_dir,
+                    input_path
+                ]
+                subprocess.run(cmd, check=True, capture_output=True)
+                pdf_files = [f for f in os.listdir(tmp_dir) if
+                             f.endswith('.pdf')]
+                if pdf_files:
+                    output_path = os.path.join(tmp_dir, pdf_files[0])
+                    pdf_images = convert_from_path(
+                        output_path,
+                        first_page=from_page + 1,
+                        last_page=to_page if to_page < 1000000 else len(txts),
+                        dpi=100
+                    )
+                    imgs = pdf_images
         assert len(imgs) == len(
             txts), "Slides text and image do not match: {} vs. {}".format(len(imgs), len(txts))
         callback(0.9, "Image extraction finished")
