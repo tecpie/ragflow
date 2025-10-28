@@ -222,6 +222,7 @@ def completion(tenant_id, agent_id, session_id=None, **kwargs):
     for ans in canvas.run(query=query, files=files, user_id=user_id, inputs=inputs):
         ans["session_id"] = session_id
         if ans["event"] == "message":
+            message_id = ans["message_id"]
             txt += ans["data"]["content"]
         yield "data:" + json.dumps(ans, ensure_ascii=False) + "\n\n"
 
