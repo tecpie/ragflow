@@ -370,7 +370,7 @@ class AdminCLI(Cmd):
                         self.session.headers.update({
                             'Content-Type': 'application/json',
                             'Authorization': response.headers['Authorization'],
-                            'User-Agent': 'RAGFlow-CLI/0.21.0'
+                            'User-Agent': 'RAGFlow-CLI/0.21.1'
                         })
                         print("Authentication successful.")
                         return True
@@ -473,7 +473,7 @@ class AdminCLI(Cmd):
     def parse_connection_args(self, args: List[str]) -> Dict[str, Any]:
         parser = argparse.ArgumentParser(description='Admin CLI Client', add_help=False)
         parser.add_argument('-h', '--host', default='localhost', help='Admin service host')
-        parser.add_argument('-p', '--port', type=int, default=8080, help='Admin service port')
+        parser.add_argument('-p', '--port', type=int, default=9381, help='Admin service port')
         parser.add_argument('-w', '--password', default='admin', type=str, help='Superuser password')
         parser.add_argument('command', nargs='?', help='Single command')
         try:

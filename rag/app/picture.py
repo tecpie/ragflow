@@ -24,12 +24,12 @@ from api.db import LLMType
 from api.db.services.llm_service import LLMBundle
 from deepdoc.vision import OCR
 from rag.nlp import rag_tokenizer, tokenize
-from rag.utils import clean_markdown_block
+from common.string_utils import clean_markdown_block
 
 ocr = OCR()
 
 # Gemini supported MIME types
-VIDEO_EXTS = [".mp4", ".mov", ".avi", ".flv", ".mpeg", ".mpg", ".webm", ".wmv", ".3gp", ".3gpp"]
+VIDEO_EXTS = [".mp4", ".mov", ".avi", ".flv", ".mpeg", ".mpg", ".webm", ".wmv", ".3gp", ".3gpp", ".mkv"]
 
 
 def chunk(filename, binary, tenant_id, lang, callback=None, **kwargs):
