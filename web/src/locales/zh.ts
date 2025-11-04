@@ -660,7 +660,7 @@ General：实体和关系提取提示来自 GitHub - microsoft/graphrag：基于
       addCondition: '增加条件',
       meta: {
         disabled: '禁用',
-        automatic: '自动',
+        auto: '自动',
         manual: '手动',
       },
       cancel: '取消',
@@ -671,6 +671,7 @@ General：实体和关系提取提示来自 GitHub - microsoft/graphrag：基于
       tocEnhanceTip: `解析文档时生成了目录信息（见General方法的‘启用目录抽取’），让大模型返回和用户问题相关的目录项，从而利用目录项拿到相关chunk，对这些chunk在排序中进行加权。这种方法来源于模仿人类查询书本中知识的行为逻辑`,
     },
     setting: {
+      save: '保存',
       search: '搜索',
       availableModels: '可选模型',
       profile: '概要',
@@ -1451,6 +1452,8 @@ General：实体和关系提取提示来自 GitHub - microsoft/graphrag：基于
       knowledgeBaseVars: '知识库变量',
       code: '代码',
       codeDescription: '它允许开发人员编写自定义 Python 逻辑。',
+      dataOperations: '数据操作',
+      dataOperationsDescription: '对数据对象执行各种操作。',
       inputVariables: '输入变量',
       addVariable: '新增变量',
       runningHintText: '正在运行中...🕞',
@@ -1604,6 +1607,7 @@ Tokenizer 会根据所选方式将内容存储为对应的数据结构。`,
       switchPromptMessage: '提示词将发生变化，请确认是否放弃已有提示词？',
       structuredOutput: {
         configuration: '配置',
+        structuredOutput: '结构化输出',
       },
     },
     footer: {
