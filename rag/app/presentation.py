@@ -18,7 +18,7 @@ import copy
 import re
 from io import BytesIO
 
-from api.db import LLMType
+from common.constants import LLMType
 from api.db.services.llm_service import LLMBundle
 from deepdoc.parser.pdf_parser import VisionParser
 from rag.nlp import tokenize, is_english
