@@ -1,6 +1,7 @@
 export default {
   translation: {
     common: {
+      back: '返回',
       noResults: '无结果。',
       selectPlaceholder: '请选择',
       selectAll: '全选',
@@ -260,6 +261,18 @@ export default {
       theDocumentBeingParsedCannotBeDeleted: '正在解析的文档不能被删除',
     },
     knowledgeConfiguration: {
+      generationScopeTip: '选择 RAPTOR 的生成范围：整个知识库或单个文件。',
+      generationScope: '生成范围',
+      scopeSingleFile: '单文件',
+      scopeDataset: '整库',
+
+      autoParse: '自动解析',
+      rebuildTip: '从所有已关联的数据源重新下载文件并再次解析。',
+      baseInfo: '基础信息',
+      globalIndex: '全局索引',
+      dataSource: '数据源',
+      linkSourceSetTip: '管理与此数据集的数据源链接',
+      linkDataSource: '链接数据源',
       tocExtractionTip:
         '对于已有的chunk生成层级结构的目录信息（每个文件一个目录）。在查询时，激活`目录增强`后，系统会用大模型去判断用户问题和哪些目录项相关，从而找到相关的chunk。',
       deleteGenerateModalContent: `
@@ -279,14 +292,14 @@ export default {
       eidtLinkDataPipeline: '编辑pipeline',
       linkPipelineSetTip: '管理与此数据集的数据管道链接',
       default: '默认',
-      dataPipeline: 'pipeline',
+      dataPipeline: 'Ingestion pipeline',
       linkDataPipeline: '关联pipeline',
       enableAutoGenerate: '是否启用自动生成',
       teamPlaceholder: '请选择团队',
       dataFlowPlaceholder: '请选择pipeline',
       buildItFromScratch: '去Scratch构建',
       dataFlow: 'pipeline',
-      parseType: 'Ingestion pipeline',
+      parseType: '解析方法',
       manualSetup: '选择pipeline',
       builtIn: '内置',
       titleDescription: '在这里更新您的知识库详细信息，尤其是切片方法。',
@@ -671,6 +684,38 @@ General：实体和关系提取提示来自 GitHub - microsoft/graphrag：基于
       tocEnhanceTip: `解析文档时生成了目录信息（见General方法的‘启用目录抽取’），让大模型返回和用户问题相关的目录项，从而利用目录项拿到相关chunk，对这些chunk在排序中进行加权。这种方法来源于模仿人类查询书本中知识的行为逻辑`,
     },
     setting: {
+      configureModelTitle: '配置模型',
+      confluenceIsCloudTip:
+        '检查这是否是 Confluence Cloud 实例，如果是 Confluence 服务/数据中心，则取消选中。',
+      confluenceWikiBaseUrlTip:
+        'Confluence Wiki 的基础 URL（例如 https://your-domain.atlassian.net/wiki）',
+      s3PrefixTip: `指定 S3 存储桶内的文件夹路径，用于读取文件。
+示例：general/v2/`,
+      addDataSourceModalTital: '创建你的 {{name}} 链接',
+      deleteSourceModalTitle: '删除数据源链接',
+      deleteSourceModalContent: `
+      <p>您确定要删除此数据源链接吗？</p>`,
+      deleteSourceModalConfirmText: '确认',
+      errorMsg: '错误信息',
+      newDocs: '新文档',
+      timeStarted: '开始时间',
+      log: '日志',
+      confluenceDescription: '连接你的 Confluence 工作区以搜索文档内容。',
+      s3Description: ' 连接你的 AWS S3 存储桶以导入和同步文件。',
+      discordDescription: ' 连接你的 Discord 服务器以访问和分析聊天数据。',
+      notionDescription: ' 同步 Notion 页面与数据库，用于知识检索。',
+      google_driveDescription:
+        '通过 OAuth 连接 Google Drive，并同步指定的文件夹或云端硬盘。',
+      google_driveTokenTip:
+        '请上传由 OAuth helper 或 Google Cloud Console 导出的 OAuth token JSON。也支持上传 “installed” 或 “web” 类型的 client_secret JSON。若为首次同步，将自动弹出浏览器完成 OAuth 授权流程；如果该 JSON 已包含 refresh token，将会被自动复用。',
+      google_drivePrimaryAdminTip: '拥有相应 Drive 访问权限的管理员邮箱。',
+      google_driveMyDriveEmailsTip:
+        '需要索引其 “我的云端硬盘” 的邮箱，多个邮箱用逗号分隔（建议包含管理员）。',
+      google_driveSharedFoldersTip:
+        '需要同步的 Google Drive 文件夹链接，多个链接用逗号分隔。',
+      availableSourcesDescription: '选择要添加的数据源',
+      availableSources: '可用数据源',
+      datasourceDescription: '管理您的数据源和连接',
       save: '保存',
       search: '搜索',
       availableModels: '可选模型',
@@ -688,6 +733,7 @@ General：实体和关系提取提示来自 GitHub - microsoft/graphrag：基于
       passwordDescription: '请输入您当前的密码以更改您的密码。',
       model: '模型提供商',
       systemModelDescription: '请在开始之前完成这些设置',
+      dataSources: '数据源',
       team: '团队',
       system: '系统',
       logout: '登出',
@@ -907,6 +953,10 @@ General：实体和关系提取提示来自 GitHub - microsoft/graphrag：基于
       pleaseUploadAtLeastOneFile: '请上传至少一个文件',
     },
     flow: {
+      variableNameMessage: '名称只能包含字母和下划线',
+      variableDescription: '变量的描述',
+      defaultValue: '默认值',
+      conversationVariable: '会话变量',
       recommended: '推荐',
       customerSupport: '客户支持',
       marketing: '营销',
@@ -1454,6 +1504,12 @@ General：实体和关系提取提示来自 GitHub - microsoft/graphrag：基于
       codeDescription: '它允许开发人员编写自定义 Python 逻辑。',
       dataOperations: '数据操作',
       dataOperationsDescription: '对数据对象执行各种操作。',
+      variableAssigner: '变量赋值器',
+      variableAssignerDescription:
+        '此组件对数据对象执行操作，包括提取、筛选和编辑数据中的键和值。',
+      variableAggregator: '变量聚合',
+      variableAggregatorDescription: `将多路分支的变量聚合为一个变量，以实现下游节点统一配置。
+变量聚合节点（原变量赋值节点）是工作流程中的一个关键节点，它负责整合不同分支的输出结果，确保无论哪个分支被执行，其结果都能通过一个统一的变量来引用和访问。这在多分支的情况下非常有用，可将不同分支下相同作用的变量映射为一个输出变量，避免下游节点重复定义。`,
       inputVariables: '输入变量',
       addVariable: '新增变量',
       runningHintText: '正在运行中...🕞',
@@ -1726,11 +1782,15 @@ Tokenizer 会根据所选方式将内容存储为对应的数据结构。`,
       changeStepModalCancelText: '取消',
       unlinkPipelineModalTitle: '解绑pipeline',
       unlinkPipelineModalContent: `
-      <p>一旦取消链接，该数据集将不再连接到当前数据管道。</p> 
-      <p>正在解析的文件将继续解析，直到完成。</p> 
+      <p>一旦取消链接，该数据集将不再连接到当前数据管道。</p>
+      <p>正在解析的文件将继续解析，直到完成。</p>
       <p>尚未解析的文件将不再被处理。</p> <br/>
       <p>你确定要继续吗?</p> `,
       unlinkPipelineModalConfirmText: '解绑',
+      unlinkSourceModalTitle: '取消链接数据源',
+      unlinkSourceModalContent: `
+      <p>您确定要取消链接此数据源吗？</p>`,
+      unlinkSourceModalConfirmText: '取消链接',
     },
     datasetOverview: {
       downloadTip: '正在从数据源下载文件。',

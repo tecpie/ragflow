@@ -35,15 +35,12 @@ from api.db import VALID_FILE_TYPES
 from api.db.services.knowledgebase_service import KnowledgebaseService
 from api.db.db_models import File
 from api.utils.api_utils import get_json_result
-from api import settings
 from rag.nlp import search
 from api.constants import DATASET_NAME_LIMIT
-from rag.settings import PAGERANK_FLD
 from rag.utils.redis_conn import REDIS_CONN
-from rag.utils.storage_factory import STORAGE_IMPL
-from rag.utils.doc_store_conn import OrderByExpr  
-from common.constants import RetCode, PipelineTaskType, StatusEnum, VALID_TASK_STATUS, FileSource, LLMType
-
+from rag.utils.doc_store_conn import OrderByExpr
+from common.constants import RetCode, PipelineTaskType, StatusEnum, VALID_TASK_STATUS, FileSource, LLMType, PAGERANK_FLD
+from common import settings
 
 @manager.route('/create', methods=['post'])  # noqa: F821
 @login_required
@@ -55,7 +52,7 @@ def create():
         tenant_id = current_user.id,
         parser_id = req.pop("parser_id", None),
         **req
-    )        
+    )
 
     try:
         if not KnowledgebaseService.save(**req):
@@ -105,6 +102,10 @@ def update():
                 message="Duplicated knowledgebase name.")
 
         del req["kb_id"]
+        connectors = []
+        if "connectors" in req:
+            connectors = req["connectors"]
+            del req["connectors"]
         if not KnowledgebaseService.update_by_id(kb.id, req):
             return get_data_error_result()
 
@@ -121,8 +122,12 @@ def update():
         if not e:
             return get_data_error_result(
                 message="Database error (Knowledgebase rename)!")
+        errors = Connector2KbService.link_connectors(kb.id, [conn for conn in connectors], current_user.id)
+        if errors:
+            logging.error("Link KB errors: ", errors)
         kb = kb.to_dict()
         kb.update(req)
+        kb["connectors"] = connectors
 
         return get_json_result(data=kb)
     except Exception as e:
@@ -228,8 +233,8 @@ def rm():
         for kb in kbs:
             settings.docStoreConn.delete({"kb_id": kb.id}, search.index_name(kb.tenant_id), kb.id)
             settings.docStoreConn.deleteIdx(search.index_name(kb.tenant_id), kb.id)
-            if hasattr(STORAGE_IMPL, 'remove_bucket'):
-                STORAGE_IMPL.remove_bucket(kb.id)
+            if hasattr(settings.STORAGE_IMPL, 'remove_bucket'):
+                settings.STORAGE_IMPL.remove_bucket(kb.id)
         return get_json_result(data=True)
     except Exception as e:
         return server_error_response(e)
@@ -566,7 +571,7 @@ def trace_graphrag():
 
     ok, task = TaskService.get_by_id(task_id)
     if not ok:
-        return get_error_data_result(message="GraphRAG Task Not Found or Error Occurred")
+        return get_json_result(data={})
 
     return get_json_result(data=task.to_dict())
 
@@ -775,14 +780,14 @@ def check_embedding():
 
     def _to_1d(x):
         a = np.asarray(x, dtype=np.float32)
-        return a.reshape(-1)  
+        return a.reshape(-1)
 
     def _cos_sim(a, b, eps=1e-12):
         a = _to_1d(a)
         b = _to_1d(b)
         na = np.linalg.norm(a)
         nb = np.linalg.norm(b)
-        if na < eps or nb < eps: 
+        if na < eps or nb < eps:
             return 0.0
         return float(np.dot(a, b) / (na * nb))
 
@@ -820,7 +825,7 @@ def check_embedding():
                 indexNames=index_nm, knowledgebaseIds=[kb_id]
             )
             ids = docStoreConn.getChunkIds(res1)
-            if not ids: 
+            if not ids:
                 continue
 
             cid = ids[0]
@@ -864,7 +869,7 @@ def check_embedding():
             continue
 
         try:
-            qv, _ = emb_mdl.encode_queries(txt)  
+            qv, _ = emb_mdl.encode_queries(txt)
             sim = _cos_sim(qv, ck["vector"])
         except Exception:
             return get_error_data_result(message="embedding failure")
@@ -892,14 +897,4 @@ def check_embedding():
         return get_json_result(data={"summary": summary, "results": results})
     return get_json_result(code=RetCode.NOT_EFFECTIVE, message="failed", data={"summary": summary, "results": results})
 
-
-@manager.route("/<kb_id>/link", methods=["POST"])  # noqa: F821
-@validate_request("connector_ids")
-@login_required
-def link_connector(kb_id):
-    req = request.json
-    errors = Connector2KbService.link_connectors(kb_id, req["connector_ids"], current_user.id)
-    if errors:
-        return get_json_result(data=False, message=errors, code=RetCode.SERVER_ERROR)
-    return get_json_result(data=True)
 

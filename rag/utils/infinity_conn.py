@@ -25,13 +25,12 @@ from infinity.common import ConflictType, InfinityException, SortType
 from infinity.index import IndexInfo, IndexType
 from infinity.connection_pool import ConnectionPool
 from infinity.errors import ErrorCode
-from rag import settings
-from rag.settings import PAGERANK_FLD, TAG_FLD
 from common.decorator import singleton
 import pandas as pd
 from common.file_utils import get_project_base_directory
 from rag.nlp import is_english
-
+from common.constants import PAGERANK_FLD, TAG_FLD
+from common import settings
 from rag.utils.doc_store_conn import (
     DocStoreConnection,
     MatchExpr,
@@ -157,6 +156,7 @@ class InfinityConnection(DocStoreConnection):
             msg = f"Infinity {infinity_uri} is unhealthy in 120s."
             logger.error(msg)
             raise Exception(msg)
+        self.column_vec_patt = re.compile(r"q_(?P<vector_size>\d+)_vec")
         logger.info(f"Infinity {infinity_uri} is healthy.")
 
     def _migrate_db(self, inf_conn):
@@ -324,7 +324,8 @@ class InfinityConnection(DocStoreConnection):
                 output.append(score_func)
             if PAGERANK_FLD not in output:
                 output.append(PAGERANK_FLD)
-        output = [f for f in output if f != "_score"]
+        output = [f for f in output if f != "_score" and self.column_vec_patt.match(f) is None]
+        logger.info(f"infinity output fields: {output}")
         if limit <= 0:
             # ElasticSearch default limit is 10000
             limit = 10000

@@ -29,9 +29,9 @@ from api.db.services.knowledgebase_service import KnowledgebaseService
 from api.db.services.tenant_llm_service import LLMFactoriesService, TenantLLMService
 from api.db.services.llm_service import LLMService, LLMBundle, get_init_tenant_llm
 from api.db.services.user_service import TenantService, UserTenantService
-from api import settings
 from common.constants import LLMType
 from common.file_utils import get_project_base_directory
+from common import settings
 from api.common.base64 import encode_to_base64
 
 
@@ -101,6 +101,7 @@ def init_llm_factory():
         info = deepcopy(factory_llm_info)
         llm_infos = info.pop("llm")
         try:
+            LLMFactoriesService.filter_delete([LLMFactories.name == factory_llm_info["name"]])
             LLMFactoriesService.save(**info)
         except Exception:
             pass

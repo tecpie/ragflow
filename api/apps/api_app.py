@@ -32,7 +32,6 @@ from api.db.services.file_service import FileService
 from api.db.services.knowledgebase_service import KnowledgebaseService
 from api.db.services.task_service import queue_tasks, TaskService
 from api.db.services.user_service import UserTenantService
-from api import settings
 from common.misc_utils import get_uuid
 from common.constants import RetCode, VALID_TASK_STATUS, LLMType, ParserType, FileSource
 from api.utils.api_utils import server_error_response, get_data_error_result, get_json_result, validate_request, \
@@ -41,13 +40,13 @@ from api.utils.api_utils import server_error_response, get_data_error_result, ge
 from api.utils.file_utils import filename_type, thumbnail
 from rag.app.tag import label_question
 from rag.prompts.generator import keyword_extraction
-from rag.utils.storage_factory import STORAGE_IMPL
 from common.time_utils import current_timestamp, datetime_format
 
 from api.db.services.canvas_service import UserCanvasService
 from agent.canvas import Canvas
 from functools import partial
 from pathlib import Path
+from common import settings
 
 
 @manager.route('/new_token', methods=['POST'])  # noqa: F821
@@ -430,10 +429,10 @@ def upload():
                 message="This type of file has not been supported yet!")
 
         location = filename
-        while STORAGE_IMPL.obj_exist(kb_id, location):
+        while settings.STORAGE_IMPL.obj_exist(kb_id, location):
             location += "_"
         blob = request.files['file'].read()
-        STORAGE_IMPL.put(kb_id, location, blob)
+        settings.STORAGE_IMPL.put(kb_id, location, blob)
         doc = {
             "id": get_uuid(),
             "kb_id": kb.id,
@@ -469,10 +468,7 @@ def upload():
     if "run" in form_data.keys():
         if request.form.get("run").strip() == "1":
             try:
-                info = {"run": 1, "progress": 0}
-                info["progress_msg"] = ""
-                info["chunk_num"] = 0
-                info["token_num"] = 0
+                info = {"run": 1, "progress": 0, "progress_msg": "", "chunk_num": 0, "token_num": 0}
                 DocumentService.update_by_id(doc["id"], info)
                 # if str(req["run"]) == TaskStatus.CANCEL.value:
                 tenant_id = DocumentService.get_tenant_id(doc["id"])
@@ -701,7 +697,7 @@ def document_rm():
             FileService.filter_delete([File.source_type == FileSource.KNOWLEDGEBASE, File.id == f2d[0].file_id])
             File2DocumentService.delete_by_document_id(doc_id)
 
-            STORAGE_IMPL.rm(b, n)
+            settings.STORAGE_IMPL.rm(b, n)
         except Exception as e:
             errors += str(e)
 
@@ -729,8 +725,7 @@ def completion_faq():
     if "quote" not in req:
         req["quote"] = True
 
-    msg = []
-    msg.append({"role": "user", "content": req["word"]})
+    msg = [{"role": "user", "content": req["word"]}]
     if not msg[-1].get("id"):
         msg[-1]["id"] = get_uuid()
     message_id = msg[-1]["id"]
@@ -794,7 +789,7 @@ def completion_faq():
                 if ans["reference"]["chunks"][chunk_idx]["img_id"]:
                     try:
                         bkt, nm = ans["reference"]["chunks"][chunk_idx]["img_id"].split("-")
-                        response = STORAGE_IMPL.get(bkt, nm)
+                        response = settings.STORAGE_IMPL.get(bkt, nm)
                         data_type_picture["url"] = base64.b64encode(response).decode('utf-8')
                         data.append(data_type_picture)
                         break
@@ -839,7 +834,7 @@ def completion_faq():
             if ans["reference"]["chunks"][chunk_idx]["img_id"]:
                 try:
                     bkt, nm = ans["reference"]["chunks"][chunk_idx]["img_id"].split("-")
-                    response = STORAGE_IMPL.get(bkt, nm)
+                    response = settings.STORAGE_IMPL.get(bkt, nm)
                     data_type_picture["url"] = base64.b64encode(response).decode('utf-8')
                     data.append(data_type_picture)
                     break

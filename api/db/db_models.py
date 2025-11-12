@@ -31,7 +31,7 @@ from peewee import InterfaceError, OperationalError, BigIntegerField, BooleanFie
 from playhouse.migrate import MySQLMigrator, PostgresqlMigrator, migrate
 from playhouse.pool import PooledMySQLDatabase, PooledPostgresqlDatabase
 
-from api import settings, utils
+from api import utils
 from api.db import SerializedType
 from api.utils.json_encode import json_dumps, json_loads
 from api.utils.configs import deserialize_b64, serialize_b64
@@ -39,6 +39,7 @@ from api.utils.configs import deserialize_b64, serialize_b64
 from common.time_utils import current_timestamp, timestamp_to_date, date_string_to_timestamp
 from common.decorator import singleton
 from common.constants import ParserType
+from common import settings
 
 
 CONTINUOUS_FIELD_TYPE = {IntegerField, FloatField, DateTimeField}
@@ -668,6 +669,7 @@ class LLMFactories(DataBaseModel):
     name = CharField(max_length=128, null=False, help_text="LLM factory name", primary_key=True)
     logo = TextField(null=True, help_text="llm logo base64")
     tags = CharField(max_length=255, null=False, help_text="LLM, Text Embedding, Image2Text, ASR", index=True)
+    rank = IntegerField(default=0, index=False)
     status = CharField(max_length=1, null=True, help_text="is it validate(0: wasted, 1: validate)", default="1", index=True)
 
     def __str__(self):
@@ -1065,6 +1067,7 @@ class Connector2Kb(DataBaseModel):
     id = CharField(max_length=32, primary_key=True)
     connector_id = CharField(max_length=32, null=False, index=True)
     kb_id = CharField(max_length=32, null=False, index=True)
+    auto_parse = CharField(max_length=1, null=False, default="1", index=False)
 
     class Meta:
         db_table = "connector2kb"
@@ -1297,6 +1300,14 @@ def migrate_db():
         pass
     try:
         migrate(migrator.add_column("tenant_llm", "status", CharField(max_length=1, null=False, help_text="is it validate(0: wasted, 1: validate)", default="1", index=True)))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("connector2kb", "auto_parse", CharField(max_length=1, null=False, default="1", index=False)))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("llm_factories", "rank", IntegerField(default=0, index=False)))
     except Exception:
         pass
     logging.disable(logging.NOTSET)

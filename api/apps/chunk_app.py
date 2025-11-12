@@ -21,7 +21,6 @@ import xxhash
 from flask import request
 from flask_login import current_user, login_required
 
-from api import settings
 from api.db.services.dialog_service import meta_filter
 from api.db.services.document_service import DocumentService
 from api.db.services.knowledgebase_service import KnowledgebaseService
@@ -33,9 +32,9 @@ from rag.app.qa import beAdoc, rmPrefix
 from rag.app.tag import label_question
 from rag.nlp import rag_tokenizer, search
 from rag.prompts.generator import gen_meta_filter, cross_languages, keyword_extraction
-from rag.settings import PAGERANK_FLD
 from common.string_utils import remove_redundant_spaces
-from common.constants import RetCode, LLMType, ParserType
+from common.constants import RetCode, LLMType, ParserType, PAGERANK_FLD
+from common import settings
 
 
 @manager.route('/list', methods=['POST'])  # noqa: F821
@@ -200,7 +199,6 @@ def switch():
 @login_required
 @validate_request("chunk_ids", "doc_id")
 def rm():
-    from rag.utils.storage_factory import STORAGE_IMPL
     req = request.json
     try:
         e, doc = DocumentService.get_by_id(req["doc_id"])
@@ -214,8 +212,8 @@ def rm():
         chunk_number = len(deleted_chunk_ids)
         DocumentService.decrement_chunk_num(doc.id, doc.kb_id, 1, chunk_number, 0)
         for cid in deleted_chunk_ids:
-            if STORAGE_IMPL.obj_exist(doc.kb_id, cid):
-                STORAGE_IMPL.rm(doc.kb_id, cid)
+            if settings.STORAGE_IMPL.obj_exist(doc.kb_id, cid):
+                settings.STORAGE_IMPL.rm(doc.kb_id, cid)
         return get_json_result(data=True)
     except Exception as e:
         return server_error_response(e)

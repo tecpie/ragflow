@@ -26,7 +26,6 @@ import trio
 import xxhash
 from peewee import fn, Case, JOIN
 
-from api import settings
 from api.constants import IMG_BASE64_PREFIX, FILE_NAME_LEN_LIMIT
 from api.db import FileType, UserTenantRole, CanvasCategory
 from api.db.db_models import DB, Document, Knowledgebase, Task, Tenant, UserTenant, File2Document, File, UserCanvas, \
@@ -36,13 +35,11 @@ from api.db.services.common_service import CommonService
 from api.db.services.knowledgebase_service import KnowledgebaseService
 from common.misc_utils import get_uuid
 from common.time_utils import current_timestamp, get_format_time
-from common.constants import LLMType, ParserType, StatusEnum, TaskStatus
+from common.constants import LLMType, ParserType, StatusEnum, TaskStatus, SVR_CONSUMER_GROUP_NAME
 from rag.nlp import rag_tokenizer, search
-from rag.settings import get_svr_queue_name, SVR_CONSUMER_GROUP_NAME
 from rag.utils.redis_conn import REDIS_CONN
-from rag.utils.storage_factory import STORAGE_IMPL
 from rag.utils.doc_store_conn import OrderByExpr
-
+from common import settings
 
 class DocumentService(CommonService):
     model = Document
@@ -318,11 +315,11 @@ class DocumentService(CommonService):
                 all_chunk_ids.extend(chunk_ids)
                 page += 1
             for cid in all_chunk_ids:
-                if STORAGE_IMPL.obj_exist(doc.kb_id, cid):
-                    STORAGE_IMPL.rm(doc.kb_id, cid)
+                if settings.STORAGE_IMPL.obj_exist(doc.kb_id, cid):
+                    settings.STORAGE_IMPL.rm(doc.kb_id, cid)
             if doc.thumbnail and not doc.thumbnail.startswith(IMG_BASE64_PREFIX):
-                if STORAGE_IMPL.obj_exist(doc.kb_id, doc.thumbnail):
-                    STORAGE_IMPL.rm(doc.kb_id, doc.thumbnail)
+                if settings.STORAGE_IMPL.obj_exist(doc.kb_id, doc.thumbnail):
+                    settings.STORAGE_IMPL.rm(doc.kb_id, doc.thumbnail)
             settings.docStoreConn.delete({"doc_id": doc.id}, search.index_name(tenant_id), doc.kb_id)
 
             graph_source = settings.docStoreConn.getFields(
@@ -626,7 +623,8 @@ class DocumentService(CommonService):
         cls.update_by_id(
             docid, {"progress": random.random() * 1 / 100.,
                     "progress_msg": "Task is queued...",
-                    "process_begin_at": get_format_time()
+                    "process_begin_at": get_format_time(),
+                    "run": TaskStatus.RUNNING.value
                     })
 
     @classmethod
@@ -757,6 +755,14 @@ class DocumentService(CommonService):
             .where((cls.model.kb_id == kb_id) & (cls.model.run == TaskStatus.CANCEL))
             .scalar()
         )
+        downloaded = (
+            cls.model.select(fn.COUNT(1))
+            .where(
+                cls.model.kb_id == kb_id,
+                cls.model.source_type != "local"
+            )
+            .scalar()
+        )
 
         row = (
             cls.model.select(
@@ -793,6 +799,7 @@ class DocumentService(CommonService):
             "finished": int(row["finished"]),
             "failed": int(row["failed"]),
             "cancelled": int(cancelled),
+            "downloaded": int(downloaded)
         }
 
     @classmethod
@@ -839,7 +846,7 @@ def queue_raptor_o_graphrag_tasks(sample_doc_id, ty, priority, fake_doc_id="", d
             "to_page": 100000000,
             "task_type": ty,
             "progress_msg":  datetime.now().strftime("%H:%M:%S") + " created task " + ty,
-            "begin_at": datetime.now(),
+            "begin_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         }
 
     task = new_task()
@@ -852,12 +859,12 @@ def queue_raptor_o_graphrag_tasks(sample_doc_id, ty, priority, fake_doc_id="", d
     task["doc_id"] = fake_doc_id
     task["doc_ids"] = doc_ids
     DocumentService.begin2parse(sample_doc_id["id"])
-    assert REDIS_CONN.queue_product(get_svr_queue_name(priority), message=task), "Can't access Redis. Please check the Redis' status."
+    assert REDIS_CONN.queue_product(settings.get_svr_queue_name(priority), message=task), "Can't access Redis. Please check the Redis' status."
     return task["id"]
 
 
 def get_queue_length(priority):
-    group_info = REDIS_CONN.queue_info(get_svr_queue_name(priority), SVR_CONSUMER_GROUP_NAME)
+    group_info = REDIS_CONN.queue_info(settings.get_svr_queue_name(priority), SVR_CONSUMER_GROUP_NAME)
     if not group_info:
         return 0
     return int(group_info.get("lag", 0) or 0)
@@ -939,7 +946,7 @@ def doc_upload_and_parse(conversation_id, file_objs, user_id):
             else:
                 d["image"].save(output_buffer, format='JPEG')
 
-            STORAGE_IMPL.put(kb.id, d["id"], output_buffer.getvalue())
+            settings.STORAGE_IMPL.put(kb.id, d["id"], output_buffer.getvalue())
             d["img_id"] = "{}-{}".format(kb.id, d["id"])
             d.pop("image", None)
             docs.append(d)

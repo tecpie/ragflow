@@ -20,7 +20,6 @@ import os
 import json
 from flask import request
 from peewee import OperationalError
-from api import settings
 from api.db.db_models import File
 from api.db.services.document_service import DocumentService
 from api.db.services.file2document_service import File2DocumentService
@@ -48,7 +47,8 @@ from api.utils.validation_utils import (
     validate_and_parse_request_args,
 )
 from rag.nlp import search
-from rag.settings import PAGERANK_FLD
+from common.constants import PAGERANK_FLD
+from common import settings
 
 
 @manager.route("/datasets", methods=["POST"])  # noqa: F821

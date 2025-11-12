@@ -23,7 +23,6 @@ import flask
 from flask import request
 from flask_login import current_user, login_required
 
-from api import settings
 from api.common.check_team_permission import check_kb_team_permission
 from api.constants import FILE_NAME_LEN_LIMIT, IMG_BASE64_PREFIX
 from api.db import VALID_FILE_TYPES, FileType
@@ -48,7 +47,7 @@ from common.constants import RetCode, VALID_TASK_STATUS, ParserType, TaskStatus
 from api.utils.web_utils import CONTENT_TYPE_MAP, html2pdf, is_valid_url
 from deepdoc.parser.html_parser import RAGFlowHtmlParser
 from rag.nlp import search, rag_tokenizer
-from rag.utils.storage_factory import STORAGE_IMPL
+from common import settings
 
 
 @manager.route("/upload", methods=["POST"])  # noqa: F821
@@ -119,9 +118,9 @@ def web_crawl():
             raise RuntimeError("This type of file has not been supported yet!")
 
         location = filename
-        while STORAGE_IMPL.obj_exist(kb_id, location):
+        while settings.STORAGE_IMPL.obj_exist(kb_id, location):
             location += "_"
-        STORAGE_IMPL.put(kb_id, location, blob)
+        settings.STORAGE_IMPL.put(kb_id, location, blob)
         doc = {
             "id": get_uuid(),
             "kb_id": kb.id,
@@ -261,6 +260,8 @@ def list_docs():
         for doc_item in docs:
             if doc_item["thumbnail"] and not doc_item["thumbnail"].startswith(IMG_BASE64_PREFIX):
                 doc_item["thumbnail"] = f"/v1/document/image/{kb_id}-{doc_item['thumbnail']}"
+            if doc_item.get("source_type"):
+                doc_item["source_type"] = doc_item["source_type"].split("/")[0]
 
         return get_json_result(data={"total": tol, "docs": docs})
     except Exception as e:
@@ -501,7 +502,7 @@ def get(doc_id):
             return get_data_error_result(message="Document not found!")
 
         b, n = File2DocumentService.get_storage_address(doc_id=doc_id)
-        response = flask.make_response(STORAGE_IMPL.get(b, n))
+        response = flask.make_response(settings.STORAGE_IMPL.get(b, n))
 
         ext = re.search(r"\.([^.]+)$", doc.name.lower())
         ext = ext.group(1) if ext else None
@@ -577,7 +578,7 @@ def get_image(image_id):
         if len(arr) != 2:
             return get_data_error_result(message="Image not found.")
         bkt, nm = image_id.split("-")
-        response = flask.make_response(STORAGE_IMPL.get(bkt, nm))
+        response = flask.make_response(settings.STORAGE_IMPL.get(bkt, nm))
         response.headers.set("Content-Type", "image/JPEG")
         return response
     except Exception as e:
