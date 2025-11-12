@@ -15,23 +15,24 @@
 #
 import logging
 import json
+import os
 from flask import request
-from flask_login import  current_user
 from api.db.services.tenant_llm_service import LLMFactoriesService, TenantLLMService
 from api.db.services.llm_service import LLMService
-from api import settings
 from api.utils.api_utils import server_error_response, get_data_error_result, validate_request
-from api.db import StatusEnum, LLMType
+from common.constants import StatusEnum, LLMType
 from api.db.db_models import TenantLLM
-from api.utils.api_utils import get_json_result
-from api.utils.base64_image import test_image
+from api.utils.api_utils import get_json_result, get_allowed_llm_factories
+from rag.utils.base64_image import test_image
 from rag.llm import EmbeddingModel, ChatModel, RerankModel, CvModel, TTSModel
+from api.utils.api_utils import token_required
 
-
-def factories_c():
+@manager.route("/factories", methods=["GET"])  # noqa: F821
+@token_required
+def factories(tenant_id):
     try:
-        fac = LLMFactoriesService.get_all()
-        fac = [f.to_dict() for f in fac if f.name not in ["Youdao", "FastEmbed", "BAAI"]]
+        fac = get_allowed_llm_factories()
+        fac = [f.to_dict() for f in fac if f.name not in ["Youdao", "FastEmbed", "BAAI", "Builtin"]]
         llms = LLMService.get_all()
         mdl_types = {}
         for m in llms:
@@ -41,14 +42,16 @@ def factories_c():
                 mdl_types[m.fid] = set([])
             mdl_types[m.fid].add(m.model_type)
         for f in fac:
-            f["model_types"] = list(mdl_types.get(f["name"], [LLMType.CHAT, LLMType.EMBEDDING, LLMType.RERANK,
-                                                              LLMType.IMAGE2TEXT, LLMType.SPEECH2TEXT, LLMType.TTS]))
+            f["model_types"] = list(mdl_types.get(f["name"], [LLMType.CHAT, LLMType.EMBEDDING, LLMType.RERANK, LLMType.IMAGE2TEXT, LLMType.SPEECH2TEXT, LLMType.TTS]))
         return get_json_result(data=fac)
     except Exception as e:
         return server_error_response(e)
 
 
-def set_api_key_c(tenant_id=None):
+@manager.route("/set_api_key", methods=["POST"])  # noqa: F821
+@token_required
+@validate_request("llm_factory", "api_key")
+def set_api_key(tenant_id):
     req = request.json
     # test if api key works
     chat_passed, embd_passed, rerank_passed = False, False, False
@@ -58,8 +61,7 @@ def set_api_key_c(tenant_id=None):
     for llm in LLMService.query(fid=factory):
         if not embd_passed and llm.model_type == LLMType.EMBEDDING.value:
             assert factory in EmbeddingModel, f"Embedding model from {factory} is not supported yet."
-            mdl = EmbeddingModel[factory](
-                req["api_key"], llm.llm_name, base_url=req.get("base_url"))
+            mdl = EmbeddingModel[factory](req["api_key"], llm.llm_name, base_url=req.get("base_url"))
             try:
                 arr, tc = mdl.encode(["Test if the api key is available"])
                 if len(arr[0]) == 0:
@@ -69,70 +71,64 @@ def set_api_key_c(tenant_id=None):
                 msg += f"\nFail to access embedding model({llm.llm_name}) using this api key." + str(e)
         elif not chat_passed and llm.model_type == LLMType.CHAT.value:
             assert factory in ChatModel, f"Chat model from {factory} is not supported yet."
-            mdl = ChatModel[factory](
-                req["api_key"], llm.llm_name, base_url=req.get("base_url"), **extra)
+            mdl = ChatModel[factory](req["api_key"], llm.llm_name, base_url=req.get("base_url"), **extra)
             try:
-                m, tc = mdl.chat(None, [{"role": "user", "content": "Hello! How are you doing!"}],
-                                 {"temperature": 0.9, 'max_tokens': 50})
+                m, tc = mdl.chat(None, [{"role": "user", "content": "Hello! How are you doing!"}], {"temperature": 0.9, "max_tokens": 50})
                 if m.find("**ERROR**") >= 0:
                     raise Exception(m)
                 chat_passed = True
             except Exception as e:
-                msg += f"\nFail to access model({llm.fid}/{llm.llm_name}) using this api key." + str(
-                    e)
+                msg += f"\nFail to access model({llm.fid}/{llm.llm_name}) using this api key." + str(e)
         elif not rerank_passed and llm.model_type == LLMType.RERANK:
             assert factory in RerankModel, f"Re-rank model from {factory} is not supported yet."
-            mdl = RerankModel[factory](
-                req["api_key"], llm.llm_name, base_url=req.get("base_url"))
+            mdl = RerankModel[factory](req["api_key"], llm.llm_name, base_url=req.get("base_url"))
             try:
                 arr, tc = mdl.similarity("What's the weather?", ["Is it sunny today?"])
                 if len(arr) == 0 or tc == 0:
                     raise Exception("Fail")
                 rerank_passed = True
-                logging.debug(f'passed model rerank {llm.llm_name}')
+                logging.debug(f"passed model rerank {llm.llm_name}")
             except Exception as e:
-                msg += f"\nFail to access model({llm.fid}/{llm.llm_name}) using this api key." + str(
-                    e)
+                msg += f"\nFail to access model({llm.fid}/{llm.llm_name}) using this api key." + str(e)
         if any([embd_passed, chat_passed, rerank_passed]):
-            msg = ''
+            msg = ""
             break
 
     if msg:
         return get_data_error_result(message=msg)
 
-    llm_config = {
-        "api_key": req["api_key"],
-        "api_base": req.get("base_url", "")
-    }
+    llm_config = {"api_key": req["api_key"], "api_base": req.get("base_url", "")}
     for n in ["model_type", "llm_name"]:
         if n in req:
             llm_config[n] = req[n]
 
     for llm in LLMService.query(fid=factory):
-        llm_config["max_tokens"]=llm.max_tokens
-        if not TenantLLMService.filter_update(
-                [TenantLLM.tenant_id == (current_user.id if tenant_id is None else tenant_id) ,
-                 TenantLLM.llm_factory == factory,
-                 TenantLLM.llm_name == llm.llm_name],
-                llm_config):
+        llm_config["max_tokens"] = llm.max_tokens
+        if not TenantLLMService.filter_update([TenantLLM.tenant_id == tenant_id, TenantLLM.llm_factory == factory, TenantLLM.llm_name == llm.llm_name], llm_config):
             TenantLLMService.save(
-                tenant_id=(current_user.id if tenant_id is None else tenant_id),
+                tenant_id=tenant_id,
                 llm_factory=factory,
                 llm_name=llm.llm_name,
                 model_type=llm.model_type,
                 api_key=llm_config["api_key"],
                 api_base=llm_config["api_base"],
-                max_tokens=llm_config["max_tokens"]
+                max_tokens=llm_config["max_tokens"],
             )
 
     return get_json_result(data=True)
 
 
-def add_llm_c(tenant_id=None):
+@manager.route("/add_llm", methods=["POST"])  # noqa: F821
+@token_required
+@validate_request("llm_factory")
+def add_llm(tenant_id):
     req = request.json
     factory = req["llm_factory"]
     api_key = req.get("api_key", "x")
     llm_name = req.get("llm_name")
+
+    if factory not in [f.name for f in get_allowed_llm_factories()]:
+        return get_data_error_result(message=f"LLM factory {factory} is not allowed")
 
     def apikey_json(keys):
         nonlocal req
@@ -145,11 +141,11 @@ def add_llm_c(tenant_id=None):
 
     elif factory == "Tencent Hunyuan":
         req["api_key"] = apikey_json(["hunyuan_sid", "hunyuan_sk"])
-        return set_api_key_c(tenant_id)
+        return set_api_key()
 
     elif factory == "Tencent Cloud":
         req["api_key"] = apikey_json(["tencent_cloud_sid", "tencent_cloud_sk"])
-        return set_api_key_c(tenant_id)
+        return set_api_key()
 
     elif factory == "Bedrock":
         # For Bedrock, due to its special authentication method
@@ -186,14 +182,17 @@ def add_llm_c(tenant_id=None):
     elif factory == "Azure-OpenAI":
         api_key = apikey_json(["api_key", "api_version"])
 
+    elif factory == "OpenRouter":
+        api_key = apikey_json(["api_key", "provider_order"])
+
     llm = {
-        "tenant_id": (current_user.id if tenant_id is None else tenant_id),
+        "tenant_id": tenant_id,
         "llm_factory": factory,
         "model_type": req["model_type"],
         "llm_name": llm_name,
         "api_base": req.get("api_base", ""),
         "api_key": api_key,
-        "max_tokens": req.get("max_tokens")
+        "max_tokens": req.get("max_tokens"),
     }
 
     msg = ""
@@ -201,10 +200,7 @@ def add_llm_c(tenant_id=None):
     extra = {"provider": factory}
     if llm["model_type"] == LLMType.EMBEDDING.value:
         assert factory in EmbeddingModel, f"Embedding model from {factory} is not supported yet."
-        mdl = EmbeddingModel[factory](
-            key=llm['api_key'],
-            model_name=mdl_nm,
-            base_url=llm["api_base"])
+        mdl = EmbeddingModel[factory](key=llm["api_key"], model_name=mdl_nm, base_url=llm["api_base"])
         try:
             arr, tc = mdl.encode(["Test if the api key is available"])
             if len(arr[0]) == 0:
@@ -214,54 +210,41 @@ def add_llm_c(tenant_id=None):
     elif llm["model_type"] == LLMType.CHAT.value:
         assert factory in ChatModel, f"Chat model from {factory} is not supported yet."
         mdl = ChatModel[factory](
-            key=llm['api_key'],
+            key=llm["api_key"],
             model_name=mdl_nm,
             base_url=llm["api_base"],
             **extra,
         )
         try:
-            m, tc = mdl.chat(None, [{"role": "user", "content": "Hello! How are you doing!"}], {
-                "temperature": 0.9})
+            m, tc = mdl.chat(None, [{"role": "user", "content": "Hello! How are you doing!"}], {"temperature": 0.9})
             if not tc and m.find("**ERROR**:") >= 0:
                 raise Exception(m)
         except Exception as e:
-            msg += f"\nFail to access model({factory}/{mdl_nm})." + str(
-                e)
+            msg += f"\nFail to access model({factory}/{mdl_nm})." + str(e)
     elif llm["model_type"] == LLMType.RERANK:
         assert factory in RerankModel, f"RE-rank model from {factory} is not supported yet."
         try:
-            mdl = RerankModel[factory](
-                key=llm["api_key"],
-                model_name=mdl_nm,
-                base_url=llm["api_base"]
-            )
+            mdl = RerankModel[factory](key=llm["api_key"], model_name=mdl_nm, base_url=llm["api_base"])
             arr, tc = mdl.similarity("Hello~ RAGFlower!", ["Hi, there!", "Ohh, my friend!"])
             if len(arr) == 0:
                 raise Exception("Not known.")
         except KeyError:
             msg += f"{factory} dose not support this model({factory}/{mdl_nm})"
         except Exception as e:
-            msg += f"\nFail to access model({factory}/{mdl_nm})." + str(
-                e)
+            msg += f"\nFail to access model({factory}/{mdl_nm})." + str(e)
     elif llm["model_type"] == LLMType.IMAGE2TEXT.value:
         assert factory in CvModel, f"Image to text model from {factory} is not supported yet."
-        mdl = CvModel[factory](
-            key=llm["api_key"],
-            model_name=mdl_nm,
-            base_url=llm["api_base"]
-        )
+        mdl = CvModel[factory](key=llm["api_key"], model_name=mdl_nm, base_url=llm["api_base"])
         try:
             image_data = test_image
             m, tc = mdl.describe(image_data)
-            if not m and not tc:
+            if not tc and m.find("**ERROR**:") >= 0:
                 raise Exception(m)
         except Exception as e:
             msg += f"\nFail to access model({factory}/{mdl_nm})." + str(e)
     elif llm["model_type"] == LLMType.TTS:
         assert factory in TTSModel, f"TTS model from {factory} is not supported yet."
-        mdl = TTSModel[factory](
-            key=llm["api_key"], model_name=mdl_nm, base_url=llm["api_base"]
-        )
+        mdl = TTSModel[factory](key=llm["api_key"], model_name=mdl_nm, base_url=llm["api_base"])
         try:
             for resp in mdl.tts("Hello~ RAGFlower!"):
                 pass
@@ -274,36 +257,50 @@ def add_llm_c(tenant_id=None):
     if msg:
         return get_data_error_result(message=msg)
 
-    if not TenantLLMService.filter_update(
-            [TenantLLM.tenant_id == (current_user.id if tenant_id is None else tenant_id), TenantLLM.llm_factory == factory,
-             TenantLLM.llm_name == llm["llm_name"]], llm):
+    if not TenantLLMService.filter_update([TenantLLM.tenant_id == tenant_id, TenantLLM.llm_factory == factory, TenantLLM.llm_name == llm["llm_name"]], llm):
         TenantLLMService.save(**llm)
 
     return get_json_result(data=True)
 
 
-def delete_llm_c(tenant_id=None):
+@manager.route("/delete_llm", methods=["POST"])  # noqa: F821
+@token_required
+@validate_request("llm_factory", "llm_name")
+def delete_llm(tenant_id):
     req = request.json
-    TenantLLMService.filter_delete(
-        [TenantLLM.tenant_id == (current_user.id if tenant_id is None else tenant_id), TenantLLM.llm_factory == req["llm_factory"],
-         TenantLLM.llm_name == req["llm_name"]])
+    TenantLLMService.filter_delete([TenantLLM.tenant_id == tenant_id, TenantLLM.llm_factory == req["llm_factory"], TenantLLM.llm_name == req["llm_name"]])
     return get_json_result(data=True)
 
 
-def delete_factory_c(tenant_id=None):
+@manager.route("/enable_llm", methods=["POST"])  # noqa: F821
+@token_required
+@validate_request("llm_factory", "llm_name")
+def enable_llm(tenant_id):
     req = request.json
-    TenantLLMService.filter_delete(
-        [TenantLLM.tenant_id == (current_user.id if tenant_id is None else tenant_id), TenantLLM.llm_factory == req["llm_factory"]])
+    TenantLLMService.filter_update(
+        [TenantLLM.tenant_id == tenant_id, TenantLLM.llm_factory == req["llm_factory"], TenantLLM.llm_name == req["llm_name"]], {"status": str(req.get("status", "1"))}
+    )
     return get_json_result(data=True)
 
 
-def my_llms_c(tenant_id=None):
+@manager.route("/delete_factory", methods=["POST"])  # noqa: F821
+@token_required
+@validate_request("llm_factory")
+def delete_factory(tenant_id):
+    req = request.json
+    TenantLLMService.filter_delete([TenantLLM.tenant_id == tenant_id, TenantLLM.llm_factory == req["llm_factory"]])
+    return get_json_result(data=True)
+
+
+@manager.route("/my_llms", methods=["GET"])  # noqa: F821
+@token_required
+def my_llms(tenant_id):
     try:
-        include_details = request.args.get('include_details', 'false').lower() == 'true'
+        include_details = request.args.get("include_details", "false").lower() == "true"
 
         if include_details:
             res = {}
-            objs = TenantLLMService.query(tenant_id=(current_user.id if tenant_id is None else tenant_id))
+            objs = TenantLLMService.query(tenant_id=tenant_id)
             factories = LLMFactoriesService.query(status=StatusEnum.VALID.value)
 
             for o in objs:
@@ -315,55 +312,52 @@ def my_llms_c(tenant_id=None):
                         break
 
                 if o_dict["llm_factory"] not in res:
-                    res[o_dict["llm_factory"]] = {
-                        "tags": factory_tags,
-                        "llm": []
-                    }
+                    res[o_dict["llm_factory"]] = {"tags": factory_tags, "llm": []}
 
-                res[o_dict["llm_factory"]]["llm"].append({
-                    "type": o_dict["model_type"],
-                    "name": o_dict["llm_name"],
-                    "used_token": o_dict["used_tokens"],
-                    "api_base": o_dict["api_base"] or "",
-                    "max_tokens": o_dict["max_tokens"] or 8192
-                })
+                res[o_dict["llm_factory"]]["llm"].append(
+                    {
+                        "type": o_dict["model_type"],
+                        "name": o_dict["llm_name"],
+                        "used_token": o_dict["used_tokens"],
+                        "api_base": o_dict["api_base"] or "",
+                        "max_tokens": o_dict["max_tokens"] or 8192,
+                        "status": o_dict["status"] or "1",
+                    }
+                )
         else:
             res = {}
-            for o in TenantLLMService.get_my_llms((current_user.id if tenant_id is None else tenant_id)):
+            for o in TenantLLMService.get_my_llms(tenant_id):
                 if o["llm_factory"] not in res:
-                    res[o["llm_factory"]] = {
-                        "tags": o["tags"],
-                        "llm": []
-                    }
-                res[o["llm_factory"]]["llm"].append({
-                    "type": o["model_type"],
-                    "name": o["llm_name"],
-                    "used_token": o["used_tokens"]
-                })
+                    res[o["llm_factory"]] = {"tags": o["tags"], "llm": []}
+                res[o["llm_factory"]]["llm"].append({"type": o["model_type"], "name": o["llm_name"], "used_token": o["used_tokens"], "status": o["status"]})
 
         return get_json_result(data=res)
     except Exception as e:
         return server_error_response(e)
 
 
-def list_app_c(tenant_id=None):
-    self_deployed = ["Youdao", "FastEmbed", "BAAI", "Ollama", "Xinference", "LocalAI", "LM-Studio", "GPUStack"]
-    weighted = ["Youdao", "FastEmbed", "BAAI"] if settings.LIGHTEN != 0 else []
+@manager.route("/list", methods=["GET"])  # noqa: F821
+@token_required
+def list_app(tenant_id):
+    self_deployed = ["FastEmbed", "Ollama", "Xinference", "LocalAI", "LM-Studio", "GPUStack"]
+    weighted = []
     model_type = request.args.get("model_type")
     try:
-        objs = TenantLLMService.query(tenant_id=(current_user.id if tenant_id is None else tenant_id))
-        facts = set([o.to_dict()["llm_factory"] for o in objs if o.api_key])
+        objs = TenantLLMService.query(tenant_id=tenant_id)
+        facts = set([o.to_dict()["llm_factory"] for o in objs if o.api_key and o.status == StatusEnum.VALID.value])
+        status = {(o.llm_name + "@" + o.llm_factory) for o in objs if o.status == StatusEnum.VALID.value}
         llms = LLMService.get_all()
-        llms = [m.to_dict()
-                for m in llms if m.status == StatusEnum.VALID.value and m.fid not in weighted]
+        llms = [m.to_dict() for m in llms if m.status == StatusEnum.VALID.value and m.fid not in weighted and (m.fid == 'Builtin' or (m.llm_name + "@" + m.fid) in status)]
         for m in llms:
             m["available"] = m["fid"] in facts or m["llm_name"].lower() == "flag-embedding" or m["fid"] in self_deployed
+            if "tei-" in os.getenv("COMPOSE_PROFILES", "") and m["model_type"] == LLMType.EMBEDDING and m["fid"] == "Builtin" and m["llm_name"] == os.getenv("TEI_MODEL", ""):
+                m["available"] = True
 
         llm_set = set([m["llm_name"] + "@" + m["fid"] for m in llms])
         for o in objs:
             if o.llm_name + "@" + o.llm_factory in llm_set:
                 continue
-            llms.append({"llm_name": o.llm_name, "model_type": o.model_type, "fid": o.llm_factory, "available": True})
+            llms.append({"llm_name": o.llm_name, "model_type": o.model_type, "fid": o.llm_factory, "available": True, "status": StatusEnum.VALID.value})
 
         res = {}
         for m in llms:
