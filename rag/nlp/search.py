@@ -399,13 +399,14 @@ class Dealer:
         max_pages = RERANK_LIMIT // page_size
         page_index = (page % max_pages) - 1
         begin = max(page_index * page_size, 0)
+        sim_np_full = np.array(sim, dtype=np.float64)
         sim = sim[begin : begin + page_size]
         sim_np = np.array(sim, dtype=np.float64)
         idx = np.argsort(sim_np * -1)
         dim = len(sres.query_vector)
         vector_column = f"q_{dim}_vec"
         zero_vector = [0.0] * dim
-        filtered_count = (sim_np >= similarity_threshold).sum()
+        filtered_count = (sim_np_full >= similarity_threshold).sum()
         ranks["total"] = int(filtered_count) # Convert from np.int64 to Python int otherwise JSON serializable error
         for i in idx:
             if np.float64(sim[i]) < similarity_threshold:
