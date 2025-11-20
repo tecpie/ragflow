@@ -177,7 +177,7 @@ class UserCanvasService(CommonService):
         return True
 
 
-def completion(tenant_id, agent_id, session_id=None, **kwargs):
+async def completion(tenant_id, agent_id, session_id=None, **kwargs):
     query = kwargs.get("query", "") or kwargs.get("question", "")
     files = kwargs.get("files", [])
     inputs = kwargs.get("inputs", {})
@@ -220,7 +220,7 @@ def completion(tenant_id, agent_id, session_id=None, **kwargs):
         "id": message_id
     })
     txt = ""
-    for ans in canvas.run(query=query, files=files, user_id=user_id, inputs=inputs):
+    async for ans in canvas.run(query=query, files=files, user_id=user_id, inputs=inputs):
         ans["session_id"] = session_id
         if ans["event"] == "message":
             message_id = ans["message_id"]
@@ -239,7 +239,7 @@ def completion(tenant_id, agent_id, session_id=None, **kwargs):
     API4ConversationService.append_message(conv["id"], conv)
 
 
-def completion_openai(tenant_id, agent_id, question, session_id=None, stream=True, **kwargs):
+async def completion_openai(tenant_id, agent_id, question, session_id=None, stream=True, **kwargs):
     tiktoken_encoder = tiktoken.get_encoding("cl100k_base")
     prompt_tokens = len(tiktoken_encoder.encode(str(question)))
     user_id = kwargs.get("user_id", "")
@@ -247,7 +247,7 @@ def completion_openai(tenant_id, agent_id, question, session_id=None, stream=Tru
     if stream:
         completion_tokens = 0
         try:
-            for ans in completion(
+            async for ans in completion(
                 tenant_id=tenant_id,
                 agent_id=agent_id,
                 session_id=session_id,
@@ -306,7 +306,7 @@ def completion_openai(tenant_id, agent_id, question, session_id=None, stream=Tru
         try:
             all_content = ""
             reference = {}
-            for ans in completion(
+            async for ans in completion(
                 tenant_id=tenant_id,
                 agent_id=agent_id,
                 session_id=session_id,
