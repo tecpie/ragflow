@@ -685,6 +685,8 @@ General：实体和关系提取提示来自 GitHub - microsoft/graphrag：基于
       tocEnhanceTip: `解析文档时生成了目录信息（见General方法的‘启用目录抽取’），让大模型返回和用户问题相关的目录项，从而利用目录项拿到相关chunk，对这些chunk在排序中进行加权。这种方法来源于模仿人类查询书本中知识的行为逻辑`,
     },
     setting: {
+      modelEmptyTip: '暂无可用模型，请先在右侧面板添加模型。',
+      sourceEmptyTip: '暂未添加任何数据源，请从下方选择一个进行连接。',
       seconds: '秒',
       minutes: '分',
       edit: '编辑',
@@ -720,6 +722,9 @@ General：实体和关系提取提示来自 GitHub - microsoft/graphrag：基于
         '需要索引其 “我的云端硬盘” 的邮箱，多个邮箱用逗号分隔（建议包含管理员）。',
       google_driveSharedFoldersTip:
         '需要同步的 Google Drive 文件夹链接，多个链接用逗号分隔。',
+      dropboxDescription: '连接 Dropbox，同步指定账号下的文件与文件夹。',
+      dropboxAccessTokenTip:
+        '请在 Dropbox App Console 生成 Access Token，并勾选 files.metadata.read、files.content.read、sharing.read 等必要权限。',
       jiraDescription: '接入 Jira 工作区，持续同步Issues、评论与附件。',
       jiraBaseUrlTip:
         'Jira 的 Base URL，例如：https://your-domain.atlassian.net。',

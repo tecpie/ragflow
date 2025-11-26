@@ -74,6 +74,8 @@ GITHUB_OAUTH = None
 FEISHU_OAUTH = None
 OAUTH_CONFIG = None
 DOC_ENGINE = os.getenv('DOC_ENGINE', 'elasticsearch')
+DOC_ENGINE_INFINITY = (DOC_ENGINE.lower() == "infinity")
+
 
 docStoreConn = None
 
@@ -139,7 +141,7 @@ def _get_or_create_secret_key():
     import logging
 
     new_key = secrets.token_hex(32)
-    logging.warning(f"SECURITY WARNING: Using auto-generated SECRET_KEY. Generated key: {new_key}")
+    logging.warning("SECURITY WARNING: Using auto-generated SECRET_KEY.")
     return new_key
 
 class StorageFactory:
@@ -229,9 +231,9 @@ def init_settings():
     FEISHU_OAUTH = get_base_config("oauth", {}).get("feishu")
     OAUTH_CONFIG = get_base_config("oauth", {})
 
-    global DOC_ENGINE, docStoreConn, ES, OB, OS, INFINITY
+    global DOC_ENGINE, DOC_ENGINE_INFINITY, docStoreConn, ES, OB, OS, INFINITY
     DOC_ENGINE = os.environ.get("DOC_ENGINE", "elasticsearch")
-    # DOC_ENGINE = os.environ.get('DOC_ENGINE', "opensearch")
+    DOC_ENGINE_INFINITY = (DOC_ENGINE.lower() == "infinity")
     lower_case_doc_engine = DOC_ENGINE.lower()
     if lower_case_doc_engine == "elasticsearch":
         ES = get_base_config("es", {})
