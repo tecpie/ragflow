@@ -179,6 +179,9 @@ class DialogService(CommonService):
         return res
 
 def chat_solo(dialog, messages, stream=True):
+    attachments = ""
+    if "files" in messages[-1]:
+        attachments = "\n\n".join(FileService.get_files(messages[-1]["files"]))
     if TenantLLMService.llm_id2llm_type(dialog.llm_id) == "image2text":
         chat_mdl = LLMBundle(dialog.tenant_id, LLMType.IMAGE2TEXT, dialog.llm_id)
     else:
@@ -189,6 +192,8 @@ def chat_solo(dialog, messages, stream=True):
     if prompt_config.get("tts"):
         tts_mdl = LLMBundle(dialog.tenant_id, LLMType.TTS)
     msg = [{"role": m["role"], "content": re.sub(r"##\d+\$\$", "", m["content"])} for m in messages if m["role"] != "system"]
+    if attachments and msg:
+        msg[-1]["content"] += attachments
     if stream:
         last_ans = ""
         delta_ans = ""
@@ -756,13 +761,48 @@ Please write the SQL, only SQL, without any other explanations or text.
         "prompt": sys_prompt,
     }
 
+def clean_tts_text(text: str) -> str:
+    if not text:
+        return ""
+
+    text = text.encode("utf-8", "ignore").decode("utf-8", "ignore")
+
+    text = re.sub(r"[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]", "", text)
+
+    emoji_pattern = re.compile(
+        "[\U0001F600-\U0001F64F"
+        "\U0001F300-\U0001F5FF"
+        "\U0001F680-\U0001F6FF"
+        "\U0001F1E0-\U0001F1FF"
+        "\U00002700-\U000027BF"
+        "\U0001F900-\U0001F9FF"
+        "\U0001FA70-\U0001FAFF"
+        "\U0001FAD0-\U0001FAFF]+",
+        flags=re.UNICODE
+    )
+    text = emoji_pattern.sub("", text)
+
+    text = re.sub(r"\s+", " ", text).strip()
+
+    MAX_LEN = 500
+    if len(text) > MAX_LEN:
+        text = text[:MAX_LEN]
+
+    return text
 
 def tts(tts_mdl, text):
     if not tts_mdl or not text:
         return None
+    text = clean_tts_text(text)
+    if not text:
+        return None
     bin = b""
-    for chunk in tts_mdl.tts(text):
-        bin += chunk
+    try:
+        for chunk in tts_mdl.tts(text):
+            bin += chunk
+    except Exception as e:
+        logging.error(f"TTS failed: {e}, text={text!r}")
+        return None
     return binascii.hexlify(bin).decode("utf-8")
 
 
