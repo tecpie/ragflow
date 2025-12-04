@@ -75,6 +75,7 @@ async def create(tenant_id, chat_id):
 @manager.route("/agents/<agent_id>/sessions", methods=["POST"])  # noqa: F821
 @token_required
 async def create_agent_session(tenant_id, agent_id):
+    req = await get_request_json()
     user_id = request.args.get("user_id", tenant_id)
     e, cvs = UserCanvasService.get_by_id(agent_id)
     if not e:
@@ -89,7 +90,7 @@ async def create_agent_session(tenant_id, agent_id):
     canvas.reset()
 
     cvs.dsl = json.loads(str(canvas))
-    conv = {"id": session_id, "dialog_id": cvs.id, "user_id": user_id,"name":request.json.get("name", "New conversation"),
+    conv = {"id": session_id, "dialog_id": cvs.id, "user_id": user_id,"name":req.get("name", "New conversation"),
             "message": [{"role": "assistant", "content": canvas.get_prologue()}], "source": "agent", "dsl": cvs.dsl}
     API4ConversationService.save(**conv)
     conv["agent_id"] = conv.pop("dialog_id")
