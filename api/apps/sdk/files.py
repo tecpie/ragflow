@@ -40,7 +40,7 @@ async def upload(tenant_id):
     Upload a file to the system.
     ---
     tags:
-      - File Management
+      - File
     security:
       - ApiKeyAuth: []
     parameters:
@@ -156,7 +156,7 @@ async def create(tenant_id):
     Create a new file or folder.
     ---
     tags:
-      - File Management
+      - File
     security:
       - ApiKeyAuth: []
     parameters:
@@ -234,7 +234,7 @@ async def list_files(tenant_id):
     List files under a specific folder.
     ---
     tags:
-      - File Management
+      - File
     security:
       - ApiKeyAuth: []
     parameters:
@@ -326,7 +326,7 @@ async def get_root_folder(tenant_id):
     Get user's root folder.
     ---
     tags:
-      - File Management
+      - File
     security:
       - ApiKeyAuth: []
     responses:
@@ -362,7 +362,7 @@ async def get_parent_folder():
     Get parent folder info of a file.
     ---
     tags:
-      - File Management
+      - File
     security:
       - ApiKeyAuth: []
     parameters:
@@ -407,7 +407,7 @@ async def get_all_parent_folders(tenant_id):
     Get all parent folders of a file.
     ---
     tags:
-      - File Management
+      - File
     security:
       - ApiKeyAuth: []
     parameters:
@@ -455,7 +455,7 @@ async def rm(tenant_id):
     Delete one or multiple files/folders.
     ---
     tags:
-      - File Management
+      - File
     security:
       - ApiKeyAuth: []
     parameters:
@@ -529,7 +529,7 @@ async def rename(tenant_id):
     Rename a file.
     ---
     tags:
-      - File Management
+      - File
     security:
       - ApiKeyAuth: []
     parameters:
@@ -590,7 +590,7 @@ async def get(tenant_id, file_id):
     Download a file.
     ---
     tags:
-      - File Management
+      - File
     security:
       - ApiKeyAuth: []
     produces:
@@ -651,7 +651,7 @@ async def move(tenant_id):
     Move one or multiple files to another folder.
     ---
     tags:
-      - File Management
+      - File
     security:
       - ApiKeyAuth: []
     parameters:
