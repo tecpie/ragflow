@@ -22,14 +22,14 @@ from api.db.services.llm_service import LLMService
 from api.utils.api_utils import server_error_response, get_data_error_result, validate_request
 from common.constants import StatusEnum, LLMType
 from api.db.db_models import TenantLLM
-from api.utils.api_utils import get_json_result, get_allowed_llm_factories
+from api.utils.api_utils import get_json_result, get_request_json, get_allowed_llm_factories
 from rag.utils.base64_image import test_image
 from rag.llm import EmbeddingModel, ChatModel, RerankModel, CvModel, TTSModel
 from api.utils.api_utils import token_required
 
 @manager.route("/factories", methods=["GET"])  # noqa: F821
 @token_required
-def factories(tenant_id):
+async def factories(tenant_id):
     try:
         fac = get_allowed_llm_factories()
         fac = [f.to_dict() for f in fac if f.name not in ["Youdao", "FastEmbed", "BAAI", "Builtin"]]
@@ -51,8 +51,8 @@ def factories(tenant_id):
 @manager.route("/set_api_key", methods=["POST"])  # noqa: F821
 @token_required
 @validate_request("llm_factory", "api_key")
-def set_api_key(tenant_id):
-    req = request.json
+async def set_api_key(tenant_id):
+    req = await get_request_json()
     # test if api key works
     chat_passed, embd_passed, rerank_passed = False, False, False
     factory = req["llm_factory"]
@@ -121,8 +121,8 @@ def set_api_key(tenant_id):
 @manager.route("/add_llm", methods=["POST"])  # noqa: F821
 @token_required
 @validate_request("llm_factory")
-def add_llm(tenant_id):
-    req = request.json
+async def add_llm(tenant_id):
+    req = await get_request_json()
     factory = req["llm_factory"]
     api_key = req.get("api_key", "x")
     llm_name = req.get("llm_name")
@@ -266,8 +266,8 @@ def add_llm(tenant_id):
 @manager.route("/delete_llm", methods=["POST"])  # noqa: F821
 @token_required
 @validate_request("llm_factory", "llm_name")
-def delete_llm(tenant_id):
-    req = request.json
+async def delete_llm(tenant_id):
+    req = await get_request_json()
     TenantLLMService.filter_delete([TenantLLM.tenant_id == tenant_id, TenantLLM.llm_factory == req["llm_factory"], TenantLLM.llm_name == req["llm_name"]])
     return get_json_result(data=True)
 
@@ -275,8 +275,8 @@ def delete_llm(tenant_id):
 @manager.route("/enable_llm", methods=["POST"])  # noqa: F821
 @token_required
 @validate_request("llm_factory", "llm_name")
-def enable_llm(tenant_id):
-    req = request.json
+async def enable_llm(tenant_id):
+    req = await get_request_json()
     TenantLLMService.filter_update(
         [TenantLLM.tenant_id == tenant_id, TenantLLM.llm_factory == req["llm_factory"], TenantLLM.llm_name == req["llm_name"]], {"status": str(req.get("status", "1"))}
     )
@@ -286,17 +286,18 @@ def enable_llm(tenant_id):
 @manager.route("/delete_factory", methods=["POST"])  # noqa: F821
 @token_required
 @validate_request("llm_factory")
-def delete_factory(tenant_id):
-    req = request.json
+async def delete_factory(tenant_id):
+    req = await get_request_json()
     TenantLLMService.filter_delete([TenantLLM.tenant_id == tenant_id, TenantLLM.llm_factory == req["llm_factory"]])
     return get_json_result(data=True)
 
 
 @manager.route("/my_llms", methods=["GET"])  # noqa: F821
 @token_required
-def my_llms(tenant_id):
+async def my_llms(tenant_id):
+    req = await get_request_json()
     try:
-        include_details = request.args.get("include_details", "false").lower() == "true"
+        include_details = req.get("include_details", "false").lower() == "true"
 
         if include_details:
             res = {}
@@ -338,10 +339,11 @@ def my_llms(tenant_id):
 
 @manager.route("/list", methods=["GET"])  # noqa: F821
 @token_required
-def list_app(tenant_id):
+async def list_app(tenant_id):
     self_deployed = ["FastEmbed", "Ollama", "Xinference", "LocalAI", "LM-Studio", "GPUStack"]
     weighted = []
-    model_type = request.args.get("model_type")
+    req = await get_request_json()
+    model_type = req.get("model_type")
     try:
         objs = TenantLLMService.query(tenant_id=tenant_id)
         facts = set([o.to_dict()["llm_factory"] for o in objs if o.api_key and o.status == StatusEnum.VALID.value])
