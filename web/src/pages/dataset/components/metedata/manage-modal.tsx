@@ -15,6 +15,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useSetModalState } from '@/hooks/common-hooks';
+import { Routes } from '@/routes';
 import {
   ColumnDef,
   flexRender,
@@ -25,11 +26,17 @@ import {
   useReactTable,
 } from '@tanstack/react-table';
 import { Plus, Settings, Trash2 } from 'lucide-react';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { MetadataType, useManageMetaDataModal } from './hook';
+import { useHandleMenuClick } from '../../sidebar/hooks';
+import {
+  MetadataDeleteMap,
+  MetadataType,
+  useManageMetaDataModal,
+} from './hooks/use-manage-modal';
 import { IManageModalProps, IMetaDataTableData } from './interface';
 import { ManageValuesModal } from './manage-values-modal';
+
 export const ManageMetadataModal = (props: IManageModalProps) => {
   const {
     title,
@@ -73,7 +80,7 @@ export const ManageMetadataModal = (props: IManageModalProps) => {
     addUpdateValue,
     addDeleteValue,
   } = useManageMetaDataModal(originalTableData, metadataType, otherData);
-
+  const { handleMenuClick } = useHandleMenuClick();
   const {
     visible: manageValuesVisible,
     showModal: showManageValuesModal,
@@ -134,7 +141,8 @@ export const ManageMetadataModal = (props: IManageModalProps) => {
           const values = row.getValue('values') as Array<string>;
           return (
             <div className="flex items-center gap-1">
-              {values.length > 0 &&
+              {Array.isArray(values) &&
+                values.length > 0 &&
                 values
                   .filter((value: string, index: number) => index < 2)
                   ?.map((value: string) => {
@@ -159,17 +167,12 @@ export const ManageMetadataModal = (props: IManageModalProps) => {
                                   title:
                                     t('common.delete') +
                                     ' ' +
-                                    t('knowledgeDetails.metadata.metadata'),
-                                  name: row.getValue('field') + '/' + value,
-                                  warnText: t(
-                                    'knowledgeDetails.metadata.deleteWarn',
-                                    {
-                                      field:
-                                        t('knowledgeDetails.metadata.field') +
-                                        '/' +
-                                        t('knowledgeDetails.metadata.values'),
-                                    },
-                                  ),
+                                    t('knowledgeDetails.metadata.value'),
+                                  name: value,
+                                  warnText:
+                                    MetadataDeleteMap(t)[
+                                      metadataType as MetadataType
+                                    ].warnValueText,
                                   onOk: () => {
                                     hideDeleteModal();
                                     handleDeleteSingleValue(
@@ -190,7 +193,7 @@ export const ManageMetadataModal = (props: IManageModalProps) => {
                       </Button>
                     );
                   })}
-              {values.length > 2 && (
+              {Array.isArray(values) && values.length > 2 && (
                 <div className="text-text-secondary self-end">...</div>
               )}
             </div>
@@ -221,13 +224,14 @@ export const ManageMetadataModal = (props: IManageModalProps) => {
                 setDeleteDialogContent({
                   visible: true,
                   title:
-                    t('common.delete') +
-                    ' ' +
-                    t('knowledgeDetails.metadata.metadata'),
+                    // t('common.delete') +
+                    // ' ' +
+                    // t('knowledgeDetails.metadata.metadata')
+                    MetadataDeleteMap(t)[metadataType as MetadataType].title,
                   name: row.getValue('field'),
-                  warnText: t('knowledgeDetails.metadata.deleteWarn', {
-                    field: t('knowledgeDetails.metadata.field'),
-                  }),
+                  warnText:
+                    MetadataDeleteMap(t)[metadataType as MetadataType]
+                      .warnFieldText,
                   onOk: () => {
                     hideDeleteModal();
                     handleDeleteSingleRow(row.getValue('field'));
@@ -255,6 +259,7 @@ export const ManageMetadataModal = (props: IManageModalProps) => {
     isShowDescription,
     isDeleteSingleValue,
     handleEditValueRow,
+    metadataType,
   ]);
 
   const table = useReactTable({
@@ -266,7 +271,7 @@ export const ManageMetadataModal = (props: IManageModalProps) => {
     getFilteredRowModel: getFilteredRowModel(),
     manualPagination: true,
   });
-
+  const [shouldSave, setShouldSave] = useState(false);
   const handleSaveValues = (data: IMetaDataTableData) => {
     setTableData((prev) => {
       let newData;
@@ -300,7 +305,19 @@ export const ManageMetadataModal = (props: IManageModalProps) => {
 
       return Array.from(fieldMap.values());
     });
+    setShouldSave(true);
   };
+
+  useEffect(() => {
+    if (shouldSave) {
+      const timer = setTimeout(() => {
+        handleSave({ callback: () => {} });
+        setShouldSave(false);
+      }, 0);
+
+      return () => clearTimeout(timer);
+    }
+  }, [tableData, shouldSave, handleSave]);
 
   const existsKeys = useMemo(() => {
     return tableData.map((item) => item.field);
@@ -320,73 +337,94 @@ export const ManageMetadataModal = (props: IManageModalProps) => {
           success?.(res);
         }}
       >
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center justify-between">
-            <div>{t('knowledgeDetails.metadata.metadata')}</div>
-            {isCanAdd && (
-              <Button
-                variant={'ghost'}
-                className="border border-border-button"
-                onClick={handAddValueRow}
-              >
-                <Plus />
-              </Button>
-            )}
-          </div>
-          <Table rootClassName="max-h-[800px]">
-            <TableHeader>
-              {table.getHeaderGroups().map((headerGroup) => (
-                <TableRow key={headerGroup.id}>
-                  {headerGroup.headers.map((header) => (
-                    <TableHead key={header.id}>
-                      {header.isPlaceholder
-                        ? null
-                        : flexRender(
-                            header.column.columnDef.header,
-                            header.getContext(),
-                          )}
-                    </TableHead>
-                  ))}
-                </TableRow>
-              ))}
-            </TableHeader>
-            <TableBody className="relative">
-              {table.getRowModel().rows?.length ? (
-                table.getRowModel().rows.map((row) => (
-                  <TableRow
-                    key={row.id}
-                    data-state={row.getIsSelected() && 'selected'}
-                    className="group"
-                  >
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id}>
-                        {flexRender(
-                          cell.column.columnDef.cell,
-                          cell.getContext(),
-                        )}
-                      </TableCell>
+        <>
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <div>{t('knowledgeDetails.metadata.metadata')}</div>
+              {metadataType === MetadataType.Manage && false && (
+                <Button
+                  variant={'ghost'}
+                  className="border border-border-button"
+                  type="button"
+                  onClick={handleMenuClick(Routes.DataSetSetting, {
+                    openMetadata: true,
+                  })}
+                >
+                  {t('knowledgeDetails.metadata.toMetadataSetting')}
+                </Button>
+              )}
+              {isCanAdd && (
+                <Button
+                  variant={'ghost'}
+                  className="border border-border-button"
+                  type="button"
+                  onClick={handAddValueRow}
+                >
+                  <Plus />
+                </Button>
+              )}
+            </div>
+            <Table rootClassName="max-h-[800px]">
+              <TableHeader>
+                {table.getHeaderGroups().map((headerGroup) => (
+                  <TableRow key={headerGroup.id}>
+                    {headerGroup.headers.map((header) => (
+                      <TableHead key={header.id}>
+                        {header.isPlaceholder
+                          ? null
+                          : flexRender(
+                              header.column.columnDef.header,
+                              header.getContext(),
+                            )}
+                      </TableHead>
                     ))}
                   </TableRow>
-                ))
-              ) : (
-                <TableRow>
-                  <TableCell
-                    colSpan={columns.length}
-                    className="h-24 text-center"
-                  >
-                    <Empty type={EmptyType.Data} />
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </div>
+                ))}
+              </TableHeader>
+              <TableBody className="relative">
+                {table.getRowModel().rows?.length ? (
+                  table.getRowModel().rows.map((row) => (
+                    <TableRow
+                      key={row.id}
+                      data-state={row.getIsSelected() && 'selected'}
+                      className="group"
+                    >
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell key={cell.id}>
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext(),
+                          )}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell
+                      colSpan={columns.length}
+                      className="h-24 text-center"
+                    >
+                      <Empty type={EmptyType.Data} />
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+          {metadataType === MetadataType.Manage && (
+            <div className=" absolute bottom-6 left-5 text-text-secondary text-sm">
+              {t('knowledgeDetails.metadata.toMetadataSettingTip')}
+            </div>
+          )}
+        </>
       </Modal>
       {manageValuesVisible && (
         <ManageValuesModal
           title={
             <div>
-              {metadataType === MetadataType.Setting
+              {metadataType === MetadataType.Setting ||
+              metadataType === MetadataType.SingleFileSetting
                 ? t('knowledgeDetails.metadata.fieldSetting')
                 : t('knowledgeDetails.metadata.editMetadata')}
             </div>

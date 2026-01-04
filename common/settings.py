@@ -79,7 +79,6 @@ FEISHU_OAUTH = None
 OAUTH_CONFIG = None
 DOC_ENGINE = os.getenv('DOC_ENGINE', 'elasticsearch')
 DOC_ENGINE_INFINITY = (DOC_ENGINE.lower() == "infinity")
-MSG_ENGINE = DOC_ENGINE
 
 
 docStoreConn = None
@@ -261,12 +260,12 @@ def init_settings():
     else:
         raise Exception(f"Not supported doc engine: {DOC_ENGINE}")
 
-    global MSG_ENGINE, msgStoreConn
-    MSG_ENGINE = DOC_ENGINE  # use the same engine for message store
-    if MSG_ENGINE == "elasticsearch":
+    global msgStoreConn
+    # use the same engine for message store
+    if DOC_ENGINE == "elasticsearch":
         ES = get_base_config("es", {})
         msgStoreConn = memory_es_conn.ESConnection()
-    elif MSG_ENGINE == "infinity":
+    elif DOC_ENGINE == "infinity":
         INFINITY = get_base_config("infinity", {"uri": "infinity:23817"})
         msgStoreConn = memory_infinity_conn.InfinityConnection()
 
@@ -334,6 +333,9 @@ def init_settings():
     DOC_MAXIMUM_SIZE = int(os.environ.get("MAX_CONTENT_LENGTH", 128 * 1024 * 1024))
     DOC_BULK_SIZE = int(os.environ.get("DOC_BULK_SIZE", 4))
     EMBEDDING_BATCH_SIZE = int(os.environ.get("EMBEDDING_BATCH_SIZE", 16))
+
+    os.environ["DOTNET_SYSTEM_GLOBALIZATION_INVARIANT"] = "1"
+
 
 def check_and_install_torch():
     global PARALLEL_DEVICES

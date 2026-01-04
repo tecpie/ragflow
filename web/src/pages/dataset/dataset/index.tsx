@@ -16,10 +16,14 @@ import { useFetchKnowledgeBaseConfiguration } from '@/hooks/use-knowledge-reques
 import { Pen, Upload } from 'lucide-react';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { MetadataType, useManageMetadata } from '../components/metedata/hook';
+import {
+  MetadataType,
+  useManageMetadata,
+} from '../components/metedata/hooks/use-manage-modal';
 import { ManageMetadataModal } from '../components/metedata/manage-modal';
 import { DatasetTable } from './dataset-table';
 import Generate from './generate-button/generate';
+import { ReparseDialog } from './reparse-dialog';
 import { useBulkOperateDataset } from './use-bulk-operate-dataset';
 import { useCreateEmptyDocument } from './use-create-empty-document';
 import { useSelectDatasetFilters } from './use-select-filters';
@@ -74,7 +78,13 @@ export default function Dataset() {
   const { rowSelection, rowSelectionIsEmpty, setRowSelection, selectedCount } =
     useRowSelection();
 
-  const { list } = useBulkOperateDataset({
+  const {
+    chunkNum,
+    list,
+    visible: reparseDialogVisible,
+    hideModal: hideReparseDialogModal,
+    handleRunClick: handleOperationIconClick,
+  } = useBulkOperateDataset({
     documents,
     rowSelection,
     setRowSelection,
@@ -203,6 +213,16 @@ export default function Dataset() {
             type={metadataConfig.type}
             otherData={metadataConfig.record}
           />
+        )}
+        {reparseDialogVisible && (
+          <ReparseDialog
+            // hidden={isZeroChunk || isRunning}
+            hidden={false}
+            handleOperationIconClick={handleOperationIconClick}
+            chunk_num={chunkNum}
+            visible={reparseDialogVisible}
+            hideModal={hideReparseDialogModal}
+          ></ReparseDialog>
         )}
       </section>
     </>

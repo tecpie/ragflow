@@ -22,7 +22,6 @@ from infinity.errors import ErrorCode
 
 from common.decorator import singleton
 import pandas as pd
-from common.constants import PAGERANK_FLD, TAG_FLD
 from common.doc_store.doc_store_base import MatchExpr, MatchTextExpr, MatchDenseExpr, FusionExpr, OrderByExpr
 from common.doc_store.infinity_conn_base import InfinityConnectionBase
 from common.time_utils import date_string_to_timestamp
@@ -31,8 +30,7 @@ from common.time_utils import date_string_to_timestamp
 @singleton
 class InfinityConnection(InfinityConnectionBase):
     def __init__(self):
-        super().__init__()
-        self.mapping_file_name = "message_infinity_mapping.json"
+        super().__init__(mapping_file_name="message_infinity_mapping.json")
 
     """
     Dataframe and fields convert
@@ -44,12 +42,19 @@ class InfinityConnection(InfinityConnectionBase):
         return False
 
     @staticmethod
-    def convert_message_field_to_infinity(field_name: str):
+    def convert_message_field_to_infinity(field_name: str, table_fields: list[str]=None):
         match field_name:
             case "message_type":
                 return "message_type_kwd"
             case "status":
                 return "status_int"
+            case "content_embed":
+                if not table_fields:
+                    raise Exception("Can't convert 'content_embed' to vector field name with empty table fields.")
+                vector_field = [tf for tf in table_fields if re.match(r"q_\d+_vec", tf)]
+                if not vector_field:
+                    raise Exception("Can't convert 'content_embed' to vector field name. No match field name found.")
+                return vector_field[0]
             case _:
                 return field_name
 
@@ -63,15 +68,15 @@ class InfinityConnection(InfinityConnectionBase):
             return "content_embed"
         return field_name
 
-    def convert_select_fields(self, output_fields: list[str]) -> list[str]:
-        return list({self.convert_message_field_to_infinity(f) for f in output_fields})
+    def convert_select_fields(self, output_fields: list[str], table_fields: list[str]=None) -> list[str]:
+        return list({self.convert_message_field_to_infinity(f, table_fields) for f in output_fields})
 
     @staticmethod
     def convert_matching_field(field_weight_str: str) -> str:
         tokens = field_weight_str.split("^")
         field = tokens[0]
         if field == "content":
-            field = "content@ft_contentm_rag_fine"
+            field = "content@ft_content_rag_fine"
         tokens[0] = field
         return "^".join(tokens)
 
@@ -123,7 +128,6 @@ class InfinityConnection(InfinityConnectionBase):
         if hide_forgotten:
             condition.update({"must_not": {"exists": "forget_at_flt"}})
         output = select_fields.copy()
-        output = self.convert_select_fields(output)
         if agg_fields is None:
             agg_fields = []
         for essential_field in ["id"] + agg_fields:
@@ -145,8 +149,6 @@ class InfinityConnection(InfinityConnectionBase):
         if match_expressions:
             if score_func not in output:
                 output.append(score_func)
-            if PAGERANK_FLD not in output:
-                output.append(PAGERANK_FLD)
         output = [f for f in output if f != "_score"]
         if limit <= 0:
             # ElasticSearch default limit is 10000
@@ -187,17 +189,6 @@ class InfinityConnection(InfinityConnectionBase):
                     str_minimum_should_match = str(int(minimum_should_match * 100)) + "%"
                     matchExpr.extra_options["minimum_should_match"] = str_minimum_should_match
 
-                # Add rank_feature support
-                if rank_feature and "rank_features" not in matchExpr.extra_options:
-                    # Convert rank_feature dict to Infinity's rank_features string format
-                    # Format: "field^feature_name^weight,field^feature_name^weight"
-                    rank_features_list = []
-                    for feature_name, weight in rank_feature.items():
-                        # Use TAG_FLD as the field containing rank features
-                        rank_features_list.append(f"{TAG_FLD}^{feature_name}^{weight}")
-                    if rank_features_list:
-                        matchExpr.extra_options["rank_features"] = ",".join(rank_features_list)
-
                 for k, v in matchExpr.extra_options.items():
                     if not isinstance(v, str):
                         matchExpr.extra_options[k] = str(v)
@@ -214,6 +205,9 @@ class InfinityConnection(InfinityConnectionBase):
                     del matchExpr.extra_options["similarity"]
                 self.logger.debug(f"INFINITY search MatchDenseExpr: {json.dumps(matchExpr.__dict__)}")
             elif isinstance(matchExpr, FusionExpr):
+                if matchExpr.method == "weighted_sum":
+                    # The default is "minmax" which gives a zero score for the last doc.
+                    matchExpr.fusion_params["normalize"] = "atan"
                 self.logger.debug(f"INFINITY search FusionExpr: {json.dumps(matchExpr.__dict__)}")
 
         order_by_expr_list = list()
@@ -227,6 +221,7 @@ class InfinityConnection(InfinityConnectionBase):
 
         total_hits_count = 0
         # Scatter search tables and gather the results
+        column_name_list = []
         for indexName in index_names:
             for memory_id in memory_ids:
                 table_name = f"{indexName}_{memory_id}"
@@ -235,6 +230,9 @@ class InfinityConnection(InfinityConnectionBase):
                 except Exception:
                     continue
                 table_list.append(table_name)
+                if not column_name_list:
+                    column_name_list = [r[0] for r in table_instance.show_columns().rows()]
+                output = self.convert_select_fields(output, column_name_list)
                 builder = table_instance.output(output)
                 if len(match_expressions) > 0:
                     for matchExpr in match_expressions:
@@ -271,13 +269,13 @@ class InfinityConnection(InfinityConnectionBase):
         self.connPool.release_conn(inf_conn)
         res = self.concat_dataframes(df_list, output)
         if match_expressions:
-            res["_score"] = res[score_column] + res[PAGERANK_FLD]
+            res["_score"] = res[score_column]
             res = res.sort_values(by="_score", ascending=False).reset_index(drop=True)
             res = res.head(limit)
         self.logger.debug(f"INFINITY search final result: {str(res)}")
         return res, total_hits_count
 
-    def get_forgotten_messages(self, select_fields: list[str], index_name: str, memory_id: str, limit: int=2000):
+    def get_forgotten_messages(self, select_fields: list[str], index_name: str, memory_id: str, limit: int=512):
         condition = {"memory_id": memory_id, "exists": "forget_at_flt"}
         order_by = OrderByExpr()
         order_by.asc("forget_at_flt")
@@ -286,7 +284,8 @@ class InfinityConnection(InfinityConnectionBase):
         db_instance = inf_conn.get_database(self.dbName)
         table_name = f"{index_name}_{memory_id}"
         table_instance = db_instance.get_table(table_name)
-        output_fields = [self.convert_message_field_to_infinity(f) for f in select_fields]
+        column_name_list = [r[0] for r in table_instance.show_columns().rows()]
+        output_fields = [self.convert_message_field_to_infinity(f, column_name_list) for f in select_fields]
         builder = table_instance.output(output_fields)
         filter_cond = self.equivalent_condition_to_str(condition, db_instance.get_table(table_name))
         builder.filter(filter_cond)
@@ -327,7 +326,7 @@ class InfinityConnection(InfinityConnectionBase):
         res = self.concat_dataframes(df_list, ["id"])
         fields = set(res.columns.tolist())
         res_fields = self.get_fields(res, list(fields))
-        return res_fields.get(message_id, None)
+        return {self.convert_infinity_field_to_message(k): v for k, v in res_fields[message_id].items()} if res_fields.get(message_id) else {}
 
     def insert(self, documents: list[dict], index_name: str, memory_id: str = None) -> list[str]:
         if not documents:
@@ -361,6 +360,10 @@ class InfinityConnection(InfinityConnectionBase):
             assert "_id" not in d
             assert "id" in d
             for k, v in list(d.items()):
+                if k == "content_embed":
+                    d[f"q_{vector_size}_vec"] = d["content_embed"]
+                    d.pop("content_embed")
+                    continue
                 field_name = self.convert_message_field_to_infinity(k)
                 if field_name in ["valid_at", "invalid_at", "forget_at"]:
                     d[f"{field_name}_flt"] = date_string_to_timestamp(v) if v else 0
@@ -374,9 +377,6 @@ class InfinityConnection(InfinityConnectionBase):
                 elif k == "memory_id":
                     if isinstance(d[k], list):
                         d[k] = d[k][0]  # since d[k] is a list, but we need a str
-                elif field_name == "content_embed":
-                    d[f"q_{vector_size}_vec"] = d["content_embed"]
-                    d.pop("content_embed")
                 else:
                     d[field_name] = v
                 if k != field_name:
@@ -436,32 +436,32 @@ class InfinityConnection(InfinityConnectionBase):
 
     def get_fields(self, res: tuple[pd.DataFrame, int] | pd.DataFrame, fields: list[str]) -> dict[str, dict]:
         if isinstance(res, tuple):
-            res = res[0]
+            res_df = res[0]
+        else:
+            res_df = res
         if not fields:
             return {}
         fields_all = fields.copy()
         fields_all.append("id")
-        fields_all = {self.convert_message_field_to_infinity(f) for f in fields_all}
+        fields_all = self.convert_select_fields(fields_all, res_df.columns.tolist())
 
-        column_map = {col.lower(): col for col in res.columns}
+        column_map = {col.lower(): col for col in res_df.columns}
         matched_columns = {column_map[col.lower()]: col for col in fields_all if col.lower() in column_map}
         none_columns = [col for col in fields_all if col.lower() not in column_map]
 
-        res2 = res[matched_columns.keys()]
-        res2 = res2.rename(columns=matched_columns)
-        res2.drop_duplicates(subset=["id"], inplace=True)
+        selected_res = res_df[matched_columns.keys()]
+        selected_res = selected_res.rename(columns=matched_columns)
+        selected_res.drop_duplicates(subset=["id"], inplace=True)
 
-        for column in list(res2.columns):
+        for column in list(selected_res.columns):
             k = column.lower()
             if self.field_keyword(k):
-                res2[column] = res2[column].apply(lambda v: [kwd for kwd in v.split("###") if kwd])
+                selected_res[column] = selected_res[column].apply(lambda v: [kwd for kwd in v.split("###") if kwd])
             else:
                 pass
-        for column in ["content"]:
-            if column in res2:
-                del res2[column]
-        for column in none_columns:
-            res2[column] = None
 
-        res_dict = res2.set_index("id").to_dict(orient="index")
+        for column in none_columns:
+            selected_res[column] = None
+
+        res_dict = selected_res.set_index("id").to_dict(orient="index")
         return {_id: {self.convert_infinity_field_to_message(k): v for k, v in doc.items()} for _id, doc in res_dict.items()}

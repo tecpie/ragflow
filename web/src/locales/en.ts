@@ -99,7 +99,7 @@ export default {
       search: 'Search',
       welcome: 'Welcome to',
       dataset: 'Dataset',
-      Memories: 'Memory',
+      memories: 'Memory',
     },
     memories: {
       llmTooltip:
@@ -112,6 +112,10 @@ export default {
 Semantic Memory: General knowledge and facts about the user and world.
 Episodic Memory: Time-stamped records of specific events and experiences.
 Procedural Memory: Learned skills, habits, and automated procedures.`,
+      raw: 'raw',
+      semantic: 'semantic',
+      episodic: 'episodic',
+      procedural: 'procedural',
       editName: 'Edit name',
       memory: 'Memory',
       createMemory: 'Create memory',
@@ -125,8 +129,9 @@ Procedural Memory: Learned skills, habits, and automated procedures.`,
     },
     memory: {
       messages: {
+        forgetMessageTip: 'Are you sure you want to forget?',
         messageDescription:
-          'Memory retrieval is configured with Similarity threshold, Keyword similarity weight, and Top N from Advanced Settings.',
+          'Memory extract is configured with Prompts and Temperature from Advanced Settings.',
         copied: 'Copied!',
         contentEmbed: 'Content embed',
         content: 'Content',
@@ -142,20 +147,22 @@ Procedural Memory: Learned skills, habits, and automated procedures.`,
         action: 'Action',
       },
       config: {
+        memorySizeTooltip: `Accounts for each message's content + its embedding vector (≈ Content + Dimensions × 8 Bytes).
+Example: A 1 KB message with 1024-dim embedding uses ~9 KB. The 5 MB default limit holds ~500 such messages.`,
         avatar: 'Avatar',
         description: 'Description',
         memorySize: 'Memory size',
-        advancedSettings: 'Advanced Settings',
+        advancedSettings: 'Advanced settings',
         permission: 'Permission',
-        onlyMe: 'Only Me',
+        onlyMe: 'Only me',
         team: 'Team',
-        storageType: 'Storage Type',
+        storageType: 'Storage type',
         storageTypePlaceholder: 'Please select storage type',
-        forgetPolicy: 'Forget Policy',
+        forgetPolicy: 'Forget policy',
         temperature: 'Temperature',
-        systemPrompt: 'System Prompt',
+        systemPrompt: 'System prompt',
         systemPromptPlaceholder: 'Please enter system prompt',
-        userPrompt: 'User Prompt',
+        userPrompt: 'User prompt',
         userPromptPlaceholder: 'Please enter user prompt',
       },
       sideBar: {
@@ -166,7 +173,7 @@ Procedural Memory: Learned skills, habits, and automated procedures.`,
     knowledgeList: {
       welcome: 'Welcome back',
       description: 'Which knowledge bases will you use today?',
-      createKnowledgeBase: 'Create Dataset',
+      createKnowledgeBase: 'Create dataset',
       name: 'Name',
       namePlaceholder: 'Please input name.',
       doc: 'Docs',
@@ -176,10 +183,20 @@ Procedural Memory: Learned skills, habits, and automated procedures.`,
     },
     knowledgeDetails: {
       metadata: {
+        toMetadataSetting: 'Generation settings',
+        toMetadataSettingTip: 'Set auto-metadata in Configuration.',
+        descriptionTip:
+          'Provide descriptions or examples to guide LLM extract values for this field. If left empty, it will rely on the field name.',
+        restrictTDefinedValuesTip:
+          'Enum Mode: Restricts LLM extraction to match preset values only. Define values below.',
         valueExists:
           'Value already exists. Confirm to merge duplicates and combine all associated files.',
         fieldNameExists:
           'Field name already exists. Confirm to merge duplicates and combine all associated files.',
+        valueSingleExists:
+          'Value already exists. Confirm to merge duplicates .',
+        fieldSingleNameExists:
+          'Field name already exists. Confirm to merge duplicates .',
         fieldExists: 'Field already exists.',
         fieldSetting: 'Field settings',
         changesAffectNewParses: 'Changes affect new parses only.',
@@ -190,13 +207,29 @@ Procedural Memory: Learned skills, habits, and automated procedures.`,
         manageMetadata: 'Manage metadata',
         metadata: 'Metadata',
         values: 'Values',
+        value: 'Value',
         action: 'Action',
         field: 'Field',
         description: 'Description',
         fieldName: 'Field name',
         editMetadata: 'Edit metadata',
         deleteWarn: 'This {{field}} will be removed from all associated files',
+        deleteManageFieldAllWarn:
+          'This field and all its corresponding values will be deleted from all associated files.',
+        deleteManageValueAllWarn:
+          'This value will be deleted from from all associated files.',
+        deleteManageFieldSingleWarn:
+          'This field and all its corresponding values will be deleted from this files.',
+        deleteManageValueSingleWarn:
+          'This value will be deleted from this files.',
+        deleteSettingFieldWarn: `This field will be deleted; existing metadata won't be affected.`,
+        deleteSettingValueWarn: `This value will be deleted; existing metadata won't be affected.`,
       },
+      redoAll: 'Clear existing chunks',
+      applyAutoMetadataSettings: 'Apply global auto-metadata settings',
+      parseFileTip: 'Are you sure to parse?',
+      parseFile: 'Parse file',
+      emptyMetadata: 'No metadata',
       metadataField: 'Metadata field',
       systemAttribute: 'System attribute',
       localUpload: 'Local upload',
@@ -340,15 +373,15 @@ Procedural Memory: Learned skills, habits, and automated procedures.`,
       html4excel: 'Excel to HTML',
       html4excelTip: `Use with the General chunking method. When disabled, spreadsheets (XLSX or XLS(Excel 97-2003)) in the knowledge base will be parsed into key-value pairs. When enabled, they will be parsed into HTML tables, splitting every 12 rows if the original table has more than 12 rows. See https://ragflow.io/docs/dev/enable_excel2html for details.`,
       autoKeywords: 'Auto-keyword',
-      autoKeywordsTip: `Automatically extract N keywords for each chunk to increase their ranking for queries containing those keywords. Be aware that extra tokens will be consumed by the chat model specified in 'System model settings'. You can check or update the added keywords for a chunk from the chunk list. For details, see https://ragflow.io/docs/dev/autokeyword_autoquestion.`,
+      autoKeywordsTip: `Automatically extract N keywords for each chunk to increase their ranking for queries containing those keywords. Be aware that extra tokens will be consumed by the indexing model specified in 'Configuration'. You can check or update the added keywords for a chunk from the chunk list. For details, see https://ragflow.io/docs/dev/autokeyword_autoquestion.`,
       autoQuestions: 'Auto-question',
-      autoQuestionsTip: `Automatically extract N questions for each chunk to increase their ranking for queries containing those questions. You can check or update the added questions for a chunk from the chunk list. This feature will not disrupt the chunking process if an error occurs, except that it may add an empty result to the original chunk. Be aware that extra tokens will be consumed by the LLM specified in 'System model settings'. For details, see https://ragflow.io/docs/dev/autokeyword_autoquestion.`,
+      autoQuestionsTip: `Automatically extract N questions for each chunk to increase their ranking for queries containing those questions. You can check or update the added questions for a chunk from the chunk list. This feature will not disrupt the chunking process if an error occurs, except that it may add an empty result to the original chunk. Be aware that extra tokens will be consumed by the indexing model specified in 'Configuration'. For details, see https://ragflow.io/docs/dev/autokeyword_autoquestion.`,
       redo: 'Do you want to clear the existing {{chunkNum}} chunks?',
-      setMetaData: 'Set meta data',
+      setMetaData: 'Set metadata',
       pleaseInputJson: 'Please enter JSON',
-      documentMetaTips: `<p>The meta data is in Json format(it's not searchable). It will be added into prompt for LLM if any chunks of this document are included in the prompt.</p>
+      documentMetaTips: `<p>The metadata is in Json format(it's not searchable). It will be added into prompt for LLM if any chunks of this document are included in the prompt.</p>
 <p>Examples:</p>
-<b>The meta data is:</b><br>
+<b>The metadata is:</b><br>
 <code>
   {
       "Author": "Alex Dowson",
@@ -381,14 +414,14 @@ Procedural Memory: Learned skills, habits, and automated procedures.`,
       imageTableContextWindowTip:
         'Captures N tokens of text above and below the image & table to provide richer background context.',
       autoMetadata: 'Auto metadata',
-      mineruOptions: 'MinerU Options',
-      mineruParseMethod: 'Parse Method',
+      mineruOptions: 'MinerU options',
+      mineruParseMethod: 'Parse method',
       mineruParseMethodTip:
         'Method for parsing PDF: auto (automatic detection), txt (text extraction), ocr (optical character recognition)',
-      mineruFormulaEnable: 'Formula Recognition',
+      mineruFormulaEnable: 'Formula recognition',
       mineruFormulaEnableTip:
         'Enable formula recognition. Note: This may not work correctly for Cyrillic documents.',
-      mineruTableEnable: 'Table Recognition',
+      mineruTableEnable: 'Table recognition',
       mineruTableEnableTip: 'Enable table recognition and extraction.',
       overlappedPercent: 'Overlapped percent(%)',
       generationScopeTip:
@@ -421,11 +454,11 @@ Procedural Memory: Learned skills, habits, and automated procedures.`,
       fileFilter: 'File filter',
       setDefaultTip: '',
       setDefault: 'Set as default',
-      eidtLinkDataPipeline: 'Edit Ingestion pipeline',
-      linkPipelineSetTip: 'Manage Ingestion pipeline linkage with this dataset',
+      editLinkDataPipeline: 'Edit ingestion pipeline',
+      linkPipelineSetTip: 'Manage ingestion pipeline linkage with this dataset',
       default: 'Default',
       dataPipeline: 'Ingestion pipeline',
-      linkDataPipeline: 'Link Ingestion pipeline',
+      linkDataPipeline: 'Link ingestion pipeline',
       enableAutoGenerate: 'Enable auto generate',
       teamPlaceholder: 'Please select a team.',
       dataFlowPlaceholder: 'Please select a pipeline.',
@@ -435,7 +468,7 @@ Procedural Memory: Learned skills, habits, and automated procedures.`,
       manualSetup: 'Choose pipeline',
       builtIn: 'Built-in',
       titleDescription:
-        'Update your knowledge base configuration here, particularly the chunking method.',
+        'Update your memory configuration here, particularly the LLM and prompts.',
       name: 'Knowledge base name',
       photo: 'Knowledge base photo',
       photoTip: 'You can upload a file with 4 MB',
@@ -736,8 +769,8 @@ This auto-tagging feature enhances retrieval by adding another layer of domain-s
       maxTokens: 'Max tokens',
       maxTokensMessage: 'Max tokens is required',
       maxTokensTip: `This sets the maximum length of the model's output, measured in the number of tokens (words or pieces of words). Defaults to 512. If disabled, you lift the maximum token limit, allowing the model to determine the number of tokens in its responses.`,
-      maxTokensInvalidMessage: 'Please enter a valid number for Max Tokens.',
-      maxTokensMinMessage: 'Max Tokens cannot be less than 0.',
+      maxTokensInvalidMessage: 'Please enter a valid number for Max tokens.',
+      maxTokensMinMessage: 'Max tokens cannot be less than 0.',
       quote: 'Show quote',
       quoteTip: 'Whether to display the original text as a reference.',
       selfRag: 'Self-RAG',
@@ -846,6 +879,7 @@ This auto-tagging feature enhances retrieval by adding another layer of domain-s
       cropImage: 'Crop image',
       selectModelPlaceholder: 'Select model',
       configureModelTitle: 'Configure model',
+      connectorNameTip: 'A descriptive name for the connector',
       confluenceIsCloudTip:
         'Check if this is a Confluence Cloud instance, uncheck for Confluence Server/Data Center',
       confluenceWikiBaseUrlTip:
@@ -858,7 +892,7 @@ Example: general/v2/`,
 Example: https://fsn1.your-objectstorage.com`,
       S3CompatibleAddressingStyleTip: `Required for S3 compatible Storage Box. Specify the S3-compatible addressing style.
 Example: Virtual Hosted Style`,
-      addDataSourceModalTital: 'Create your {{name}} connector',
+      addDataSourceModalTitle: 'Create your {{name}} connector',
       deleteSourceModalTitle: 'Delete data source',
       deleteSourceModalContent: `
       <p>Are you sure you want to delete this data source link?</p>`,
@@ -890,7 +924,9 @@ Example: Virtual Hosted Style`,
       google_driveTokenTip:
         'Upload the OAuth token JSON generated from the OAuth helper or Google Cloud Console. You may also upload a client_secret JSON from an "installed" or "web" application. If this is your first sync, a browser window will open to complete the OAuth consent. If the JSON already contains a refresh token, it will be reused automatically.',
       google_drivePrimaryAdminTip:
-        'Email address that has access to the Drive content being synced.',
+        'Email address that has access to the Drive content being synced',
+      zendeskDescription:
+        'Connect your Zendesk to sync tickets, articles, and other content.',
       google_driveMyDriveEmailsTip:
         'Comma-separated emails whose "My Drive" contents should be indexed (include the primary admin).',
       google_driveSharedFoldersTip:
@@ -901,7 +937,26 @@ Example: Virtual Hosted Style`,
         'Upload the OAuth JSON generated from Google Console. If it only contains client credentials, run the browser-based verification once to mint long-lived refresh tokens.',
       dropboxDescription:
         'Connect your Dropbox to sync files and folders from a chosen account.',
+      bitbucketDescription: 'Connect Bitbucket to sync PR content.',
+      bitbucketTopWorkspaceTip:
+        'The Bitbucket workspace to index (e.g., "atlassian" from https://bitbucket.org/atlassian/workspace ).',
+      bitbucketRepositorySlugsTip:
+        'Comma separated repository slugs. E.g., repo-one,repo-two',
+      bitbucketProjectsTip: 'Comma separated project keys. E.g., PROJ1,PROJ2',
+      bitbucketWorkspaceTip:
+        'This connector will index all repositories in the workspace.',
       boxDescription: 'Connect your Box drive to sync files and folders.',
+
+      githubDescription:
+        'Connect GitHub to sync pull requests and issues for retrieval.',
+      airtableDescription:
+        'Connect to Airtable and synchronize files from a specified table within a designated workspace.',
+      gitlabDescription:
+        'Connect GitLab to sync repositories, issues, merge requests, and related documentation.',
+      asanaDescription:
+        'Connect to Asana and synchronize files from a specified workspace.',
+      imapDescription:
+        'Connect to your IMAP mailbox to sync emails for knowledge retrieval.',
       dropboxAccessTokenTip:
         'Generate a long-lived access token in the Dropbox App Console with files.metadata.read, files.content.read, and sharing.read scopes.',
       moodleDescription:
@@ -948,10 +1003,10 @@ Example: Virtual Hosted Style`,
       avatarTip: 'This will be displayed on your profile.',
       profileDescription: 'Update your photo and personal details here.',
       maxTokens: 'Max tokens',
-      maxTokensMessage: 'Max Tokens is required',
+      maxTokensMessage: 'Max tokens is required',
       maxTokensTip: `This sets the maximum length of the model's output, measured in the number of tokens (words or pieces of words). Defaults to 512. If disabled, you lift the maximum token limit, allowing the model to determine the number of tokens in its responses.`,
-      maxTokensInvalidMessage: 'Please enter a valid number for Max Tokens.',
-      maxTokensMinMessage: 'Max Tokens cannot be less than 0.',
+      maxTokensInvalidMessage: 'Please enter a valid number for Max tokens.',
+      maxTokensMinMessage: 'Max tokens cannot be less than 0.',
       password: 'Password',
       passwordDescription:
         'Please enter your current password to change your password.',
@@ -1300,12 +1355,12 @@ Example: Virtual Hosted Style`,
       search: 'Search',
       communication: 'Communication',
       developer: 'Developer',
-      typeCommandOrsearch: 'Type a command or search...',
+      typeCommandORsearch: 'Type a command or search...',
       builtIn: 'Built-in',
       ExceptionDefaultValue: 'Exception default value',
       exceptionMethod: 'Exception method',
       maxRounds: 'Max reflection rounds',
-      delayEfterError: 'Delay after error',
+      delayAfterError: 'Delay after error',
       maxRetries: 'Max retry rounds',
       advancedSettings: 'Advanced settings',
       addTools: 'Add tools',
@@ -1613,6 +1668,8 @@ Example: Virtual Hosted Style`,
         notEmpty: 'Not empty',
         in: 'In',
         notIn: 'Not in',
+        is: 'Is',
+        isNot: 'Is not',
       },
       switchLogicOperatorOptions: {
         and: 'AND',
@@ -1810,7 +1867,7 @@ This delimiter is used to split the input text into several text pieces echo of 
       }`,
       datatype: 'MINE type of the HTTP request',
       insertVariableTip: `Enter / Insert variables`,
-      historyversion: 'Version history',
+      historyVersion: 'Version history',
       version: {
         created: 'Created',
         details: 'Version details',
@@ -1874,6 +1931,8 @@ This process aggregates variables from multiple branches into a single variable 
       beginInputTip:
         'By defining input parameters, this content can be accessed by other components in subsequent processes.',
       query: 'Query variables',
+      switchPromptMessage:
+        'The prompt words will change. Please confirm whether you want to discard the existing prompt words?',
       queryRequired: 'Query is required',
       queryTip: 'Select the variable you want to use',
       agent: 'Agent',
@@ -2143,7 +2202,7 @@ Important structured information may include: names, dates, locations, events, k
         agentStatus: 'Agent status:',
       },
       saveToMemory: 'Save to memory',
-      memory: 'Memory',
+      retrievalFrom: 'Retrieval from',
     },
     llmTools: {
       bad_calculator: {
@@ -2221,7 +2280,7 @@ Important structured information may include: names, dates, locations, events, k
     dataflowParser: {
       result: 'Result',
       parseSummary: 'Parse summary',
-      parseSummaryTip: 'Parser：deepdoc',
+      parseSummaryTip: 'Parser：DeepDoc',
       parserMethod: 'Parser method',
       outputFormat: 'Output format',
       rerunFromCurrentStep: 'Rerun from current step',
@@ -2244,10 +2303,10 @@ Important structured information may include: names, dates, locations, events, k
       <p>To keep them, please click Rerun to re-run the current stage.</p> `,
       changeStepModalConfirmText: 'Switch Anyway',
       changeStepModalCancelText: 'Cancel',
-      unlinkPipelineModalTitle: 'Unlink Ingestion pipeline',
+      unlinkPipelineModalTitle: 'Unlink ingestion pipeline',
       unlinkPipelineModalConfirmText: 'Unlink',
       unlinkPipelineModalContent: `
-      <p>Once unlinked, this Dataset will no longer be connected to the current Ingestion pipeline.</p>
+      <p>Once unlinked, this Dataset will no longer be connected to the current ingestion pipeline.</p>
       <p>Files that are already being parsed  will continue until completion</p>
       <p>Files that are not yet parsed will no longer be processed</p> <br/>
       <p>Are you sure you want to proceed?</p> `,
@@ -2258,7 +2317,7 @@ Important structured information may include: names, dates, locations, events, k
     },
     datasetOverview: {
       downloadTip: 'Files being downloaded from data sources. ',
-      processingTip: 'Files being processed by Ingestion pipeline.',
+      processingTip: 'Files being processed by ingestion pipeline.',
       totalFiles: 'Total files',
       downloading: 'Downloading',
       downloadSuccessTip: 'Total successful downloads',

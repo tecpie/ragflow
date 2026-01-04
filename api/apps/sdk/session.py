@@ -60,7 +60,7 @@ async def create(tenant_id, chat_id):
         "name": req.get("name", "New session"),
         "message": [{"role": "assistant", "content": dia[0].prompt_config.get("prologue")}],
         "user_id": req.get("user_id", ""),
-        "reference": [{}],
+        "reference": [],
     }
     if not conv.get("name"):
         return get_error_data_result(message="`name` can not be empty.")
@@ -89,7 +89,7 @@ async def create_agent_session(tenant_id, agent_id):
         cvs.dsl = json.dumps(cvs.dsl, ensure_ascii=False)
 
     session_id = get_uuid()
-    canvas = Canvas(cvs.dsl, tenant_id, agent_id)
+    canvas = Canvas(cvs.dsl, tenant_id, agent_id, canvas_id=cvs.id)
     canvas.reset()
 
     cvs.dsl = json.loads(str(canvas))
@@ -987,7 +987,7 @@ async def begin_inputs(agent_id):
     if not e:
         return get_error_data_result(f"Can't find agent by ID: {agent_id}")
 
-    canvas = Canvas(json.dumps(cvs.dsl), objs[0].tenant_id)
+    canvas = Canvas(json.dumps(cvs.dsl), objs[0].tenant_id, canvas_id=cvs.id)
     return get_result(
         data={"title": cvs.title, "avatar": cvs.avatar, "inputs": canvas.get_component_input_form("begin"),
               "prologue": canvas.get_prologue(), "mode": canvas.get_mode()})
@@ -1117,7 +1117,7 @@ async def retrieval_test_embedded():
             local_doc_ids, rerank_mdl=rerank_mdl, highlight=req.get("highlight"), rank_feature=labels
         )
         if use_kg:
-            ck = settings.kg_retriever.retrieval(_question, tenant_ids, kb_ids, embd_mdl,
+            ck = await settings.kg_retriever.retrieval(_question, tenant_ids, kb_ids, embd_mdl,
                                                  LLMBundle(kb.tenant_id, LLMType.CHAT))
             if ck["content_with_weight"]:
                 ranks["chunks"].insert(0, ck)

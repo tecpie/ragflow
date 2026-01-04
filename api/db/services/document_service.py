@@ -125,26 +125,26 @@ class DocumentService(CommonService):
 
     @classmethod
     @DB.connection_context()
-    def get_by_kb_id(cls, kb_id, page_number, items_per_page,
-                     orderby, desc, keywords, run_status, types, suffix, doc_ids=None):
+    def get_by_kb_id(cls, kb_id, page_number, items_per_page, orderby, desc, keywords, run_status, types, suffix, doc_ids=None, return_empty_metadata=False):
         fields = cls.get_cls_model_fields()
         if keywords:
-            docs = cls.model.select(*[*fields, UserCanvas.title.alias("pipeline_name"), User.nickname])\
-                .join(File2Document, on=(File2Document.document_id == cls.model.id))\
-                .join(File, on=(File.id == File2Document.file_id))\
-                .join(UserCanvas, on=(cls.model.pipeline_id == UserCanvas.id), join_type=JOIN.LEFT_OUTER)\
-                .join(User, on=(cls.model.created_by == User.id), join_type=JOIN.LEFT_OUTER)\
-                .where(
-                    (cls.model.kb_id == kb_id),
-                    (fn.LOWER(cls.model.name).contains(keywords.lower()))
-                )
+            docs = (
+                cls.model.select(*[*fields, UserCanvas.title.alias("pipeline_name"), User.nickname])
+                .join(File2Document, on=(File2Document.document_id == cls.model.id))
+                .join(File, on=(File.id == File2Document.file_id))
+                .join(UserCanvas, on=(cls.model.pipeline_id == UserCanvas.id), join_type=JOIN.LEFT_OUTER)
+                .join(User, on=(cls.model.created_by == User.id), join_type=JOIN.LEFT_OUTER)
+                .where((cls.model.kb_id == kb_id), (fn.LOWER(cls.model.name).contains(keywords.lower())))
+            )
         else:
-            docs = cls.model.select(*[*fields, UserCanvas.title.alias("pipeline_name"), User.nickname])\
-                .join(File2Document, on=(File2Document.document_id == cls.model.id))\
-                .join(UserCanvas, on=(cls.model.pipeline_id == UserCanvas.id), join_type=JOIN.LEFT_OUTER)\
-                .join(File, on=(File.id == File2Document.file_id))\
-                .join(User, on=(cls.model.created_by == User.id), join_type=JOIN.LEFT_OUTER)\
+            docs = (
+                cls.model.select(*[*fields, UserCanvas.title.alias("pipeline_name"), User.nickname])
+                .join(File2Document, on=(File2Document.document_id == cls.model.id))
+                .join(UserCanvas, on=(cls.model.pipeline_id == UserCanvas.id), join_type=JOIN.LEFT_OUTER)
+                .join(File, on=(File.id == File2Document.file_id))
+                .join(User, on=(cls.model.created_by == User.id), join_type=JOIN.LEFT_OUTER)
                 .where(cls.model.kb_id == kb_id)
+            )
 
         if doc_ids:
             docs = docs.where(cls.model.id.in_(doc_ids))
@@ -154,13 +154,14 @@ class DocumentService(CommonService):
             docs = docs.where(cls.model.type.in_(types))
         if suffix:
             docs = docs.where(cls.model.suffix.in_(suffix))
+        if return_empty_metadata:
+            docs = docs.where(fn.COALESCE(fn.JSON_LENGTH(cls.model.meta_fields), 0) == 0)
 
         count = docs.count()
         if desc:
             docs = docs.order_by(cls.model.getter_by(orderby).desc())
         else:
             docs = docs.order_by(cls.model.getter_by(orderby).asc())
-
 
         if page_number and items_per_page:
             docs = docs.paginate(page_number, items_per_page)
@@ -217,18 +218,16 @@ class DocumentService(CommonService):
         suffix_counter = {}
         run_status_counter = {}
         metadata_counter = {}
+        empty_metadata_count = 0
 
         for row in rows:
             suffix_counter[row.suffix] = suffix_counter.get(row.suffix, 0) + 1
             run_status_counter[str(row.run)] = run_status_counter.get(str(row.run), 0) + 1
             meta_fields = row.meta_fields or {}
-            if isinstance(meta_fields, str):
-                try:
-                    meta_fields = json.loads(meta_fields)
-                except Exception:
-                    meta_fields = {}
-            if not isinstance(meta_fields, dict):
+            if not meta_fields:
+                empty_metadata_count += 1
                 continue
+            has_valid_meta = False
             for key, value in meta_fields.items():
                 values = value if isinstance(value, list) else [value]
                 for vv in values:
@@ -240,7 +239,11 @@ class DocumentService(CommonService):
                     if key not in metadata_counter:
                         metadata_counter[key] = {}
                     metadata_counter[key][sv] = metadata_counter[key].get(sv, 0) + 1
+                    has_valid_meta = True
+            if not has_valid_meta:
+                empty_metadata_count += 1
 
+        metadata_counter["empty_metadata"] = {"true": empty_metadata_count}
         return {
             "suffix": suffix_counter,
             "run_status": run_status_counter,
@@ -339,21 +342,7 @@ class DocumentService(CommonService):
         cls.clear_chunk_num(doc.id)
         try:
             TaskService.filter_delete([Task.doc_id == doc.id])
-            page = 0
-            page_size = 1000
-            all_chunk_ids = []
-            while True:
-                chunks = settings.docStoreConn.search(["img_id"], [], {"doc_id": doc.id}, [], OrderByExpr(),
-                                                      page * page_size, page_size, search.index_name(tenant_id),
-                                                      [doc.kb_id])
-                chunk_ids = settings.docStoreConn.get_doc_ids(chunks)
-                if not chunk_ids:
-                    break
-                all_chunk_ids.extend(chunk_ids)
-                page += 1
-            for cid in all_chunk_ids:
-                if settings.STORAGE_IMPL.obj_exist(doc.kb_id, cid):
-                    settings.STORAGE_IMPL.rm(doc.kb_id, cid)
+            cls.delete_chunk_images(doc, tenant_id)
             if doc.thumbnail and not doc.thumbnail.startswith(IMG_BASE64_PREFIX):
                 if settings.STORAGE_IMPL.obj_exist(doc.kb_id, doc.thumbnail):
                     settings.STORAGE_IMPL.rm(doc.kb_id, doc.thumbnail)
@@ -374,6 +363,23 @@ class DocumentService(CommonService):
         except Exception:
             pass
         return cls.delete_by_id(doc.id)
+
+    @classmethod
+    @DB.connection_context()
+    def delete_chunk_images(cls, doc, tenant_id):
+        page = 0
+        page_size = 1000
+        while True:
+            chunks = settings.docStoreConn.search(["img_id"], [], {"doc_id": doc.id}, [], OrderByExpr(),
+                                                  page * page_size, page_size, search.index_name(tenant_id),
+                                                  [doc.kb_id])
+            chunk_ids = settings.docStoreConn.get_doc_ids(chunks)
+            if not chunk_ids:
+                break
+            for cid in chunk_ids:
+                if settings.STORAGE_IMPL.obj_exist(doc.kb_id, cid):
+                    settings.STORAGE_IMPL.rm(doc.kb_id, cid)
+            page += 1
 
     @classmethod
     @DB.connection_context()
@@ -701,6 +707,8 @@ class DocumentService(CommonService):
                     v = [v]
                 for vv in v:
                     if vv not in meta[k]:
+                        if isinstance(vv, list) or isinstance(vv, dict):
+                            continue
                         meta[k][vv] = []
                     meta[k][vv].append(doc_id)
         return meta

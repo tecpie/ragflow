@@ -3,13 +3,14 @@ import SvgIcon from '@/components/svg-icon';
 import { t, TFunction } from 'i18next';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { BedrockRegionList } from '../setting-model/constant';
-import BlobTokenField from './component/blob-token-field';
-import BoxTokenField from './component/box-token-field';
-import { ConfluenceIndexingModeField } from './component/confluence-token-field';
-import GmailTokenField from './component/gmail-token-field';
-import GoogleDriveTokenField from './component/google-drive-token-field';
-import { IDataSourceInfoMap } from './interface';
+import BoxTokenField from '../component/box-token-field';
+import GmailTokenField from '../component/gmail-token-field';
+import GoogleDriveTokenField from '../component/google-drive-token-field';
+import { IDataSourceInfoMap } from '../interface';
+import { bitbucketConstant } from './bitbucket-constant';
+import { confluenceConstant } from './confluence-constant';
+import { S3Constant } from './s3-constant';
+
 export enum DataSourceKey {
   CONFLUENCE = 'confluence',
   S3 = 's3',
@@ -25,6 +26,13 @@ export enum DataSourceKey {
   R2 = 'r2',
   OCI_STORAGE = 'oci_storage',
   GOOGLE_CLOUD_STORAGE = 'google_cloud_storage',
+  AIRTABLE = 'airtable',
+  GITLAB = 'gitlab',
+  ASANA = 'asana',
+  IMAP = 'imap',
+  GITHUB = 'github',
+  BITBUCKET = 'bitbucket',
+  ZENDESK = 'zendesk',
   //   SHAREPOINT = 'sharepoint',
   //   SLACK = 'slack',
   //   TEAMS = 'teams',
@@ -104,13 +112,43 @@ export const generateDataSourceInfo = (t: TFunction) => {
       description: t(`setting.${DataSourceKey.BOX}Description`),
       icon: <SvgIcon name={'data-source/box'} width={38} />,
     },
+    [DataSourceKey.AIRTABLE]: {
+      name: 'Airtable',
+      description: t(`setting.${DataSourceKey.AIRTABLE}Description`),
+      icon: <SvgIcon name={'data-source/airtable'} width={38} />,
+    },
+    [DataSourceKey.GITLAB]: {
+      name: 'GitLab',
+      description: t(`setting.${DataSourceKey.GITLAB}Description`),
+      icon: <SvgIcon name={'data-source/gitlab'} width={38} />,
+    },
+    [DataSourceKey.ASANA]: {
+      name: 'Asana',
+      description: t(`setting.${DataSourceKey.ASANA}Description`),
+      icon: <SvgIcon name={'data-source/asana'} width={38} />,
+    },
+    [DataSourceKey.GITHUB]: {
+      name: 'GitHub',
+      description: t(`setting.${DataSourceKey.GITHUB}Description`),
+      icon: <SvgIcon name={'data-source/github'} width={38} />,
+    },
+    [DataSourceKey.IMAP]: {
+      name: 'IMAP',
+      description: t(`setting.${DataSourceKey.IMAP}Description`),
+      icon: <SvgIcon name={'data-source/imap'} width={38} />,
+    },
+    [DataSourceKey.BITBUCKET]: {
+      name: 'Bitbucket',
+      description: t(`setting.${DataSourceKey.BITBUCKET}Description`),
+      icon: <SvgIcon name={'data-source/bitbucket'} width={38} />,
+    },
+    [DataSourceKey.ZENDESK]: {
+      name: 'Zendesk',
+      description: t(`setting.${DataSourceKey.ZENDESK}Description`),
+      icon: <SvgIcon name={'data-source/zendesk'} width={38} />,
+    },
   };
 };
-
-const awsRegionOptions = BedrockRegionList.map((r) => ({
-  label: r,
-  value: r,
-}));
 
 export const useDataSourceInfo = () => {
   const { t } = useTranslation();
@@ -228,47 +266,7 @@ export const DataSourceFormFields = {
       required: true,
     },
   ],
-  [DataSourceKey.S3]: [
-    {
-      label: 'Bucket Name',
-      name: 'config.bucket_name',
-      type: FormFieldType.Text,
-      required: true,
-    },
-    {
-      label: 'Region',
-      name: 'config.credentials.region',
-      type: FormFieldType.Select,
-      required: false,
-      options: awsRegionOptions,
-      customValidate: (val: string, formValues: any) => {
-        const credentials = formValues?.config?.credentials || {};
-        const bucketType = formValues?.config?.bucket_type || 's3';
-        const hasAccessKey = Boolean(
-          credentials.aws_access_key_id || credentials.aws_secret_access_key,
-        );
-        if (bucketType === 's3' && hasAccessKey) {
-          return Boolean(val) || 'Region is required when using access key';
-        }
-        return true;
-      },
-    },
-    {
-      label: 'Prefix',
-      name: 'config.prefix',
-      type: FormFieldType.Text,
-      required: false,
-      tooltip: t('setting.s3PrefixTip'),
-    },
-    {
-      label: 'Credentials',
-      name: 'config.credentials.__blob_token',
-      type: FormFieldType.Custom,
-      hideLabel: true,
-      required: false,
-      render: () => <BlobTokenField />,
-    },
-  ],
+  [DataSourceKey.S3]: S3Constant(t),
   [DataSourceKey.NOTION]: [
     {
       label: 'Notion Integration Token',
@@ -304,67 +302,7 @@ export const DataSourceFormFields = {
     },
   ],
 
-  [DataSourceKey.CONFLUENCE]: [
-    {
-      label: 'Confluence Username',
-      name: 'config.credentials.confluence_username',
-      type: FormFieldType.Text,
-      required: true,
-      tooltip: 'A descriptive name for the connector.',
-    },
-    {
-      label: 'Confluence Access Token',
-      name: 'config.credentials.confluence_access_token',
-      type: FormFieldType.Password,
-      required: true,
-    },
-    {
-      label: 'Wiki Base URL',
-      name: 'config.wiki_base',
-      type: FormFieldType.Text,
-      required: false,
-      tooltip: t('setting.confluenceWikiBaseUrlTip'),
-    },
-    {
-      label: 'Is Cloud',
-      name: 'config.is_cloud',
-      type: FormFieldType.Checkbox,
-      required: false,
-      tooltip: t('setting.confluenceIsCloudTip'),
-    },
-    {
-      label: 'Index Method',
-      name: 'config.index_mode',
-      type: FormFieldType.Text,
-      required: false,
-      horizontal: true,
-      labelClassName: 'self-start pt-4',
-      render: (fieldProps: any) => (
-        <ConfluenceIndexingModeField {...fieldProps} />
-      ),
-    },
-    {
-      label: 'Space Key',
-      name: 'config.space',
-      type: FormFieldType.Text,
-      required: false,
-      hidden: true,
-    },
-    {
-      label: 'Page ID',
-      name: 'config.page_id',
-      type: FormFieldType.Text,
-      required: false,
-      hidden: true,
-    },
-    {
-      label: 'Index Recursively',
-      name: 'config.index_recursively',
-      type: FormFieldType.Checkbox,
-      required: false,
-      hidden: true,
-    },
-  ],
+  [DataSourceKey.CONFLUENCE]: confluenceConstant(t),
   [DataSourceKey.GOOGLE_DRIVE]: [
     {
       label: 'Primary Admin Email',
@@ -672,6 +610,203 @@ export const DataSourceFormFields = {
       placeholder: 'Defaults root',
     },
   ],
+  [DataSourceKey.AIRTABLE]: [
+    {
+      label: 'Access Token',
+      name: 'config.credentials.airtable_access_token',
+      type: FormFieldType.Password,
+      required: true,
+    },
+    {
+      label: 'Base ID',
+      name: 'config.base_id',
+      type: FormFieldType.Text,
+      required: true,
+    },
+    {
+      label: 'Table Name OR ID',
+      name: 'config.table_name_or_id',
+      type: FormFieldType.Text,
+      required: true,
+    },
+  ],
+  [DataSourceKey.GITLAB]: [
+    {
+      label: 'Project Owner',
+      name: 'config.project_owner',
+      type: FormFieldType.Text,
+      required: true,
+    },
+    {
+      label: 'Project Name',
+      name: 'config.project_name',
+      type: FormFieldType.Text,
+      required: true,
+    },
+    {
+      label: 'GitLab Personal Access Token',
+      name: 'config.credentials.gitlab_access_token',
+      type: FormFieldType.Password,
+      required: true,
+    },
+    {
+      label: 'GitLab URL',
+      name: 'config.gitlab_url',
+      type: FormFieldType.Text,
+      required: true,
+      placeholder: 'https://gitlab.com',
+    },
+    {
+      label: 'include Merge Requests',
+      name: 'config.include_mrs',
+      type: FormFieldType.Checkbox,
+      required: false,
+      defaultValue: true,
+    },
+    {
+      label: 'include Issues',
+      name: 'config.include_issues',
+      type: FormFieldType.Checkbox,
+      required: false,
+      defaultValue: true,
+    },
+    {
+      label: 'include Code Files',
+      name: 'config.include_code_files',
+      type: FormFieldType.Checkbox,
+      required: false,
+      defaultValue: true,
+    },
+  ],
+  [DataSourceKey.ASANA]: [
+    {
+      label: 'API Token',
+      name: 'config.credentials.asana_api_token_secret',
+      type: FormFieldType.Password,
+      required: true,
+    },
+    {
+      label: 'Workspace ID',
+      name: 'config.asana_workspace_id',
+      type: FormFieldType.Text,
+      required: true,
+    },
+    {
+      label: 'Project IDs',
+      name: 'config.asana_project_ids',
+      type: FormFieldType.Text,
+      required: false,
+    },
+    {
+      label: 'Team ID',
+      name: 'config.asana_team_id',
+      type: FormFieldType.Text,
+      required: false,
+    },
+  ],
+  [DataSourceKey.GITHUB]: [
+    {
+      label: 'Repository Owner',
+      name: 'config.repository_owner',
+      type: FormFieldType.Text,
+      required: true,
+    },
+    {
+      label: 'Repository Name',
+      name: 'config.repository_name',
+      type: FormFieldType.Text,
+      required: true,
+    },
+    {
+      label: 'GitHub Access Token',
+      name: 'config.credentials.github_access_token',
+      type: FormFieldType.Password,
+      required: true,
+    },
+    {
+      label: 'Inlcude Pull Requests',
+      name: 'config.include_pull_requests',
+      type: FormFieldType.Checkbox,
+      required: false,
+      defaultValue: false,
+    },
+    {
+      label: 'Inlcude Issues',
+      name: 'config.include_issues',
+      type: FormFieldType.Checkbox,
+      required: false,
+      defaultValue: false,
+    },
+  ],
+  [DataSourceKey.IMAP]: [
+    {
+      label: 'Username',
+      name: 'config.credentials.imap_username',
+      type: FormFieldType.Text,
+      required: true,
+    },
+    {
+      label: 'Password',
+      name: 'config.credentials.imap_password',
+      type: FormFieldType.Password,
+      required: true,
+    },
+    {
+      label: 'Host',
+      name: 'config.imap_host',
+      type: FormFieldType.Text,
+      required: true,
+    },
+    {
+      label: 'Port',
+      name: 'config.imap_port',
+      type: FormFieldType.Number,
+      required: true,
+    },
+    {
+      label: 'Mailboxes',
+      name: 'config.imap_mailbox',
+      type: FormFieldType.Tag,
+      required: false,
+    },
+    {
+      label: 'Poll Range',
+      name: 'config.poll_range',
+      type: FormFieldType.Number,
+      required: false,
+    },
+  ],
+  [DataSourceKey.BITBUCKET]: bitbucketConstant(t),
+  [DataSourceKey.ZENDESK]: [
+    {
+      label: 'Zendesk Domain',
+      name: 'config.credentials.zendesk_subdomain',
+      type: FormFieldType.Text,
+      required: true,
+    },
+    {
+      label: 'Zendesk Email',
+      name: 'config.credentials.zendesk_email',
+      type: FormFieldType.Text,
+      required: true,
+    },
+    {
+      label: 'Zendesk Token',
+      name: 'config.credentials.zendesk_token',
+      type: FormFieldType.Password,
+      required: true,
+    },
+    {
+      label: 'Content',
+      name: 'config.zendesk_content_type',
+      type: FormFieldType.Segmented,
+      required: true,
+      options: [
+        { label: 'Articles', value: 'articles' },
+        { label: 'Tickets', value: 'tickets' },
+      ],
+    },
+  ],
 };
 
 export const DataSourceFormDefaultValues = {
@@ -733,6 +868,7 @@ export const DataSourceFormDefaultValues = {
       wiki_base: '',
       is_cloud: true,
       space: '',
+      page_id: '',
       credentials: {
         confluence_username: '',
         confluence_access_token: '',
@@ -855,6 +991,100 @@ export const DataSourceFormDefaultValues = {
       folder_id: '0',
       credentials: {
         box_tokens: '',
+      },
+    },
+  },
+  [DataSourceKey.AIRTABLE]: {
+    name: '',
+    source: DataSourceKey.AIRTABLE,
+    config: {
+      name: '',
+      base_id: '',
+      table_name_or_id: '',
+      credentials: {
+        airtable_access_token: '',
+      },
+    },
+  },
+  [DataSourceKey.GITLAB]: {
+    name: '',
+    source: DataSourceKey.GITLAB,
+    config: {
+      project_owner: '',
+      project_name: '',
+      gitlab_url: 'https://gitlab.com',
+      include_mrs: true,
+      include_issues: true,
+      include_code_files: true,
+      credentials: {
+        gitlab_access_token: '',
+      },
+    },
+  },
+  [DataSourceKey.ASANA]: {
+    name: '',
+    source: DataSourceKey.ASANA,
+    config: {
+      name: '',
+      asana_workspace_id: '',
+      asana_project_ids: '',
+      asana_team_id: '',
+      credentials: {
+        asana_api_token_secret: '',
+      },
+    },
+  },
+  [DataSourceKey.GITHUB]: {
+    name: '',
+    source: DataSourceKey.GITHUB,
+    config: {
+      repository_owner: '',
+      repository_name: '',
+      include_pull_requests: false,
+      include_issues: false,
+      credentials: {
+        github_access_token: '',
+      },
+    },
+  },
+  [DataSourceKey.IMAP]: {
+    name: '',
+    source: DataSourceKey.IMAP,
+    config: {
+      name: '',
+      imap_host: '',
+      imap_port: 993,
+      imap_mailbox: [],
+      poll_range: 30,
+      credentials: {
+        imap_username: '',
+        imap_password: '',
+      },
+    },
+  },
+  [DataSourceKey.BITBUCKET]: {
+    name: '',
+    source: DataSourceKey.BITBUCKET,
+    config: {
+      workspace: '',
+      index_mode: 'workspace',
+      repository_slugs: '',
+      projects: '',
+    },
+    credentials: {
+      bitbucket_api_token: '',
+    },
+  },
+  [DataSourceKey.ZENDESK]: {
+    name: '',
+    source: DataSourceKey.ZENDESK,
+    config: {
+      name: '',
+      zendesk_content_type: 'articles',
+      credentials: {
+        zendesk_subdomain: '',
+        zendesk_email: '',
+        zendesk_token: '',
       },
     },
   },

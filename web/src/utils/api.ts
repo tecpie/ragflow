@@ -80,6 +80,7 @@ export default {
   getMetaData: `${api_host}/document/metadata/summary`,
   updateMetaData: `${api_host}/document/metadata/update`,
   kbUpdateMetaData: `${api_host}/kb/update_metadata_setting`,
+  documentUpdateMetaData: `${api_host}/document/update_metadata_setting`,
 
   // tags
   listTag: (knowledgeId: string) => `${api_host}/kb/${knowledgeId}/tags`,
@@ -238,7 +239,7 @@ export default {
   createMemory: `${api_host}/memories`,
   getMemoryList: `${api_host}/memories`,
   getMemoryConfig: (id: string) => `${api_host}/memories/${id}/config`,
-  deleteMemory: (id: string) => `${api_host}/memory/rm/${id}`,
+  deleteMemory: (id: string) => `${api_host}/memories/${id}`,
   getMemoryDetail: (id: string) => `${api_host}/memories/${id}`,
   updateMemorySetting: (id: string) => `${api_host}/memories/${id}`,
   deleteMemoryMessage: (data: { memory_id: string; message_id: string }) =>
