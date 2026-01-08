@@ -1,5 +1,7 @@
 import { useTranslate } from '@/hooks/common-hooks';
-import { MenuProps, Space } from 'antd';
+import { DownOutlined, GithubOutlined } from '@ant-design/icons';
+import { Dropdown, MenuProps, Space } from 'antd';
+import camelCase from 'lodash/camelCase';
 import React, { useCallback, useMemo } from 'react';
 import User from '../user';
 
@@ -11,8 +13,8 @@ import {
   useListTenant,
 } from '@/hooks/use-user-setting-request';
 import { TenantRole } from '@/pages/user-setting/constants';
-import { BellRing } from 'lucide-react';
-import { useNavigate } from 'umi';
+import { BellRing, CircleHelp, MoonIcon, SunIcon } from 'lucide-react';
+import { useNavigate } from 'react-router';
 import styled from './index.less';
 
 const Circle = ({ children, ...restProps }: React.PropsWithChildren) => {
@@ -72,7 +74,7 @@ const RightToolBar = () => {
   return (
     <div className={styled.toolbarWrapper}>
       <Space wrap size={16}>
-        {/* <Dropdown menu={{ items, onClick: handleItemClick }} placement="bottom">
+        <Dropdown menu={{ items, onClick: handleItemClick }} placement="bottom">
           <Space className={styled.language}>
             <b>{t(camelCase(language))}</b>
             <DownOutlined />
@@ -90,12 +92,12 @@ const RightToolBar = () => {
           ) : (
             <SunIcon onClick={onSunClick} size={20} />
           )}
-        </Circle> */}
+        </Circle>
         {showBell && (
           <Circle>
             <div className="relative" onClick={handleBellClick}>
               <BellRing className="size-4 " />
-              <span className="absolute bg-red-600 rounded size-1 -right-1 -top-1"></span>
+              <span className="absolute size-1 rounded -right-1 -top-1 bg-red-600"></span>
             </div>
           </Circle>
         )}

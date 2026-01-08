@@ -66,7 +66,7 @@ RUN if [ "$NEED_MIRROR" == "1" ]; then \
         echo "default = true" >> /etc/uv/uv.toml; \
     fi; \
     pipx install uv \
-    uv python install 3.11
+    uv python install 3.12
 
 ENV PYTHONDONTWRITEBYTECODE=1 DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
 ENV PATH=/root/.local/bin:$PATH

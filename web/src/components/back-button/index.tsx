@@ -2,7 +2,7 @@ import { cn } from '@/lib/utils';
 import { t } from 'i18next';
 import { ArrowBigLeft } from 'lucide-react';
 import React from 'react';
-import { useNavigate } from 'umi';
+import { useNavigate } from 'react-router';
 import { Button } from '../ui/button';
 
 interface BackButtonProps
