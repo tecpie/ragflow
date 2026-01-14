@@ -48,6 +48,7 @@ from api.utils.validation_utils import (
     validate_and_parse_request_args,
 )
 from rag.nlp import search
+from rag.utils.redis_conn import REDIS_CONN
 from common.constants import PAGERANK_FLD
 from common import settings
 
@@ -688,3 +689,12 @@ def trace_raptor(tenant_id,dataset_id):
         return get_error_data_result(message="RAPTOR Task Not Found or Error Occurred")
 
     return get_result(data=task.to_dict())
+
+@manager.route('/cancel/<task_id>', methods=['PUT'])  # noqa: F821
+@token_required
+def cancel(tenant_id,task_id):
+    try:
+        REDIS_CONN.set(f"{task_id}-cancel", "x")
+    except Exception as e:
+        logging.exception(e)
+    return get_result(data=True)
