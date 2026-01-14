@@ -49,7 +49,7 @@ RUN --mount=type=cache,id=ragflow_apt,target=/var/cache/apt,sharing=locked \
     apt install -y libatk-bridge2.0-0 && \
     apt install -y libpython3-dev libgtk-4-1 libnss3 xdg-utils libgbm-dev && \
     apt install -y libjemalloc-dev && \
-    apt install -y python3-pip pipx nginx unzip curl wget git vim less && \
+    apt install -y nginx unzip curl wget git vim less && \
     apt install -y ghostscript && \
     apt install -y pandoc && \
     apt install -y texlive && \
@@ -57,16 +57,20 @@ RUN --mount=type=cache,id=ragflow_apt,target=/var/cache/apt,sharing=locked \
     apt install -y fonts-freefont-ttf fonts-noto-cjk
 
 # Install uv
-RUN if [ "$NEED_MIRROR" == "1" ]; then \
-        pip3 config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && \
-        pip3 config set global.trusted-host pypi.tuna.tsinghua.edu.cn; \
+RUN --mount=type=bind,from=infiniflow/ragflow_deps:latest,source=/,target=/deps \
+    if [ "$NEED_MIRROR" == "1" ]; then \
         mkdir -p /etc/uv && \
-        echo "[[index]]" > /etc/uv/uv.toml && \
+        echo 'python-install-mirror = "https://registry.npmmirror.com/-/binary/python-build-standalone/"' > /etc/uv/uv.toml && \
+        echo '[[index]]' >> /etc/uv/uv.toml && \
         echo 'url = "https://pypi.tuna.tsinghua.edu.cn/simple"' >> /etc/uv/uv.toml && \
-        echo "default = true" >> /etc/uv/uv.toml; \
+        echo 'default = true' >> /etc/uv/uv.toml; \
     fi; \
-    pipx install uv \
-    uv python install 3.12
+    arch="$(uname -m)"; \
+    if [ "$arch" = "x86_64" ]; then uv_arch="x86_64"; else uv_arch="aarch64"; fi; \
+    tar xzf "/deps/uv-${uv_arch}-unknown-linux-gnu.tar.gz" \
+    && cp "uv-${uv_arch}-unknown-linux-gnu/"* /usr/local/bin/ \
+    && rm -rf "uv-${uv_arch}-unknown-linux-gnu" \
+    && uv python install 3.12
 
 ENV PYTHONDONTWRITEBYTECODE=1 DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
 ENV PATH=/root/.local/bin:$PATH
@@ -186,7 +190,6 @@ COPY deepdoc deepdoc
 COPY rag rag
 COPY agent agent
 COPY graphrag graphrag
-COPY agentic_reasoning agentic_reasoning
 COPY pyproject.toml uv.lock ./
 COPY mcp mcp
 COPY plugin plugin

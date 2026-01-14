@@ -19,11 +19,8 @@ import re
 from collections import defaultdict
 from io import BytesIO
 
+from PIL import Image
 from PyPDF2 import PdfReader as pdf2_read
-import tempfile
-import subprocess
-import os
-import pdfplumber
 
 from deepdoc.parser import PdfParser, PptParser, PlainParser
 from rag.app.naive import by_plaintext, PARSERS
@@ -37,26 +34,20 @@ class Ppt(PptParser):
         txts = super().__call__(fnm, from_page, to_page)
 
         callback(0.5, "Text extraction finished.")
-        with tempfile.NamedTemporaryFile(suffix='.pptx') as tmp_input:
-            tmp_input.write(
-                fnm if isinstance(fnm, bytes) else open(fnm, 'rb').read())
-            input_path = tmp_input.name
-            with tempfile.TemporaryDirectory() as tmp_dir:
-                cmd = [
-                    "libreoffice",
-                    "--headless",
-                    "--convert-to", "pdf",
-                    "--outdir", tmp_dir,
-                    input_path
-                ]
-                subprocess.run(cmd, check=True, capture_output=True)
-                pdf_name = os.path.splitext(os.path.basename(input_path))[0] + '.pdf'
-                pdf_path = os.path.join(tmp_dir, pdf_name)
-                with pdfplumber.open(pdf_path) as pdf:
-                    imgs = [p.to_image(resolution=72).annotated for i, p in enumerate(pdf.pages[from_page:to_page])]
-        assert len(imgs) == len(
-            txts), "Slides text and image do not match: {} vs. {}".format(
-            len(imgs), len(txts))
+        import aspose.slides as slides
+        import aspose.pydrawing as drawing
+
+        imgs = []
+        with slides.Presentation(BytesIO(fnm)) as presentation:
+            for i, slide in enumerate(presentation.slides[from_page:to_page]):
+                try:
+                    with BytesIO() as buffered:
+                        slide.get_thumbnail(0.1, 0.1).save(buffered, drawing.imaging.ImageFormat.jpeg)
+                        buffered.seek(0)
+                        imgs.append(Image.open(buffered).copy())
+                except RuntimeError as e:
+                    raise RuntimeError(f"ppt parse error at page {i + 1}, original error: {str(e)}") from e
+        assert len(imgs) == len(txts), "Slides text and image do not match: {} vs. {}".format(len(imgs), len(txts))
         callback(0.9, "Image extraction finished")
         self.is_english = is_english(txts)
         return [(txts[i], imgs[i]) for i in range(len(txts))]
@@ -66,12 +57,10 @@ class Pdf(PdfParser):
     def __init__(self):
         super().__init__()
 
-    def __call__(self, filename, binary=None, from_page=0,
-                 to_page=100000, zoomin=3, callback=None, **kwargs):
+    def __call__(self, filename, binary=None, from_page=0, to_page=100000, zoomin=3, callback=None, **kwargs):
         # 1. OCR
         callback(msg="OCR started")
-        self.__images__(filename if not binary else binary, zoomin, from_page,
-                        to_page, callback)
+        self.__images__(filename if not binary else binary, zoomin, from_page, to_page, callback)
 
         # 2. Layout Analysis
         callback(msg="Layout Analysis")
@@ -96,12 +85,7 @@ class Pdf(PdfParser):
             global_page_num = b["page_number"] + from_page
             if not (from_page < global_page_num <= to_page + from_page):
                 continue
-            page_items[global_page_num].append({
-                "top": b["top"],
-                "x0": b["x0"],
-                "text": b["text"],
-                "type": "text"
-            })
+            page_items[global_page_num].append({"top": b["top"], "x0": b["x0"], "text": b["text"], "type": "text"})
 
         # (B) Add table and figure
         for (img, content), positions in tbls:
@@ -132,12 +116,7 @@ class Pdf(PdfParser):
             top = positions[0][3]
             left = positions[0][1]
 
-            page_items[current_page_num].append({
-                "top": top,
-                "x0": left,
-                "text": final_text,
-                "type": "table_or_figure"
-            })
+            page_items[current_page_num].append({"top": top, "x0": left, "text": final_text, "type": "table_or_figure"})
 
         # 7. Generate result
         res = []
@@ -158,18 +137,16 @@ class Pdf(PdfParser):
 
 
 class PlainPdf(PlainParser):
-    def __call__(self, filename, binary=None, from_page=0,
-                 to_page=100000, callback=None, **kwargs):
+    def __call__(self, filename, binary=None, from_page=0, to_page=100000, callback=None, **kwargs):
         self.pdf = pdf2_read(filename if not binary else BytesIO(binary))
         page_txt = []
-        for page in self.pdf.pages[from_page: to_page]:
+        for page in self.pdf.pages[from_page:to_page]:
             page_txt.append(page.extract_text())
         callback(0.9, "Parsing finished")
         return [(txt, None) for txt in page_txt], []
 
 
-def chunk(filename, binary=None, from_page=0, to_page=100000,
-          lang="Chinese", callback=None, parser_config=None, **kwargs):
+def chunk(filename, binary=None, from_page=0, to_page=100000, lang="Chinese", callback=None, parser_config=None, **kwargs):
     """
     The supported file formats are pdf, pptx.
     Every page will be treated as a chunk. And the thumbnail of every page will be stored.
@@ -178,18 +155,12 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
     if parser_config is None:
         parser_config = {}
     eng = lang.lower() == "english"
-    doc = {
-        "docnm_kwd": filename,
-        "title_tks": rag_tokenizer.tokenize(
-            re.sub(r"\.[a-zA-Z]+$", "", filename))
-    }
+    doc = {"docnm_kwd": filename, "title_tks": rag_tokenizer.tokenize(re.sub(r"\.[a-zA-Z]+$", "", filename))}
     doc["title_sm_tks"] = rag_tokenizer.fine_grained_tokenize(doc["title_tks"])
     res = []
     if re.search(r"\.pptx?$", filename, re.IGNORECASE):
         ppt_parser = Ppt()
-        for pn, (txt, img) in enumerate(ppt_parser(
-                filename if not binary else binary, from_page, 1000000,
-                callback)):
+        for pn, (txt, img) in enumerate(ppt_parser(filename if not binary else binary, from_page, 1000000, callback)):
             d = copy.deepcopy(doc)
             pn += from_page
             d["image"] = img
@@ -201,9 +172,7 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
             res.append(d)
         return res
     elif re.search(r"\.pdf$", filename, re.IGNORECASE):
-        layout_recognizer, parser_model_name = normalize_layout_recognizer(
-            parser_config.get("layout_recognize", "DeepDOC")
-        )
+        layout_recognizer, parser_model_name = normalize_layout_recognizer(parser_config.get("layout_recognize", "DeepDOC"))
 
         if isinstance(layout_recognizer, bool):
             layout_recognizer = "DeepDOC" if layout_recognizer else "Plain Text"
@@ -222,13 +191,14 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
             pdf_cls=Pdf,
             layout_recognizer=layout_recognizer,
             mineru_llm_name=parser_model_name,
-            **kwargs
+            paddleocr_llm_name=parser_model_name,
+            **kwargs,
         )
 
         if not sections:
             return []
 
-        if name in ["tcadp", "docling", "mineru"]:
+        if name in ["tcadp", "docling", "mineru", "paddleocr"]:
             parser_config["chunk_token_num"] = 0
 
         callback(0.8, "Finish parsing.")
@@ -241,22 +211,18 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
             d["image"] = img
             d["page_num_int"] = [pn + 1]
             d["top_int"] = [0]
-            d["position_int"] = [(pn + 1, 0, img.size[0] if img else 0, 0,
-                                  img.size[1] if img else 0)]
+            d["position_int"] = [(pn + 1, 0, img.size[0] if img else 0, 0, img.size[1] if img else 0)]
             tokenize(d, txt, eng)
             res.append(d)
         return res
 
-    raise NotImplementedError(
-        "file type not supported yet(pptx, pdf supported)")
+    raise NotImplementedError("file type not supported yet(pptx, pdf supported)")
 
 
 if __name__ == "__main__":
     import sys
 
-
     def dummy(a, b):
         pass
-
 
     chunk(sys.argv[1], callback=dummy)
