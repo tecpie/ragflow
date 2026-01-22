@@ -266,7 +266,7 @@ const FloatingChatWidget = () => {
 
     // Wait for state to update, then send
     setTimeout(() => {
-      handlePressEnter([]);
+      handlePressEnter({ enableThinking: false });
       // Clear our local input after sending
       setInputValue('');
     }, 50);
