@@ -69,6 +69,7 @@ export const ManageMetadataModal = (props: IManageModalProps) => {
     builtInMetadata,
     success,
     documentIds,
+    secondTitle,
   } = props;
   const { t } = useTranslation();
   const [valueData, setValueData] = useState<IMetaDataTableData>({
@@ -290,6 +291,7 @@ export const ManageMetadataModal = (props: IManageModalProps) => {
       icon: <Trash2 />,
       onClick: async () => {
         await handleDelete();
+        setRowSelection({});
         // if (code === 0) {
         //   setRowSelection({});
         // }
@@ -315,7 +317,9 @@ export const ManageMetadataModal = (props: IManageModalProps) => {
         <>
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
-              <div>{t('knowledgeDetails.metadata.metadata')}</div>
+              <div className="w-1/2">
+                {secondTitle || t('knowledgeDetails.metadata.metadata')}
+              </div>
               <div>
                 {metadataType === MetadataType.Manage && (
                   <Button
@@ -563,7 +567,7 @@ export const ManageMetadataModal = (props: IManageModalProps) => {
           isAddValue={isAddValue || isAddValueMode}
           isShowDescription={isShowDescription}
           isShowValueSwitch={isShowValueSwitch}
-          isShowType={isSettingsMode}
+          isShowType={true}
           isVerticalShowValue={isVerticalShowValue}
           isAddValueMode={isAddValueMode}
           //   handleDeleteSingleValue={handleDeleteSingleValue}

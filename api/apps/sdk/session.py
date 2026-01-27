@@ -18,12 +18,13 @@ import copy
 import re
 import time
 
-import tiktoken
 import os
 import tempfile
 import logging
 
 from quart import Response, jsonify, request
+
+from common.token_utils import num_tokens_from_string
 
 from agent.canvas import Canvas
 from api.db.db_models import APIToken
@@ -266,7 +267,7 @@ async def chat_completion_openai_like(tenant_id, chat_id):
 
     prompt = messages[-1]["content"]
     # Treat context tokens as reasoning tokens
-    context_token_used = sum(len(message["content"]) for message in messages)
+    context_token_used = sum(num_tokens_from_string(message["content"]) for message in messages)
 
     dia = DialogService.query(tenant_id=tenant_id, id=chat_id, status=StatusEnum.VALID.value)
     if not dia:
@@ -359,7 +360,7 @@ async def chat_completion_openai_like(tenant_id, chat_id):
                     delta = ans.get("answer") or ""
                     if not delta:
                         continue
-                    token_used += len(delta)
+                    token_used += num_tokens_from_string(delta)
                     if in_think:
                         full_reasoning += delta
                         response["choices"][0]["delta"]["reasoning_content"] = delta
@@ -377,7 +378,8 @@ async def chat_completion_openai_like(tenant_id, chat_id):
             response["choices"][0]["delta"]["content"] = None
             response["choices"][0]["delta"]["reasoning_content"] = None
             response["choices"][0]["finish_reason"] = "stop"
-            response["usage"] = {"prompt_tokens": len(prompt), "completion_tokens": token_used, "total_tokens": len(prompt) + token_used}
+            prompt_tokens = num_tokens_from_string(prompt)
+            response["usage"] = {"prompt_tokens": prompt_tokens, "completion_tokens": token_used, "total_tokens": prompt_tokens + token_used}
             if need_reference:
                 reference_payload = final_reference if final_reference is not None else last_ans.get("reference", [])
                 response["choices"][0]["delta"]["reference"] = chunks_format(reference_payload)
@@ -408,12 +410,12 @@ async def chat_completion_openai_like(tenant_id, chat_id):
             "created": int(time.time()),
             "model": req.get("model", ""),
             "usage": {
-                "prompt_tokens": len(prompt),
-                "completion_tokens": len(content),
-                "total_tokens": len(prompt) + len(content),
+                "prompt_tokens": num_tokens_from_string(prompt),
+                "completion_tokens": num_tokens_from_string(content),
+                "total_tokens": num_tokens_from_string(prompt) + num_tokens_from_string(content),
                 "completion_tokens_details": {
                     "reasoning_tokens": context_token_used,
-                    "accepted_prediction_tokens": len(content),
+                    "accepted_prediction_tokens": num_tokens_from_string(content),
                     "rejected_prediction_tokens": 0,  # 0 for simplicity
                 },
             },
@@ -440,7 +442,6 @@ async def chat_completion_openai_like(tenant_id, chat_id):
 @token_required
 async def agents_completion_openai_compatibility(tenant_id, agent_id):
     req = await get_request_json()
-    tiktoken_encode = tiktoken.get_encoding("cl100k_base")
     messages = req.get("messages", [])
     if not messages:
         return get_error_data_result("You must provide at least one message.")
@@ -448,7 +449,7 @@ async def agents_completion_openai_compatibility(tenant_id, agent_id):
         return get_error_data_result(f"You don't own the agent {agent_id}")
 
     filtered_messages = [m for m in messages if m["role"] in ["user", "assistant"]]
-    prompt_tokens = sum(len(tiktoken_encode.encode(m["content"])) for m in filtered_messages)
+    prompt_tokens = sum(num_tokens_from_string(m["content"]) for m in filtered_messages)
     if not filtered_messages:
         return jsonify(
             get_data_openai(
@@ -456,7 +457,7 @@ async def agents_completion_openai_compatibility(tenant_id, agent_id):
                 content="No valid messages found (user or assistant).",
                 finish_reason="stop",
                 model=req.get("model", ""),
-                completion_tokens=len(tiktoken_encode.encode("No valid messages found (user or assistant).")),
+                completion_tokens=num_tokens_from_string("No valid messages found (user or assistant)."),
                 prompt_tokens=prompt_tokens,
             )
         )
@@ -935,6 +936,7 @@ async def chatbots_inputs(dialog_id):
             "title": dialog.name,
             "avatar": dialog.icon,
             "prologue": dialog.prompt_config.get("prologue", ""),
+            "has_tavily_key": bool(dialog.prompt_config.get("tavily_api_key", "").strip()),
         }
     )
 
@@ -1050,11 +1052,13 @@ async def retrieval_test_embedded():
     use_kg = req.get("use_kg", False)
     top = int(req.get("top_k", 1024))
     langs = req.get("cross_languages", [])
+    rerank_id = req.get("rerank_id", "")
     tenant_id = objs[0].tenant_id
     if not tenant_id:
         return get_error_data_result(message="permission denined.")
 
     async def _retrieval():
+        nonlocal similarity_threshold, vector_similarity_weight, top, rerank_id
         local_doc_ids = list(doc_ids) if doc_ids else []
         tenant_ids = []
         _question = question
@@ -1066,6 +1070,15 @@ async def retrieval_test_embedded():
             meta_data_filter = search_config.get("meta_data_filter", {})
             if meta_data_filter.get("method") in ["auto", "semi_auto"]:
                 chat_mdl = LLMBundle(tenant_id, LLMType.CHAT, llm_name=search_config.get("chat_id", ""))
+            # Apply search_config settings if not explicitly provided in request
+            if not req.get("similarity_threshold"):
+                similarity_threshold = float(search_config.get("similarity_threshold", similarity_threshold))
+            if not req.get("vector_similarity_weight"):
+                vector_similarity_weight = float(search_config.get("vector_similarity_weight", vector_similarity_weight))
+            if not req.get("top_k"):
+                top = int(search_config.get("top_k", top))
+            if not req.get("rerank_id"):
+                rerank_id = search_config.get("rerank_id", "")
         else:
             meta_data_filter = req.get("meta_data_filter") or {}
             if meta_data_filter.get("method") in ["auto", "semi_auto"]:
@@ -1095,8 +1108,8 @@ async def retrieval_test_embedded():
         embd_mdl = LLMBundle(kb.tenant_id, LLMType.EMBEDDING.value, llm_name=kb.embd_id)
 
         rerank_mdl = None
-        if req.get("rerank_id"):
-            rerank_mdl = LLMBundle(kb.tenant_id, LLMType.RERANK.value, llm_name=req["rerank_id"])
+        if rerank_id:
+            rerank_mdl = LLMBundle(kb.tenant_id, LLMType.RERANK.value, llm_name=rerank_id)
 
         if req.get("keyword", False):
             chat_mdl = LLMBundle(kb.tenant_id, LLMType.CHAT)

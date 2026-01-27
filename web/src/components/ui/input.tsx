@@ -204,6 +204,8 @@ export const InnerBlurInput = React.forwardRef<
   );
 });
 
+InnerBlurInput.displayName = 'BlurInput';
+
 if (process.env.NODE_ENV !== 'production') {
   InnerBlurInput.whyDidYouRender = true;
 }
