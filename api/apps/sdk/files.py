@@ -784,3 +784,126 @@ async def convert(tenant_id):
         return get_json_result(data=file2documents)
     except Exception as e:
         return server_error_response(e)
+
+
+@manager.route('/file/<file_id>', methods=['PUT'])  # noqa: F821
+@token_required
+async def update_file_info(tenant_id, file_id):
+    """
+    Update file name, status, and created_by, along with associated documents info.
+    ---
+    tags:
+      - File
+    security:
+      - ApiKeyAuth: []
+    parameters:
+      - in: body
+        name: body
+        description: File update parameters
+        required: true
+        schema:
+          type: object
+          properties:
+            file_id:
+              type: string
+              description: Target file ID
+            name:
+              type: string
+              description: New file name (optional)
+            status:
+              type: integer
+              description: New file status (optional)
+            created_by:
+              type: string
+              description: New created_by value (optional)
+    responses:
+      200:
+        description: File updated successfully
+        schema:
+          type: object
+          properties:
+            data:
+              type: object
+              properties:
+                file:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    name:
+                      type: string
+                    status:
+                      type: integer
+                    created_by:
+                      type: string
+
+    """
+    req = await get_request_json()
+    new_name = req.get("name")
+    new_status = req.get("status")
+    new_created_by = req.get("created_by")
+    new_meta_fields = req.get("meta_fields")
+    
+    if not file_id:
+        return get_json_result(data=False, message="File ID is required!", code=RetCode.BAD_REQUEST)
+    
+    try:
+        # Get the file
+        e, file = FileService.get_by_id(file_id)
+        if not e:
+            return get_json_result(message="File not found!", code=RetCode.NOT_FOUND)
+        
+        # Check tenant permission
+        if file.tenant_id != tenant_id:
+            return get_json_result(message="No permission to access this file!", code=RetCode.FORBIDDEN)
+        
+        update_data = {}
+        
+        # Update name if provided
+        if new_name:
+            # Check file extension consistency
+            if file.type != FileType.FOLDER.value and pathlib.Path(new_name.lower()).suffix != pathlib.Path(
+                    file.name.lower()).suffix:
+                return get_json_result(data=False, message="The extension of file can't be changed",
+                                       code=RetCode.BAD_REQUEST)
+            
+            # Check for duplicate name
+            for existing_file in FileService.query(name=new_name, pf_id=file.parent_id):
+                if existing_file.name == new_name:
+                    return get_json_result(data=False, message="Duplicated file name in the same folder.",
+                                           code=RetCode.CONFLICT)
+            
+            update_data["name"] = new_name
+        
+        # Update status if provided
+        if new_status is not None:
+            if not isinstance(new_status, int):
+                return get_json_result(data=False, message="Status must be an integer!", code=RetCode.BAD_REQUEST)
+            # Only update status if new status is greater than current status
+            if new_status > file.status:
+                update_data["status"] = new_status
+
+        # Update created_by if provided
+        if new_created_by:
+            if not isinstance(new_created_by, str):
+                return get_json_result(data=False, message="Created_by must be a string!", code=RetCode.BAD_REQUEST)
+            update_data["created_by"] = new_created_by
+
+        FileService.update_by_id(file_id, update_data)
+        if new_meta_fields:
+            update_data["meta_fields"] = new_meta_fields
+
+        # Update related documents
+        for inform in File2DocumentService.get_by_file_id(file_id):
+            doc_id = inform.document_id
+            e, doc = DocumentService.get_by_id(doc_id)
+            if e:
+                # Update document fields
+                if not DocumentService.update_by_id(doc_id, update_data):
+                    return get_json_result(message=f"Database error (Document {doc_id} update)!", code=RetCode.SERVER_ERROR)
+
+        return get_json_result()
+        
+    except Exception as e:
+        return server_error_response(e)
+

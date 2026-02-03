@@ -226,6 +226,9 @@ async def update_doc(tenant_id, dataset_id, document_id):
             enabled:
               type: boolean
               description: Document status.
+            created_by:
+              type: string
+              description: Creator user ID.
     responses:
       200:
         description: Document updated successfully.
@@ -325,6 +328,23 @@ async def update_doc(tenant_id, dataset_id, document_id):
                 settings.docStoreConn.update({"doc_id": doc.id}, {"available_int": status}, search.index_name(kb.tenant_id), doc.kb_id)
             except Exception as e:
                 return server_error_response(e)
+
+    if "created_by" in req:
+        if not isinstance(req["created_by"], str):
+            return get_error_data_result(message="created_by must be a string")
+        if req["created_by"] != doc.created_by:
+            # Update document created_by
+            if not DocumentService.update_by_id(doc.id, {"created_by": req["created_by"]}):
+                return get_error_data_result(message="Database error (Document created_by update)!")
+            
+            # Also update associated file's created_by if exists
+            informs = File2DocumentService.get_by_document_id(document_id)
+            if informs:
+                e, file = FileService.get_by_id(informs[0].file_id)
+                if e and file.created_by != req["created_by"]:
+                    FileService.update_by_id(file.id, {"created_by": req["created_by"]})
+
+    # name and created_by handling implemented with separate database calls for clarity
 
     try:
         ok, doc = DocumentService.get_by_id(doc.id)
