@@ -266,11 +266,6 @@ async def update_doc(tenant_id, dataset_id, document_id):
                 message=f"File name must be {FILE_NAME_LEN_LIMIT} bytes or less.",
                 code=RetCode.ARGUMENT_ERROR,
             )
-        if pathlib.Path(req["name"].lower()).suffix != pathlib.Path(doc.name.lower()).suffix:
-            return get_result(
-                message="The extension of file can't be changed",
-                code=RetCode.ARGUMENT_ERROR,
-            )
         for d in DocumentService.query(name=req["name"], kb_id=doc.kb_id):
             if d.name == req["name"]:
                 return get_error_data_result(message="Duplicated document name in the same dataset.")

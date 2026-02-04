@@ -861,18 +861,6 @@ async def update_file_info(tenant_id, file_id):
         
         # Update name if provided
         if new_name:
-            # Check file extension consistency
-            if file.type != FileType.FOLDER.value and pathlib.Path(new_name.lower()).suffix != pathlib.Path(
-                    file.name.lower()).suffix:
-                return get_json_result(data=False, message="The extension of file can't be changed",
-                                       code=RetCode.BAD_REQUEST)
-            
-            # Check for duplicate name
-            for existing_file in FileService.query(name=new_name, pf_id=file.parent_id):
-                if existing_file.name == new_name:
-                    return get_json_result(data=False, message="Duplicated file name in the same folder.",
-                                           code=RetCode.CONFLICT)
-            
             update_data["name"] = new_name
         
         # Update status if provided

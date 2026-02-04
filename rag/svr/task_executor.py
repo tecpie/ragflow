@@ -269,7 +269,7 @@ async def build_chunks(task, progress_callback):
         async with chunk_limiter:
             cks = await thread_pool_exec(
                 chunker.chunk,
-                task["name"],
+                task["location"],
                 binary=binary,
                 from_page=task["from_page"],
                 to_page=task["to_page"],
