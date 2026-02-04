@@ -857,11 +857,13 @@ async def update_file_info(tenant_id, file_id):
         if file.tenant_id != tenant_id:
             return get_json_result(message="No permission to access this file!", code=RetCode.FORBIDDEN)
         
-        update_data = {}
+        file_update_data = {}
+        document_update_date = {}
         
         # Update name if provided
         if new_name:
-            update_data["name"] = new_name
+            file_update_data["name"] = new_name
+            document_update_date["name"] = new_name
         
         # Update status if provided
         if new_status is not None:
@@ -869,17 +871,18 @@ async def update_file_info(tenant_id, file_id):
                 return get_json_result(data=False, message="Status must be an integer!", code=RetCode.BAD_REQUEST)
             # Only update status if new status is greater than current status
             if new_status > file.status:
-                update_data["status"] = new_status
+                file_update_data["status"] = new_status
 
         # Update created_by if provided
         if new_created_by:
             if not isinstance(new_created_by, str):
                 return get_json_result(data=False, message="Created_by must be a string!", code=RetCode.BAD_REQUEST)
-            update_data["created_by"] = new_created_by
+            file_update_data["created_by"] = new_created_by
+            document_update_date["created_by"] = new_created_by
 
-        FileService.update_by_id(file_id, update_data)
+        FileService.update_by_id(file_id, file_update_data)
         if new_meta_fields:
-            update_data["meta_fields"] = new_meta_fields
+            document_update_date["meta_fields"] = new_meta_fields
 
         # Update related documents
         for inform in File2DocumentService.get_by_file_id(file_id):
@@ -887,7 +890,7 @@ async def update_file_info(tenant_id, file_id):
             e, doc = DocumentService.get_by_id(doc_id)
             if e:
                 # Update document fields
-                if not DocumentService.update_by_id(doc_id, update_data):
+                if not DocumentService.update_by_id(doc_id, document_update_date):
                     return get_json_result(message=f"Database error (Document {doc_id} update)!", code=RetCode.SERVER_ERROR)
 
         return get_json_result()
