@@ -21,6 +21,7 @@ import json
 import re
 import pandas as pd
 import requests
+from rag.utils.file_utils import get_first_extension_filename
 from api.db.services.knowledgebase_service import KnowledgebaseService
 from rag.nlp import rag_tokenizer
 from deepdoc.parser.resume import refactor
@@ -134,7 +135,7 @@ def chunk(filename, binary=None, callback=None, **kwargs):
             v = remove_redundant_spaces(v)
         titles.append(str(v))
     doc = {
-        "docnm_kwd": filename,
+        "docnm_kwd": get_first_extension_filename(filename),
         "title_tks": rag_tokenizer.tokenize("-".join(titles) + "-简历")
     }
     doc["title_sm_tks"] = rag_tokenizer.fine_grained_tokenize(doc["title_tks"])

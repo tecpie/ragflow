@@ -19,6 +19,7 @@ import re
 from io import BytesIO
 from docx import Document
 
+from rag.utils.file_utils import get_first_extension_filename
 from common.constants import ParserType
 from deepdoc.parser.utils import get_text
 from rag.nlp import bullets_category, remove_contents_table, make_colon_as_title, tokenize_chunks, docx_question_level, tree_merge
@@ -122,7 +123,7 @@ def chunk(filename, binary=None, from_page=0, to_page=100000, lang="Chinese", ca
     Supported file formats are docx, pdf, txt.
     """
     parser_config = kwargs.get("parser_config", {"chunk_token_num": 512, "delimiter": "\n!?。；！？", "layout_recognize": "DeepDOC"})
-    doc = {"docnm_kwd": filename, "title_tks": rag_tokenizer.tokenize(re.sub(r"\.[a-zA-Z]+$", "", filename))}
+    doc = {"docnm_kwd": get_first_extension_filename(filename), "title_tks": rag_tokenizer.tokenize(re.sub(r"\.[a-zA-Z]+$", "", filename))}
     doc["title_sm_tks"] = rag_tokenizer.fine_grained_tokenize(doc["title_tks"])
     pdf_parser = None
     sections = []

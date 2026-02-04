@@ -22,6 +22,7 @@ from io import BytesIO
 from PIL import Image
 from PyPDF2 import PdfReader as pdf2_read
 
+from rag.utils.file_utils import get_first_extension_filename
 from deepdoc.parser import PdfParser, PptParser, PlainParser
 from rag.app.naive import by_plaintext, PARSERS
 from common.parser_config_utils import normalize_layout_recognizer
@@ -155,7 +156,7 @@ def chunk(filename, binary=None, from_page=0, to_page=100000, lang="Chinese", ca
     if parser_config is None:
         parser_config = {}
     eng = lang.lower() == "english"
-    doc = {"docnm_kwd": filename, "title_tks": rag_tokenizer.tokenize(re.sub(r"\.[a-zA-Z]+$", "", filename))}
+    doc = {"docnm_kwd": get_first_extension_filename(filename), "title_tks": rag_tokenizer.tokenize(re.sub(r"\.[a-zA-Z]+$", "", filename))}
     doc["title_sm_tks"] = rag_tokenizer.fine_grained_tokenize(doc["title_tks"])
     res = []
     if re.search(r"\.pptx?$", filename, re.IGNORECASE):

@@ -18,6 +18,7 @@ import logging
 import copy
 import re
 
+from rag.utils.file_utils import get_first_extension_filename
 from deepdoc.parser.figure_parser import vision_figure_parser_pdf_wrapper
 from common.constants import ParserType
 from rag.nlp import rag_tokenizer, tokenize, tokenize_table, add_positions, bullets_category, title_frequency, \
@@ -203,7 +204,7 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
     else:
         raise NotImplementedError("file type not supported yet(pdf supported)")
 
-    doc = {"docnm_kwd": filename, "authors_tks": rag_tokenizer.tokenize(paper["authors"]),
+    doc = {"docnm_kwd": get_first_extension_filename(filename), "authors_tks": rag_tokenizer.tokenize(paper["authors"]),
            "title_tks": rag_tokenizer.tokenize(paper["title"] if paper["title"] else filename)}
     doc["title_sm_tks"] = rag_tokenizer.fine_grained_tokenize(doc["title_tks"])
     doc["authors_sm_tks"] = rag_tokenizer.fine_grained_tokenize(doc["authors_tks"])

@@ -270,3 +270,24 @@ def extract_html(
             continue
 
     return None, metadata
+
+
+def get_first_extension_filename(fname):
+    """
+    只保留文件名的第一个后缀名
+    如: xxx.docx.pdf -> xxx.docx, xxx.pdf -> xxx.pdf
+    
+    Args:
+        fname (str): 原始文件名
+    
+    Returns:
+        str: 处理后的文件名，只保留第一个后缀
+    """
+    if not fname:
+        return fname
+    
+    parts = fname.split('.')
+    if len(parts) <= 2:  # 只有一个或没有后缀
+        return fname
+    # 保留文件名和第一个后缀
+    return '.'.join(parts[:2])
