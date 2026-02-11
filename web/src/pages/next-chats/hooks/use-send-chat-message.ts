@@ -90,20 +90,24 @@ export const useSendMessage = (controller: AbortController) => {
       message,
       currentConversationId,
       messages,
+      enableInternet,
+      enableThinking,
     }: {
       message: IMessage;
       currentConversationId?: string;
       messages?: IMessage[];
-    }) => {
+    } & NextMessageInputOnPressEnterParameter) => {
       const res = await send(
         {
           conversation_id: currentConversationId ?? conversationId,
           messages: [
             ...(Array.isArray(messages) && messages?.length > 0
               ? messages
-              : derivedMessages ?? []),
+              : (derivedMessages ?? [])),
             message,
           ],
+          reasoning: enableThinking,
+          internet: enableInternet,
         },
         controller,
       );
@@ -135,11 +139,10 @@ export const useSendMessage = (controller: AbortController) => {
     useCreateConversationBeforeSendMessage();
 
   const handlePressEnter = useCallback(
-    async (
-      ...[
-        { enableThinking, enableInternet },
-      ]: NextMessageInputOnPressEnterParameter
-    ) => {
+    async ({
+      enableThinking,
+      enableInternet,
+    }: NextMessageInputOnPressEnterParameter) => {
       if (trim(value) === '') return;
 
       const data = await createConversationBeforeSendMessage(value);
@@ -171,9 +174,9 @@ export const useSendMessage = (controller: AbortController) => {
             role: MessageType.User,
             files: files,
             conversationId: targetConversationId,
-            reasoning: enableThinking,
-            internet: enableInternet,
           },
+          enableInternet,
+          enableThinking,
         });
       }
       clearFiles();
