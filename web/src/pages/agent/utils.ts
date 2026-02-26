@@ -1,3 +1,4 @@
+import { FormInstance, FormListFieldData } from '@/interfaces/antd-compat';
 import {
   DSL,
   GlobalVariableType,
@@ -10,7 +11,6 @@ import { DSLComponents, RAGFlowNodeType } from '@/interfaces/database/flow';
 import { buildSelectOptions } from '@/utils/component-util';
 import { buildOptions, removeUselessFieldsFromValues } from '@/utils/form';
 import { Edge, Node, XYPosition } from '@xyflow/react';
-import { FormInstance, FormListFieldData } from 'antd';
 import { humanId } from 'human-id';
 import {
   curry,
@@ -852,7 +852,7 @@ export function buildBeginQueryWithObject(
 }
 
 export function getArrayElementType(type: string) {
-  return typeof type === 'string' ? type.match(/<([^>]+)>/)?.at(1) ?? '' : '';
+  return typeof type === 'string' ? (type.match(/<([^>]+)>/)?.at(1) ?? '') : '';
 }
 
 export function buildConversationVariableSelectOptions() {
