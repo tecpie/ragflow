@@ -821,23 +821,6 @@ async def update_file_info(tenant_id, file_id):
     responses:
       200:
         description: File updated successfully
-        schema:
-          type: object
-          properties:
-            data:
-              type: object
-              properties:
-                file:
-                  type: object
-                  properties:
-                    id:
-                      type: string
-                    name:
-                      type: string
-                    status:
-                      type: integer
-                    created_by:
-                      type: string
 
     """
     req = await get_request_json()

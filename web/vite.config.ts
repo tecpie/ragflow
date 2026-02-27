@@ -66,12 +66,12 @@ export default defineConfig(({ mode, command }) => {
       },
       proxy: {
         '/api/v1/admin': {
-          target: 'http://127.0.0.1:9381/',
+          target: 'http://172.16.0.31:9381/',
           changeOrigin: true,
           ws: true,
         },
         '/api': {
-          target: 'http://127.0.0.1:9380/',
+          target: 'http://172.16.0.31:9380/',
           changeOrigin: true,
           ws: true,
         },
