@@ -79,12 +79,27 @@ class DocumentService(CommonService):
     @classmethod
     @DB.connection_context()
     def get_list(cls, kb_id, page_number, items_per_page,
-                 orderby, desc, keywords, id, name, suffix=None, run = None, doc_ids=None):
+                 orderby, desc, keywords, id, name, suffix=None, run=None, doc_ids=None):
         fields = cls.get_cls_model_fields()
-        docs = cls.model.select(*[*fields, UserCanvas.title]).join(File2Document, on = (File2Document.document_id == cls.model.id))\
-            .join(File, on = (File.id == File2Document.file_id))\
-            .join(UserCanvas, on = ((cls.model.pipeline_id == UserCanvas.id) & (UserCanvas.canvas_category == CanvasCategory.DataFlow.value)), join_type=JOIN.LEFT_OUTER)\
-            .where(cls.model.kb_id == kb_id)
+        docs = (
+            cls.model.select(*[*fields, UserCanvas.title])
+            .join(File2Document, on=(File2Document.document_id == cls.model.id))
+            .join(File, on=(File.id == File2Document.file_id))
+            .join(
+                UserCanvas,
+                on=(
+                    (cls.model.pipeline_id == UserCanvas.id)
+                    & (UserCanvas.canvas_category == CanvasCategory.DataFlow.value)
+                ),
+                join_type=JOIN.LEFT_OUTER,
+            )
+        )
+
+        # 支持单个 kb_id 或多个 kb_id（列表）做 in 查询
+        if isinstance(kb_id, (list, tuple, set)):
+            docs = docs.where(cls.model.kb_id.in_(kb_id))
+        else:
+            docs = docs.where(cls.model.kb_id == kb_id)
         if id:
             docs = docs.where(
                 cls.model.id == id)
@@ -108,10 +123,23 @@ class DocumentService(CommonService):
             docs = docs.order_by(cls.model.getter_by(orderby).asc())
 
         count = docs.count()
-        docs = docs.paginate(page_number, items_per_page)
+
+        # 当传入多个 kb_id 且 page_number/items_per_page 为 None 时，调用方可以自行在上层做统一分页
+        if page_number and items_per_page:
+            docs = docs.paginate(page_number, items_per_page)
 
         docs_list = list(docs.dicts())
-        metadata_map = DocMetadataService.get_metadata_for_documents(None, kb_id)
+
+        # 填充 meta_fields（按 kb 维度分别查询后合并）
+        metadata_map = {}
+        if isinstance(kb_id, (list, tuple, set)):
+            for single_kb_id in kb_id:
+                mm = DocMetadataService.get_metadata_for_documents(None, single_kb_id)
+                if mm:
+                    metadata_map.update(mm)
+        else:
+            metadata_map = DocMetadataService.get_metadata_for_documents(None, kb_id)
+
         for doc in docs_list:
             doc["meta_fields"] = metadata_map.get(doc["id"], {})
         return docs_list, count
