@@ -21,6 +21,7 @@ from pathlib import Path
 
 from api.db.services.document_service import DocumentService
 from api.db.services.file2document_service import File2DocumentService
+from api.db.services.doc_metadata_service import DocMetadataService
 from api.db.services.knowledgebase_service import KnowledgebaseService
 from api.utils.api_utils import get_json_result, get_request_json, server_error_response, token_required
 from common.misc_utils import get_uuid, thread_pool_exec
@@ -866,8 +867,6 @@ async def update_file_info(tenant_id, file_id):
             document_update_date["created_by"] = new_created_by
 
         FileService.update_by_id(file_id, file_update_data)
-        if new_meta_fields:
-            document_update_date["meta_fields"] = new_meta_fields
 
         # Update related documents
         for inform in File2DocumentService.get_by_file_id(file_id):
@@ -877,7 +876,8 @@ async def update_file_info(tenant_id, file_id):
                 # Update document fields
                 if not DocumentService.update_by_id(doc_id, document_update_date):
                     return get_json_result(message=f"Database error (Document {doc_id} update)!", code=RetCode.SERVER_ERROR)
-
+                if new_meta_fields:
+                    DocMetadataService.update_document_metadata(doc_id, new_meta_fields)
         return get_json_result()
         
     except Exception as e:
