@@ -21,6 +21,7 @@ from api.utils.api_utils import token_required
 from api.db.services.user_service import TenantService
 from api.utils.api_utils import (
     get_data_error_result,
+    get_request_json,
     get_json_result,
     server_error_response,
     validate_request,
@@ -66,8 +67,7 @@ def tenant_info(tenant_id):
 
 @manager.route("/set_tenant_info", methods=["POST"])  # noqa: F821
 @token_required
-@validate_request("asr_id", "embd_id", "img2txt_id", "llm_id")
-def set_tenant_info(tenant_id):
+async def set_tenant_info(tenant_id):
     """
     Update tenant information.
     ---
@@ -101,7 +101,7 @@ def set_tenant_info(tenant_id):
         schema:
           type: object
     """
-    req = request.json
+    req = await get_request_json()
     try:
         TenantService.update_by_id(tenant_id, req)
         return get_json_result(data=True)
