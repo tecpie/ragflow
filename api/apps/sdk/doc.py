@@ -1285,6 +1285,8 @@ async def list_chunks(tenant_id, dataset_id, document_id):
         "question": question,
         "sort": True,
     }
+    if "available_int" in req:
+        query["available_int"] = int(req["available"])
     key_mapping = {
         "chunk_num": "chunk_count",
         "kb_id": "dataset_id",
