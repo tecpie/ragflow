@@ -789,6 +789,103 @@ async def convert(tenant_id):
         return server_error_response(e)
 
 
+@manager.route('/file/share', methods=['POST'])  # noqa: F821
+@token_required
+async def share(tenant_id):
+    """
+    Share files to target knowledge bases. Does not remove documents from source KBs.
+    If a file already exists in a target KB, that target is skipped.
+    ---
+    tags:
+      - File
+    security:
+      - ApiKeyAuth: []
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            file_ids:
+              type: array
+              items:
+                type: string
+              description: List of file IDs to share
+            kb_ids:
+              type: array
+              items:
+                type: string
+              description: List of knowledge base IDs to share to
+    responses:
+      200:
+        description: New file2document records created (existing in target KB are skipped)
+    """
+    req = await get_request_json()
+    kb_ids = req.get("kb_ids")
+    file_ids = req.get("file_ids")
+    if not file_ids or not kb_ids:
+        return get_json_result(
+            data=False,
+            message='Missing "file_ids" or "kb_ids"',
+            code=RetCode.ARGUMENT_ERROR,
+        )
+    file2documents = []
+
+    try:
+        files = FileService.get_by_ids(file_ids)
+        files_set = {f.id: f for f in files}
+        for file_id in file_ids:
+            file = files_set.get(file_id)
+            if not file:
+                return get_json_result(message="File not found!", code=RetCode.NOT_FOUND)
+            file_ids_list = [file_id]
+            if file.type == FileType.FOLDER.value:
+                file_ids_list = FileService.get_all_innermost_file_ids(file_id, [])
+            for id in file_ids_list:
+                existing_kb_ids = set()
+                for inform in File2DocumentService.get_by_file_id(id):
+                    e, doc = DocumentService.get_by_id(inform.document_id)
+                    if not e and doc:
+                        existing_kb_ids.add(doc.kb_id)
+
+                for kb_id in kb_ids:
+                    if kb_id in existing_kb_ids:
+                        continue
+                    e, kb = KnowledgebaseService.get_by_id(kb_id)
+                    if not e:
+                        return get_json_result(
+                            message="Can't find this dataset!", code=RetCode.NOT_FOUND
+                        )
+                    e, file = FileService.get_by_id(id)
+                    if not e:
+                        return get_json_result(
+                            message="Can't find this file!", code=RetCode.NOT_FOUND
+                        )
+
+                    doc = DocumentService.insert({
+                        "id": get_uuid(),
+                        "kb_id": kb.id,
+                        "parser_id": FileService.get_parser(file.type, file.name, kb.parser_id),
+                        "parser_config": kb.parser_config,
+                        "created_by": tenant_id,
+                        "type": file.type,
+                        "name": file.name,
+                        "suffix": Path(file.name).suffix.lstrip("."),
+                        "location": file.location,
+                        "size": file.size
+                    })
+                    file2document = File2DocumentService.insert({
+                        "id": get_uuid(),
+                        "file_id": id,
+                        "document_id": doc.id,
+                    })
+                    file2documents.append(file2document.to_json())
+        return get_json_result(data=file2documents)
+    except Exception as e:
+        return server_error_response(e)
+
+
 @manager.route('/file/<file_id>', methods=['PUT'])  # noqa: F821
 @token_required
 async def update_file_info(tenant_id, file_id):
