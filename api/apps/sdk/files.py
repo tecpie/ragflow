@@ -125,11 +125,9 @@ async def upload(tenant_id):
                                                         len_id_list)
 
             filetype = filename_type(file_obj_names[file_len - 1])
-            location = file_obj_names[file_len - 1]
-            while settings.STORAGE_IMPL.obj_exist(last_folder.id, location):
-                location += "_"
-            blob = file_obj.read()
             filename = duplicate_name(FileService.query, name=file_obj_names[file_len - 1], parent_id=last_folder.id)
+            location = filename
+            blob = file_obj.read()
 
             file = {
                 "id": get_uuid(),
