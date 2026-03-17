@@ -673,6 +673,20 @@ def test_rm_chunk_delete_exception_partial_compensation_and_cleanup_unit(monkeyp
     res = _run(module.rm())
     assert res["message"] == "Document not found!", res
 
+    _set_request_json(monkeypatch, module, {"doc_id": "doc-1", "chunk_ids": []})
+    monkeypatch.setattr(
+        module.DocumentService,
+        "get_by_id",
+        lambda _doc_id: (_ for _ in ()).throw(AssertionError("get_by_id must not run for empty delete payload")),
+    )
+    monkeypatch.setattr(
+        module.settings.docStoreConn,
+        "delete",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("delete must not run for empty delete payload")),
+    )
+    res = _run(module.rm())
+    assert res["code"] == 0, res
+
     monkeypatch.setattr(module.DocumentService, "get_by_id", lambda _doc_id: (True, _DummyDoc()))
 
     def _raise_delete(*_args, **_kwargs):
@@ -832,6 +846,9 @@ def test_retrieval_test_branch_matrix_unit(monkeypatch):
             return {"id": "kg-2", "content_with_weight": ""}
 
     monkeypatch.setattr(module, "LLMBundle", lambda *args, **kwargs: llm_calls.append((args, kwargs)) or SimpleNamespace())
+    monkeypatch.setattr(module, "get_model_config_by_type_and_name", lambda *_args, **_kwargs: {"llm_name": "stub-model", "model_type": "chat"})
+    monkeypatch.setattr(module, "get_tenant_default_model_by_type", lambda *_args, **_kwargs: {"llm_name": "stub-model", "model_type": "chat"})
+    monkeypatch.setattr(module, "get_model_config_by_id", lambda *_args, **_kwargs: {"llm_name": "stub-model", "model_type": "embedding"})
     monkeypatch.setattr(module.DocMetadataService, "get_flatted_meta_by_kbs", lambda _kb_ids: [{"meta": "v"}], raising=False)
     monkeypatch.setattr(module, "apply_meta_data_filter", _apply_filter)
     monkeypatch.setattr(module.SearchService, "get_detail", lambda _sid: {"search_config": {"meta_data_filter": {"method": "auto"}, "chat_id": "chat-1"}}, raising=False)

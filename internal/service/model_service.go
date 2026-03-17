@@ -80,18 +80,18 @@ func (p *ModelProviderImpl) GetEmbeddingModel(ctx context.Context, tenantID stri
 	}
 
 	apiKey := embeddingModel.APIKey
-	if apiKey == "" {
+	if apiKey == nil || *apiKey == "" {
 		return nil, fmt.Errorf("no API key found for tenant %s and model %s", tenantID, compositeModelName)
 	}
 	// Always get API base from model provider configuration
 	providerDAO := dao.NewModelProviderDAO()
 	providerConfig := providerDAO.GetProviderByName(provider)
-	if providerConfig == nil || providerConfig.DefaultEmbeddingURL == "" {
+	if providerConfig == nil || providerConfig.DefaultURL == "" {
 		return nil, fmt.Errorf("no API base found for provider %s", provider)
 	}
-	apiBase := providerConfig.DefaultEmbeddingURL
+	apiBase := fmt.Sprintf("%sembeddings/", providerConfig.DefaultURL)
 
-	return models.CreateEmbeddingModel(provider, apiKey, apiBase, modelName, p.httpClient)
+	return models.CreateEmbeddingModel(provider, *apiKey, apiBase, modelName, p.httpClient)
 }
 
 // GetChatModel returns a chat model for the given tenant

@@ -20,6 +20,7 @@ export default {
       chinese: 'Chino simplificado',
       traditionalChinese: 'Chino tradicional',
       bulgarian: 'Búlgaro',
+      arabic: 'Árabe',
       language: 'Idioma',
       languageMessage: '¡Por favor ingresa tu idioma!',
       languagePlaceholder: 'Selecciona tu idioma',
@@ -472,6 +473,8 @@ export default {
       apiVersionMessage: '¡Por favor ingresa la versión de la API!',
       modelsToBeAddedTooltip:
         'Si tu proveedor de modelos no aparece en la lista pero afirma ser compatible con OpenAI, selecciona la tarjeta OpenAI-API-compatible para añadir el/los modelo(s) correspondiente(s).',
+      dingtalkAITableDescription:
+        'Conéctese a Dingtalk AI Table y sincronice registros de una tabla especificada.',
     },
     message: {
       registered: '¡Registrado!',
@@ -522,13 +525,13 @@ export default {
       directory: 'Directorio',
       uploadTitle: 'Haz clic o arrastra el archivo a esta área para subir',
       uploadDescription:
-        'RAGFlow admite la carga de archivos de forma individual o por lotes. Para un RAGFlow desplegado localmente: el límite total de tamaño de archivo por carga es de 1 GB, con un límite de carga por lote de 32 archivos. No hay límite en el número total de archivos por cuenta. Para demo.ragflow.io: el límite total de tamaño de archivo por carga es de 10 MB, con cada archivo no excediendo los 10 MB y un máximo de 128 archivos por cuenta.',
+        'RAGFlow admite la carga de archivos de forma individual o por lotes. Para un RAGFlow desplegado localmente: el límite total de tamaño de archivo por carga es de 1 GB, con un límite de carga por lote de 32 archivos. No hay límite en el número total de archivos por cuenta. Para cloud.ragflow.io: el límite total de tamaño de archivo por carga es de 10 MB, con cada archivo no excediendo los 10 MB y un máximo de 128 archivos por cuenta.',
       local: 'Subidas locales',
       s3: 'Subidas a S3',
       preview: 'Vista previa',
       fileError: 'Error en el archivo',
       uploadLimit:
-        'RAGFlow admite la carga de archivos de forma individual o por lotes. Para un RAGFlow desplegado localmente: el límite total de tamaño de archivo por carga es de 1 GB, con un límite de carga por lote de 32 archivos. No hay límite en el número total de archivos por cuenta. Para demo.ragflow.io: el límite total de tamaño de archivo por carga es de 10 MB, con cada archivo no excediendo los 10 MB y un máximo de 128 archivos por cuenta.',
+        'RAGFlow admite la carga de archivos de forma individual o por lotes. Para un RAGFlow desplegado localmente: el límite total de tamaño de archivo por carga es de 1 GB, con un límite de carga por lote de 32 archivos. No hay límite en el número total de archivos por cuenta. Para cloud.ragflow.io: el límite total de tamaño de archivo por carga es de 10 MB, con cada archivo no excediendo los 10 MB y un máximo de 128 archivos por cuenta.',
       destinationFolder: 'Carpeta de destino',
     },
     flow: {
@@ -933,6 +936,13 @@ export default {
       file: 'Archivo',
       knowledge: 'Conocimiento',
       chat: 'Chat',
+    },
+    language: {
+      english: 'Ingles',
+      chinese: 'Chino',
+      russian: 'Ruso',
+      bulgarian: 'Búlgaro',
+      arabic: 'Árabe',
     },
   },
 };

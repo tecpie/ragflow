@@ -146,8 +146,8 @@ const routeConfigOptions = [
   {
     path: Routes.Root,
     layout: false,
-    Component: () => import('@/layouts/next'),
-    loader: ({ request }) => {
+    Component: () => import('@/layouts/root-layout'),
+    loader: ({ request }: { request: Request }) => {
       const url = new URL(request.url);
       const auth = url.searchParams.get('auth');
       if (auth) {
@@ -170,7 +170,7 @@ const routeConfigOptions = [
   },
   {
     path: Routes.Root,
-    Component: () => import('@/layouts/next'),
+    Component: () => import('@/layouts/root-layout'),
     children: [
       {
         path: Routes.Datasets,
@@ -261,10 +261,12 @@ const routeConfigOptions = [
             path: `${Routes.UserSetting}/profile`,
             Component: () => import('@/pages/user-setting/profile'),
           },
+          /*
           {
             path: `${Routes.UserSetting}/locale`,
             Component: () => import('@/pages/user-setting/setting-locale'),
           },
+          */
           {
             path: `${Routes.UserSetting}/model`,
             Component: () => import('@/pages/user-setting/setting-model'),
@@ -281,16 +283,18 @@ const routeConfigOptions = [
             path: `${Routes.UserSetting}${Routes.Mcp}`,
             Component: () => import('@/pages/user-setting/mcp'),
           },
-          {
-            path: `${Routes.UserSetting}${Routes.DataSource}${Routes.DataSourceDetailPage}`,
-            Component: () =>
-              import('@/pages/user-setting/data-source/data-source-detail-page'),
-          },
+
           {
             path: `${Routes.UserSetting}${Routes.DataSource}`,
             Component: () => import('@/pages/user-setting/data-source'),
           },
         ],
+      },
+      {
+        path: `${Routes.UserSetting}${Routes.DataSource}${Routes.DataSourceDetailPage}`,
+        layout: false,
+        Component: () =>
+          import('@/pages/user-setting/data-source/data-source-detail-page'),
       },
     ],
   },

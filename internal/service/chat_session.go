@@ -113,8 +113,8 @@ func (s *ChatSessionService) SetChatSession(userID string, req *SetChatSessionRe
 		}
 	}
 
-	now := time.Now()
-	createTime := now.UnixMilli()
+	now := time.Now().Truncate(time.Second)
+	createTime := time.Now().UnixMilli()
 
 	// Create initial message - store as JSON object with messages array
 	messagesObj := map[string]interface{}{
@@ -139,7 +139,7 @@ func (s *ChatSessionService) SetChatSession(userID string, req *SetChatSessionRe
 		UserID:    &userID,
 		Reference: referenceJSON,
 	}
-	session.CreateTime = createTime
+	session.CreateTime = &createTime
 	session.CreateDate = &now
 	session.UpdateTime = &createTime
 	session.UpdateDate = &now

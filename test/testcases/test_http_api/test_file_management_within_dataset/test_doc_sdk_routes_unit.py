@@ -220,6 +220,11 @@ def _load_doc_module(monkeypatch):
     
     tenant_llm_service_mod.TenantService = _StubTenantService
     tenant_llm_service_mod.TenantLLMService = _StubTenantLLMService
+
+    class _StubLLMFactoriesService:
+        pass
+
+    tenant_llm_service_mod.LLMFactoriesService = _StubLLMFactoriesService
     monkeypatch.setitem(sys.modules, "api.db.services.tenant_llm_service", tenant_llm_service_mod)
 
     # Mock LLMService
@@ -692,6 +697,10 @@ class TestDocRoutesUnit:
         assert "don't own the dataset" in res["message"]
 
         monkeypatch.setattr(module.KnowledgebaseService, "accessible", lambda **_kwargs: True)
+        monkeypatch.setattr(module, "get_request_json", lambda: _AwaitableValue({}))
+        res = _run(module.delete.__wrapped__("tenant-1", "ds-1"))
+        assert res["code"] == module.RetCode.SUCCESS
+
         monkeypatch.setattr(module, "get_request_json", lambda: _AwaitableValue({"ids": ["doc-1"]}))
         monkeypatch.setattr(module, "check_duplicate_ids", lambda ids, _kind: (ids, []))
         monkeypatch.setattr(module.FileService, "get_root_folder", lambda _tenant: {"id": "pf-1"})
@@ -871,7 +880,11 @@ class TestDocRoutesUnit:
 
         monkeypatch.setattr(module.DocumentService, "get_by_ids", lambda _ids: [_DummyDoc()])
         monkeypatch.setattr(module, "get_request_json", lambda: _AwaitableValue({}))
-        _patch_docstore(monkeypatch, module, delete=lambda *_args, **_kwargs: 2)
+        _patch_docstore(
+            monkeypatch,
+            module,
+            delete=lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("delete must not run for empty chunk ids")),
+        )
         monkeypatch.setattr(module.DocumentService, "decrement_chunk_num", lambda *_args, **_kwargs: None)
         res = _run(module.rm_chunk.__wrapped__("tenant-1", "ds-1", "doc-1"))
         assert res["code"] == 0
@@ -985,7 +998,7 @@ class TestDocRoutesUnit:
             "get_request_json",
             lambda: _AwaitableValue({"dataset_ids": ["ds-1"], "question": "q", "metadata_condition": {"logic": "and"}}),
         )
-        monkeypatch.setattr(module.DocMetadataService, "get_meta_by_kbs", lambda _ids: [])
+        monkeypatch.setattr(module.DocMetadataService, "get_flatted_meta_by_kbs", lambda _kbs: [])
         monkeypatch.setattr(module, "meta_filter", lambda *_args, **_kwargs: [])
         res = _run(module.retrieval_test.__wrapped__("tenant-1"))
         assert "code" in res

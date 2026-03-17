@@ -20,7 +20,7 @@ import re
 from collections import defaultdict
 from io import BytesIO
 
-from PyPDF2 import PdfReader as pdf2_read
+from pypdf import PdfReader as pdf2_read
 
 from rag.utils.file_utils import get_first_extension_filename
 
