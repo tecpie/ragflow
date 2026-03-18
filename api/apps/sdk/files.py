@@ -146,16 +146,6 @@ async def upload(tenant_id):
     except Exception as e:
         return server_error_response(e)
 
-@manager.route("/file/upload_info", methods=["POST"]) # noqa: F821
-@token_required
-async def upload_info(tenant_id):
-    files = await request.files
-    file = files['file'] if files and files.get("file") else None
-    try:
-        return get_json_result(data=FileService.upload_info(tenant_id, file, request.args.get("url")))
-    except Exception as e:
-        return  server_error_response(e)
-
 @manager.route("/file/upload_info", methods=["POST"])  # noqa: F821
 @token_required
 async def upload_info(tenant_id):
