@@ -71,6 +71,38 @@ async def rm():
     return get_json_result(data=True)
 
 
+@manager.route('/template/set', methods=['POST'])  # noqa: F821
+@validate_request("dsl", "title")
+@login_required
+async def template_set():
+    """Create or update a canvas template. Similar to /set but for CanvasTemplate."""
+    req = await get_request_json()
+    try:
+        req["dsl"] = CanvasReplicaService.normalize_dsl(req["dsl"])
+    except ValueError as e:
+        return get_data_error_result(message=str(e))
+
+    # Normalize title/description: accept string or dict for JSONField
+    if isinstance(req.get("title"), str):
+        req["title"] = {"default": req["title"]}
+    if isinstance(req.get("description"), str):
+        req["description"] = {"default": req.get("description", "")}
+
+    template_fields = ("id", "avatar", "title", "description", "canvas_type", "canvas_category", "dsl")
+    if "id" not in req:
+        req["id"] = get_uuid()
+        save_data = {k: req[k] for k in template_fields if k in req}
+        if not CanvasTemplateService.save(**save_data):
+            return get_data_error_result(message="Fail to save canvas template.")
+    else:
+        existing = CanvasTemplateService.query(id=req["id"])
+        if not existing:
+            return get_data_error_result(message="Canvas template not found.")
+        update_data = {k: req[k] for k in template_fields if k in req and k != "id"}
+        CanvasTemplateService.update_by_id(req["id"], update_data)
+    return get_json_result(data=req)
+
+
 @manager.route('/set', methods=['POST'])  # noqa: F821
 @validate_request("dsl", "title")
 @login_required
