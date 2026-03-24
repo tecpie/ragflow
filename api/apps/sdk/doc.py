@@ -46,9 +46,10 @@ from rag.nlp import rag_tokenizer, search
 from rag.prompts.generator import cross_languages, keyword_extraction
 from common.string_utils import remove_redundant_spaces
 from common.misc_utils import thread_pool_exec
-from common.constants import RetCode, LLMType, ParserType, TaskStatus, FileSource
+from common.constants import RetCode, LLMType, ParserType, TaskStatus, FileSource, PipelineTaskType
 from common import settings
 from api.utils.image_utils import store_chunk_image
+from rag.utils.redis_conn import REDIS_CONN
 
 MAXIMUM_OF_UPLOADING_FILES = 256
 
@@ -1193,6 +1194,85 @@ async def stop_parsing(tenant_id, dataset_id):
         else:
             return get_error_data_result(message=";".join(duplicate_messages))
     return get_result()
+
+
+@manager.route("/datasets/<dataset_id>/unbind_task", methods=["DELETE"])  # noqa: F821
+@token_required
+async def unbind_dataset_task(tenant_id, dataset_id):
+    """
+    Cancel and unbind a dataset pipeline task.
+    ---
+    tags:
+      - Datasets
+    security:
+      - ApiKeyAuth: []
+    parameters:
+      - in: path
+        name: dataset_id
+        type: string
+        required: true
+        description: ID of the dataset.
+      - in: query
+        name: pipeline_task_type
+        type: string
+        required: true
+        description: Pipeline task type. One of `graphrag`, `raptor`, `mindmap`.
+      - in: header
+        name: Authorization
+        type: string
+        required: true
+        description: Bearer token for authentication.
+    responses:
+      200:
+        description: Task unbound successfully.
+        schema:
+          type: object
+    """
+    if not KnowledgebaseService.accessible(kb_id=dataset_id, user_id=tenant_id):
+        return get_error_data_result(message=f"You don't own the dataset {dataset_id}.")
+
+    ok, kb = KnowledgebaseService.get_by_id(dataset_id)
+    if not ok:
+        return get_result(data=True)
+
+    pipeline_task_type = request.args.get("pipeline_task_type", "")
+    if pipeline_task_type not in [PipelineTaskType.GRAPH_RAG, PipelineTaskType.RAPTOR, PipelineTaskType.MINDMAP]:
+        return get_error_data_result(message="Invalid task type")
+
+    def cancel_task(task_id: str):
+        if task_id:
+            REDIS_CONN.set(f"{task_id}-cancel", "x")
+
+    kb_task_id_field = ""
+    kb_task_finish_at = ""
+    if pipeline_task_type == PipelineTaskType.GRAPH_RAG:
+        kb_task_id_field = "graphrag_task_id"
+        kb_task_finish_at = "graphrag_task_finish_at"
+        cancel_task(kb.graphrag_task_id)
+        settings.docStoreConn.delete(
+            {"knowledge_graph_kwd": ["graph", "subgraph", "entity", "relation"]},
+            search.index_name(kb.tenant_id),
+            dataset_id,
+        )
+    elif pipeline_task_type == PipelineTaskType.RAPTOR:
+        kb_task_id_field = "raptor_task_id"
+        kb_task_finish_at = "raptor_task_finish_at"
+        cancel_task(kb.raptor_task_id)
+        settings.docStoreConn.delete(
+            {"raptor_kwd": ["raptor"]},
+            search.index_name(kb.tenant_id),
+            dataset_id,
+        )
+    else:
+        kb_task_id_field = "mindmap_task_id"
+        kb_task_finish_at = "mindmap_task_finish_at"
+        cancel_task(kb.mindmap_task_id)
+
+    ok = KnowledgebaseService.update_by_id(dataset_id, {kb_task_id_field: "", kb_task_finish_at: None})
+    if not ok:
+        return server_error_response(f"Internal error: cannot delete task {pipeline_task_type}")
+
+    return get_result(data=True)
 
 
 @manager.route("/datasets/<dataset_id>/documents/<document_id>/chunks", methods=["GET"])  # noqa: F821
