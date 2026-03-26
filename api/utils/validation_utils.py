@@ -809,6 +809,19 @@ class MoveFileReq(Base):
         return self
 
 
+class ShareFileReq(Base):
+    file_ids: Annotated[list[str], Field(min_length=1)]
+    kb_ids: Annotated[list[str], Field(min_length=1)]
+
+
+class UpdateFileInfoReq(Base):
+    file_id: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1), Field(...)]
+    name: Annotated[str | None, StringConstraints(strip_whitespace=True, min_length=1, max_length=255), Field(default=None)]
+    status: Annotated[int | None, Field(default=None)]
+    created_by: Annotated[str | None, StringConstraints(strip_whitespace=True, min_length=1, max_length=255), Field(default=None)]
+    meta_fields: Annotated[dict[str, Any] | None, Field(default=None)]
+
+
 class ListFileReq(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

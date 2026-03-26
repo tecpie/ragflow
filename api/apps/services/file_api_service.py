@@ -16,13 +16,16 @@
 import logging
 import os
 import pathlib
+from pathlib import Path
 
 from api.common.check_team_permission import check_file_team_permission
 from api.db import FileType
 from api.db.services import duplicate_name
+from api.db.services.doc_metadata_service import DocMetadataService
 from api.db.services.document_service import DocumentService
 from api.db.services.file2document_service import File2DocumentService
 from api.db.services.file_service import FileService
+from api.db.services.knowledgebase_service import KnowledgebaseService
 from api.utils.file_utils import filename_type
 from common import settings
 from common.constants import FileSource
@@ -395,3 +398,118 @@ def get_file_content(uid: str, file_id: str):
     if not check_file_team_permission(file, uid):
         return False, "No authorization."
     return True, file
+
+
+async def share_files(uid: str, file_ids: list[str], kb_ids: list[str]):
+    """
+    Share files to target knowledge bases without removing source mappings.
+
+    Existing file-document mappings in target KB are skipped.
+    """
+    files = FileService.get_by_ids(file_ids)
+    if not files:
+        return False, "Source files not found!"
+    files_dict = {f.id: f for f in files}
+
+    def _share_sync():
+        file2documents = []
+        for file_id in file_ids:
+            file = files_dict.get(file_id)
+            if not file:
+                return False, "File not found!"
+            if not check_file_team_permission(file, uid):
+                return False, "No authorization."
+
+            target_file_ids = [file_id]
+            if file.type == FileType.FOLDER.value:
+                target_file_ids = FileService.get_all_innermost_file_ids(file_id, [])
+
+            for target_file_id in target_file_ids:
+                ok, target_file = FileService.get_by_id(target_file_id)
+                if not ok or not target_file:
+                    return False, "Can't find this file!"
+
+                existing_kb_ids = set()
+                for inform in File2DocumentService.get_by_file_id(target_file_id):
+                    exists, doc = DocumentService.get_by_id(inform.document_id)
+                    if exists and doc:
+                        existing_kb_ids.add(doc.kb_id)
+
+                for kb_id in kb_ids:
+                    if kb_id in existing_kb_ids:
+                        continue
+
+                    exists, kb = KnowledgebaseService.get_by_id(kb_id)
+                    if not exists or not kb:
+                        return False, "Can't find this dataset!"
+
+                    doc = DocumentService.insert({
+                        "id": get_uuid(),
+                        "kb_id": kb.id,
+                        "parser_id": FileService.get_parser(target_file.type, target_file.name, kb.parser_id),
+                        "parser_config": kb.parser_config,
+                        "created_by": uid,
+                        "type": target_file.type,
+                        "name": target_file.name,
+                        "suffix": Path(target_file.name).suffix.lstrip("."),
+                        "location": target_file.location,
+                        "size": target_file.size,
+                    })
+                    file2document = File2DocumentService.insert({
+                        "id": get_uuid(),
+                        "file_id": target_file_id,
+                        "document_id": doc.id,
+                    })
+                    file2documents.append(file2document.to_json())
+        return True, file2documents
+
+    return await thread_pool_exec(_share_sync)
+
+
+async def update_file_info(uid: str, file_id: str, req: dict):
+    """
+    Update file fields and synchronize related document fields.
+    """
+    def _update_sync():
+        ok, file = FileService.get_by_id(file_id)
+        if not ok or not file:
+            return False, "File not found!"
+        if not check_file_team_permission(file, uid):
+            return False, "No authorization."
+
+        new_name = req.get("name")
+        new_status = req.get("status")
+        new_created_by = req.get("created_by")
+        new_meta_fields = req.get("meta_fields")
+
+        file_update_data = {}
+        document_update_data = {}
+
+        if new_name:
+            file_update_data["name"] = new_name
+            document_update_data["name"] = new_name
+
+        if new_status is not None and new_status > file.status:
+            file_update_data["status"] = new_status
+
+        if new_created_by:
+            file_update_data["created_by"] = new_created_by
+            document_update_data["created_by"] = new_created_by
+
+        if file_update_data and not FileService.update_by_id(file_id, file_update_data):
+            return False, "Database error (File update)!"
+
+        informs = File2DocumentService.get_by_file_id(file_id)
+        for inform in informs:
+            doc_id = inform.document_id
+            doc_ok, _ = DocumentService.get_by_id(doc_id)
+            if not doc_ok:
+                continue
+
+            if document_update_data and not DocumentService.update_by_id(doc_id, document_update_data):
+                return False, f"Database error (Document {doc_id} update)!"
+            if new_meta_fields is not None and not DocMetadataService.update_document_metadata(doc_id, new_meta_fields):
+                return False, f"Database error (Document {doc_id} metadata update)!"
+        return True, True
+
+    return await thread_pool_exec(_update_sync)

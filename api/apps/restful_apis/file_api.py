@@ -31,6 +31,8 @@ from api.utils.validation_utils import (
     DeleteFileReq,
     ListFileReq,
     MoveFileReq,
+    ShareFileReq,
+    UpdateFileInfoReq,
     validate_and_parse_json_request,
     validate_and_parse_request_args,
 )
@@ -357,6 +359,103 @@ def ancestors(tenant_id: str = None, file_id: str = None):
             return get_result(data=result)
         else:
             return get_error_data_result(message=result)
+    except Exception as e:
+        logging.exception(e)
+        return get_error_data_result(message="Internal server error")
+
+
+@manager.route("/file/share", methods=["POST"])  # noqa: F821
+@login_required
+@add_tenant_id_to_kwargs
+async def share(tenant_id: str = None):
+    """
+    Share files to target knowledge bases. Does not remove documents from source KBs.
+    If a file already exists in a target KB, that target is skipped.
+    ---
+    tags:
+      - File
+    security:
+      - ApiKeyAuth: []
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            file_ids:
+              type: array
+              items:
+                type: string
+              description: List of file IDs to share
+            kb_ids:
+              type: array
+              items:
+                type: string
+              description: List of knowledge base IDs to share to
+    responses:
+      200:
+        description: New file2document records created (existing in target KB are skipped)
+    """
+    req, err = await validate_and_parse_json_request(request, ShareFileReq)
+    if err is not None:
+        return get_error_argument_result(err)
+    try:
+        success, result = await file_api_service.share_files(tenant_id, req["file_ids"], req["kb_ids"])
+        if success:
+            return get_result(data=result)
+        return get_error_data_result(message=result)
+    except Exception as e:
+        logging.exception(e)
+        return get_error_data_result(message="Internal server error")
+
+
+@manager.route("/file/<file_id>", methods=["PUT"])  # noqa: F821
+@login_required
+@add_tenant_id_to_kwargs
+async def update_file_info(tenant_id: str = None, file_id: str = None):
+    """
+    Update file name, status, and created_by, along with associated documents info.
+    ---
+    tags:
+      - File
+    security:
+      - ApiKeyAuth: []
+    parameters:
+      - in: body
+        name: body
+        description: File update parameters
+        required: true
+        schema:
+          type: object
+          properties:
+            file_id:
+              type: string
+              description: Target file ID
+            name:
+              type: string
+              description: New file name (optional)
+            status:
+              type: integer
+              description: New file status (optional)
+            created_by:
+              type: string
+              description: New created_by value (optional)
+    responses:
+      200:
+        description: File updated successfully
+
+    """
+    req, err = await validate_and_parse_json_request(
+        request, UpdateFileInfoReq, extras={"file_id": file_id}, exclude_unset=True
+    )
+    if err is not None:
+        return get_error_argument_result(err)
+    try:
+        success, result = await file_api_service.update_file_info(tenant_id, req["file_id"], req)
+        if success:
+            return get_result(data=result)
+        return get_error_data_result(message=result)
     except Exception as e:
         logging.exception(e)
         return get_error_data_result(message="Internal server error")
