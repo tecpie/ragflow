@@ -452,7 +452,7 @@ async def update_file_info(tenant_id: str = None, file_id: str = None):
     if err is not None:
         return get_error_argument_result(err)
     try:
-        success, result = await file_api_service.update_file_info(tenant_id, req["file_id"], req)
+        success, result = await file_api_service.update_file_info(tenant_id, file_id, req)
         if success:
             return get_result(data=result)
         return get_error_data_result(message=result)
