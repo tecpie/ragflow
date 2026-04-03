@@ -675,17 +675,22 @@ def list_docs_multi(tenant_id):
         required: false
         description: Filter by document ID.
       - in: query
+        name: ids
+        type: array
+        items:
+          type: string
+        required: false
+        description: Filter by a list of document IDs.
+      - in: query
         name: page
         type: integer
         required: false
-        default: 1
-        description: Page number.
+        description: Page number. If omitted (together with `page_size`), returns all matched documents.
       - in: query
         name: page_size
         type: integer
         required: false
-        default: 30
-        description: Number of items per page.
+        description: Number of items per page. If omitted (together with `page`), returns all matched documents.
       - in: query
         name: orderby
         type: string
@@ -772,9 +777,12 @@ def list_docs_multi(tenant_id):
 
     # shared filters
     document_id = q.get("id")
+    document_ids = q.getlist("ids")
     name = q.get("name")
-    page = int(q.get("page", 1))
-    page_size = int(q.get("page_size", 30))
+    page_raw = q.get("page")
+    page_size_raw = q.get("page_size")
+    page = int(page_raw) if page_raw is not None else None
+    page_size = int(page_size_raw) if page_size_raw is not None else None
     orderby = q.get("orderby", "create_time")
     desc = str(q.get("desc", "true")).strip().lower() != "false"
     keywords = q.get("keywords", "")
@@ -801,11 +809,17 @@ def list_docs_multi(tenant_id):
         if not KnowledgebaseService.accessible(kb_id=ds_id, user_id=tenant_id):
             return get_error_data_result(message=f"You don't own the dataset {ds_id}. ")
 
-    # metadata_condition -> 统一基于多个 dataset_id 过滤出 doc_ids
+    # ids and metadata_condition -> 统一基于多个 dataset_id 过滤出 doc_ids
     doc_ids_filter = None
+    if document_ids:
+        doc_ids_filter = document_ids
     if metadata_condition:
         metas = DocMetadataService.get_flatted_meta_by_kbs(dataset_ids)
-        doc_ids_filter = meta_filter(metas, convert_conditions(metadata_condition), metadata_condition.get("logic", "and"))
+        metadata_doc_ids = meta_filter(metas, convert_conditions(metadata_condition), metadata_condition.get("logic", "and"))
+        if doc_ids_filter is None:
+            doc_ids_filter = metadata_doc_ids
+        else:
+            doc_ids_filter = list(set(doc_ids_filter).intersection(set(metadata_doc_ids)))
         if metadata_condition.get("conditions") and not doc_ids_filter:
             return get_result(data={"total": 0, "docs": []})
 

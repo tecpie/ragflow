@@ -477,8 +477,6 @@ class FileService(CommonService):
                     raise RuntimeError("This type of file has not been supported yet!")
 
                 location = filename if not safe_parent_path else f"{safe_parent_path}/{filename}"
-                while settings.STORAGE_IMPL.obj_exist(kb.id, location):
-                    location += "_"
 
                 blob = file.read()
                 if filetype == FileType.PDF.value:
