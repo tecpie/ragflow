@@ -25,12 +25,13 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"],
-      "@parent/*": ["../src/*"],
+      "@parent/*": ["../src/*"]
     },
 
     "types": ["vite/client", "node", "@testing-library/jest-dom"],
+    "ignoreDeprecations": "6.0"
   },
   "include": ["src"],
   "exclude": ["node_modules", "dist"],
-  "references": [{ "path": "./tsconfig.node.json" }],
+  "references": [{ "path": "./tsconfig.node.json" }]
 }
