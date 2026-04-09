@@ -251,9 +251,6 @@ async def delete_files(uid: str, file_ids: list):
             if not check_file_team_permission(file, uid):
                 return False, "No authorization."
 
-            if file.source_type == FileSource.KNOWLEDGEBASE:
-                continue
-
             if file.type == FileType.FOLDER.value:
                 _delete_folder_recursive(file, uid)
                 continue

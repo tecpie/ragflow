@@ -754,12 +754,14 @@ Instructions:
  - Each search term should be directly or indirectly related to the keyword, guiding the user to find more valuable information.
  - Use common, general terms as much as possible, avoiding obscure words or technical jargon.
  - Keep the term length between 2-4 words, concise and clear.
- - DO NOT translate, use the language of the original keywords.
+ - **Language (mandatory):** Write every related search term in the **same language** as the user's Keywords line.
+   If Keywords are in Chinese, output **only** Chinese. If in English, output **only** English. Do not translate,
+   do not mix languages, and do not default to English when the keywords are not English.
 """
     if industry:
         prompt += f" - Ensure all search terms are relevant to the industry: {industry}.\n"
     prompt += """
-### Example:
+### Example (English keywords → English terms only):
 Keywords: Chinese football
 Related search terms:
 1. Current status of Chinese football
@@ -767,6 +769,15 @@ Related search terms:
 3. Youth training of Chinese football
 4. Chinese football in the Asian Cup
 5. Chinese football in the World Cup
+
+### Example (Chinese keywords → Chinese terms only):
+Keywords: 中国足球
+Related search terms:
+1. 中国足球现状
+2. 中国足球改革
+3. 中国足球青训
+4. 中国足球亚洲杯
+5. 中国足球世界杯
 
 Reason:
  - When searching, users often only use one or two keywords, making it difficult to fully express their information needs.

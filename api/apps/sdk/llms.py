@@ -123,7 +123,7 @@ async def set_api_key(tenant_id):
             break
 
     if req.get("verify", False):
-        return get_json_result(data={"message": msg, "success": len(msg.strip()) == 0})
+        return get_json_result(message=msg, data=len(msg.strip()) == 0)
 
     if msg:
         return get_data_error_result(message=msg)
