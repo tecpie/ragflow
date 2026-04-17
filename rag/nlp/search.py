@@ -702,6 +702,10 @@ class Dealer:
         vector_size = 1024
         for id, cks in mom_chunks.items():
             chunk = self.dataStore.get(id, idx_nms[0], [ck["kb_id"] for ck in cks])
+            if chunk is None:
+                # Parent chunk not found, skip this group of child chunks
+                logging.warning(f"Parent chunk {id} not found in datastore, skipping. Child chunks: {[ck.get('chunk_id') for ck in cks]}")
+                continue
             d = {
                 "chunk_id": id,
                 "content_ltks": " ".join([ck["content_ltks"] for ck in cks]),
