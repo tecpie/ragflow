@@ -95,7 +95,6 @@ export enum Operator {
   YahooFinance = 'YahooFinance',
   Note = 'Note',
   Crawler = 'Crawler',
-  BrowserUse = 'BrowserUse',
   Invoke = 'Invoke',
   Email = 'Email',
   Iteration = 'Iteration',

@@ -59,16 +59,6 @@ export function useAgentToolInitialValues() {
           return {};
         case Operator.SearXNG:
           return pick(initialValues, 'searxng_url', 'top_n');
-        case Operator.BrowserUse:
-          return pick(
-            initialValues,
-            'llm_id',
-            'llm_filter',
-            'start_url',
-            'max_steps',
-            'timeout_sec',
-            'headless',
-          );
 
         default:
           return initialValues;

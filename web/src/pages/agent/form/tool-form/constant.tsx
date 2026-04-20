@@ -1,7 +1,6 @@
 import { Operator } from '../../constant';
 import ArXivForm from './arxiv-form';
 import BingForm from './bing-form';
-import BrowserUseForm from './browser-use-form';
 import CrawlerForm from './crawler-form';
 import DuckDuckGoForm from './duckduckgo-form';
 import EmailForm from './email-form';
@@ -26,7 +25,6 @@ export const ToolFormConfigMap = {
   [Operator.ArXiv]: ArXivForm,
   [Operator.Google]: GoogleForm,
   [Operator.Bing]: BingForm,
-  [Operator.BrowserUse]: BrowserUseForm,
   [Operator.GoogleScholar]: GoogleScholarForm,
   [Operator.GitHub]: GithubForm,
   [Operator.ExeSQL]: ExeSQLForm,

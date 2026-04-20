@@ -364,25 +364,6 @@ export const initialCrawlerValues = {
   query: '',
 };
 
-export const initialBrowserUseValues = {
-  llm_id: '',
-  llm_filter: 'all',
-  start_url: '',
-  max_steps: 8,
-  timeout_sec: 180,
-  headless: true,
-  outputs: {
-    result: {
-      value: '',
-      type: 'string',
-    },
-    json: {
-      value: {},
-      type: 'Object',
-    },
-  },
-};
-
 export const initialInvokeValues = {
   url: '',
   method: 'GET',
@@ -688,7 +669,6 @@ export const RestrictedUpstreamMap = {
   [Operator.WenCai]: [Operator.Begin],
   [Operator.YahooFinance]: [Operator.Begin],
   [Operator.Crawler]: [Operator.Begin],
-  [Operator.BrowserUse]: [Operator.Begin],
   [Operator.Note]: [],
   [Operator.Invoke]: [Operator.Begin],
   [Operator.Email]: [Operator.Begin],
@@ -740,7 +720,6 @@ export const NodeMap = {
   [Operator.YahooFinance]: 'ragNode',
   [Operator.Note]: 'noteNode',
   [Operator.Crawler]: 'ragNode',
-  [Operator.BrowserUse]: 'ragNode',
   [Operator.Invoke]: 'ragNode',
   [Operator.Email]: 'ragNode',
   [Operator.Iteration]: 'group',

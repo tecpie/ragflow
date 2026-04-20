@@ -1696,13 +1696,6 @@ General：实体和关系提取提示来自 GitHub - microsoft/graphrag：基于
       yahooFinanceDescription: '该组件根据提供的股票代码查询有关公司的信息。',
       crawler: '网页爬虫',
       crawlerDescription: '该组件可用于从指定url爬取html源码。',
-      browserUse: 'Browser-use',
-      browserUseDescription:
-        '该组件使用 browser-use 执行多步骤浏览器自动化任务。',
-      startUrl: '起始 URL',
-      maxSteps: '最大步数',
-      timeoutSec: '超时(秒)',
-      headless: '无头模式',
       proxy: '代理',
       crawlerResultOptions: {
         html: 'Html',
@@ -1931,7 +1924,6 @@ General：实体和关系提取提示来自 GitHub - microsoft/graphrag：基于
         textProcessing: '整理文字',
         tavilySearch: '正在网上搜索',
         tavilyExtract: '读取网页内容',
-        browserUse: '执行浏览器任务',
         exeSQL: '查询数据库',
         google: '正在网上搜索',
         wikipedia: '搜索维基百科',

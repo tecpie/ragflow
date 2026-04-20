@@ -1940,13 +1940,6 @@ Best for: Documents with flowing, contextually connected content — such as boo
       crawler: 'Web crawler',
       crawlerDescription:
         'A component that crawls HTML source code from a specified URL.',
-      browserUse: 'Browser-use',
-      browserUseDescription:
-        'A component that uses browser-use to run multi-step browser automation tasks.',
-      startUrl: 'Start URL',
-      maxSteps: 'Max steps',
-      timeoutSec: 'Timeout (seconds)',
-      headless: 'Headless',
       proxy: 'Proxy',
       crawlerResultOptions: {
         html: 'Html',
@@ -2226,7 +2219,6 @@ This process aggregates variables from multiple branches into a single variable 
         textProcessing: 'Tidying up text',
         tavilySearch: 'Searching the web',
         tavilyExtract: 'Reading the page',
-        browserUse: 'Running browser task',
         exeSQL: 'Querying database',
         google: 'Searching the web',
         wikipedia: 'Searching Wikipedia',
