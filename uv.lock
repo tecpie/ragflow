@@ -970,6 +970,15 @@ wheels = [
 ]
 
 [[package]]
+name = "browser-use"
+version = "0.1.1"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple" }
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/19/a9/ef2127dba27644f631aa5b2480dcb2d64f8d9d5a1a1b701490ce3f334fdc/browser_use-0.1.1.tar.gz", hash = "sha256:89dc30a014a941901e6c6ca9131f6871cee0edd59520097b3f7835061d7ecd3a" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/97/32/6794d0b9c5ac6fd7150c8c035b6599c99a27198f889ea4f988ed19e1996c/browser_use-0.1.1-py3-none-any.whl", hash = "sha256:e65c7e92a45c6889a2a2391d7f329172b7b73a2c13d0b61d4a756e50aff7a4cf" },
+]
+
+[[package]]
 name = "cachelib"
 version = "0.13.0"
 source = { registry = "https://mirrors.aliyun.com/pypi/simple" }
@@ -6543,6 +6552,7 @@ dependencies = [
     { name = "beartype" },
     { name = "bio" },
     { name = "boxsdk" },
+    { name = "browser-use" },
     { name = "captcha" },
     { name = "chardet" },
     { name = "cn2an" },
@@ -6686,6 +6696,7 @@ requires-dist = [
     { name = "beartype", specifier = ">=0.20.0,<1.0.0" },
     { name = "bio", specifier = "==1.7.1" },
     { name = "boxsdk", specifier = ">=10.1.0" },
+    { name = "browser-use" },
     { name = "captcha", specifier = ">=0.7.1" },
     { name = "chardet", specifier = ">=5.2.0,<6.0.0" },
     { name = "cn2an", specifier = "==0.5.22" },

@@ -1,4 +1,4 @@
-FROM python:3.11-slim-bookworm
+FROM registry.cn-hangzhou.aliyuncs.com/tecpie/python:3.11-slim
 
 COPY --from=ghcr.io/astral-sh/uv:0.7.5 /uv /uvx /bin/
 ENV UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple

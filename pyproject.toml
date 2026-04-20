@@ -17,6 +17,7 @@ dependencies = [
     "beartype>=0.20.0,<1.0.0",
     "bio==1.7.1",
     "boxsdk>=10.1.0",
+    "browser-use",
     "captcha>=0.7.1",
     "chardet>=5.2.0,<6.0.0",
     "cn2an==0.5.22",
