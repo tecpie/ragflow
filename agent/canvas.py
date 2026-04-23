@@ -36,6 +36,7 @@ from api.db.services.task_service import has_canceled
 from api.db.joint_services.tenant_model_service import get_tenant_default_model_by_type
 from common.constants import LLMType
 from common.misc_utils import get_uuid, hash_str2int
+from common.reference_utils import filter_reference_by_answer_citations
 from common.exceptions import TaskCanceledException
 from rag.prompts.generator import chunks_format
 from rag.utils.redis_conn import REDIS_CONN
@@ -841,7 +842,9 @@ class Canvas(Graph):
         if isinstance(cpn_obj.output("attachment"), dict):
             message_end["attachment"] = cpn_obj.output("attachment")
         if self._has_reference():
-            message_end["reference"] = self.get_reference()
+            content = cpn_obj.output("content")
+            answer_text = content if isinstance(content, str) else ("" if content is None else str(content))
+            message_end["reference"] = filter_reference_by_answer_citations(answer_text, self.get_reference())
         return message_end
 
     def add_memory(self, user:str, assist:str, summ: str):

@@ -24,6 +24,7 @@ from api.db.services.api_service import API4ConversationService
 from api.db.services.common_service import CommonService
 from api.db.services.user_canvas_version import UserCanvasVersionService
 from common.misc_utils import get_uuid
+from common.reference_utils import filter_reference_by_answer_citations
 from api.utils.api_utils import get_data_openai
 import tiktoken
 from peewee import fn
@@ -276,7 +277,7 @@ async def completion(tenant_id, agent_id, session_id=None, **kwargs):
         yield "data:" + json.dumps(ans, ensure_ascii=False) + "\n\n"
 
     conv.message.append({"role": "assistant", "content": txt, "created_at": time.time(), "id": message_id})
-    conv.reference.append(canvas.get_reference())
+    conv.reference.append(filter_reference_by_answer_citations(txt, canvas.get_reference()))
     conv.errors = canvas.error
     conv.dsl = str(canvas)
     conv = conv.to_dict()

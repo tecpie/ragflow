@@ -36,6 +36,7 @@ from common.metadata_utils import apply_meta_data_filter
 from api.db.services.tenant_llm_service import TenantLLMService
 from api.db.joint_services.tenant_model_service import get_model_config_by_id, get_model_config_by_type_and_name, get_tenant_default_model_by_type
 from common.time_utils import current_timestamp, datetime_format
+from common.reference_utils import filter_reference_by_answer_citations
 from common.text_utils import normalize_arabic_digits
 from rag.graphrag.general.mind_map_extractor import MindMapExtractor
 from rag.advanced_rag import DeepResearcher
@@ -742,6 +743,7 @@ async def async_chat(dialog, messages, stream=True, **kwargs):
             for c in refs["chunks"]:
                 if c.get("vector"):
                     del c["vector"]
+            refs = filter_reference_by_answer_citations(answer, refs)
 
         if answer.lower().find("invalid key") >= 0 or answer.lower().find("invalid api") >= 0:
             answer += " Please set LLM API-Key in 'User Setting -> Model providers -> API-Key'"
@@ -1456,6 +1458,7 @@ async def async_ask(question, kb_ids, tenant_id, chat_llm_name=None, search_conf
         for c in refs["chunks"]:
             if c.get("vector"):
                 del c["vector"]
+        refs = filter_reference_by_answer_citations(answer, refs)
 
         if answer.lower().find("invalid key") >= 0 or answer.lower().find("invalid api") >= 0:
             answer += " Please set LLM API-Key in 'User Setting -> Model Providers -> API-Key'"
