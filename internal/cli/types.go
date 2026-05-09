@@ -81,6 +81,10 @@ const (
 	TokenDefault
 	TokenChats
 	TokenChat
+	TokenMessage
+	TokenImage
+	TokenVideo
+	TokenAudio
 	TokenStream
 	TokenFiles
 	TokenAs
@@ -139,6 +143,7 @@ const (
 	TokenTag
 	TokenRegion
 	TokenURL
+	TokenTasks
 	TokenLog
 	TokenLevel
 	TokenDebug
@@ -152,6 +157,7 @@ const (
 	TokenQuotedString
 	TokenInteger
 	TokenFloat
+	TokenNumber = TokenInteger // Alias for integer tokens in path parsing (e.g., version numbers like 1.0.0)
 
 	// Special
 	TokenSemicolon
