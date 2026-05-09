@@ -792,7 +792,7 @@ def list_docs_in_multiple_datasets(tenant_id):
     all_docs = []
     total = 0
     for kb_id in dataset_ids:
-        err_code, err_msg, docs, kb_total = _get_docs_with_request(request, kb_id, paginate=False)
+        err_code, err_msg, docs, kb_total = _get_docs_with_request(request, kb_id)
         if err_code != RetCode.SUCCESS:
             return get_data_error_result(code=err_code, message=err_msg)
         all_docs.extend(docs)

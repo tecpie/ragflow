@@ -19,7 +19,8 @@ import re
 from io import BytesIO
 from docx import Document
 
-from common.constants import ParserType, MAXIMUM_PAGE_NUMBER, get_first_extension_filename
+from common.constants import ParserType, MAXIMUM_PAGE_NUMBER
+from rag.utils.file_utils import get_first_extension_filename
 from deepdoc.parser.utils import get_text
 from rag.nlp import bullets_category, remove_contents_table, make_colon_as_title, tokenize_chunks, docx_question_level, tree_merge
 from rag.nlp import rag_tokenizer, Node

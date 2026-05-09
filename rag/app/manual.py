@@ -18,7 +18,8 @@ import logging
 import copy
 import re
 
-from common.constants import ParserType, MAXIMUM_PAGE_NUMBER, get_first_extension_filename
+from common.constants import ParserType, MAXIMUM_PAGE_NUMBER
+from rag.utils.file_utils import get_first_extension_filename
 from io import BytesIO
 from deepdoc.parser.utils import extract_pdf_outlines
 from rag.nlp import rag_tokenizer, tokenize, tokenize_table, bullets_category, title_frequency, tokenize_chunks, docx_question_level, attach_media_context, concat_img
