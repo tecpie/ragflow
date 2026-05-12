@@ -782,8 +782,11 @@ class Dealer:
         for id, cks in mom_chunks.items():
             chunk = self.dataStore.get(id, idx_nms[0], [ck["kb_id"] for ck in cks])
             if chunk is None:
-                # Parent chunk not found, skip this group of child chunks
-                logging.warning(f"Parent chunk {id} not found in datastore, skipping. Child chunks: {[ck.get('chunk_id') for ck in cks]}")
+                logging.warning(
+                    "Parent chunk '%s' not found in the index; falling back to %d child chunk(s).",
+                    id, len(cks),
+                )
+                chunks.extend(cks)
                 continue
             d = {
                 "chunk_id": id,

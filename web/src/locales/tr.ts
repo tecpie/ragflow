@@ -879,7 +879,8 @@ Bu otomatik etiketleme özelliği, mevcut datasete alanına özgü bilgi katman�
       graphRagMethod: 'Yöntem',
       graphRagMethodTip: `
       Hafif: (Varsayılan) Varlıkları ve ilişkileri çıkarmak için github.com/HKUDS/LightRAG tarafından sağlanan istemler kullanılır.</br>
-      Genel: Varlıkları ve ilişkileri çıkarmak için github.com/microsoft/graphrag tarafından sağlanan istemler kullanılır`,
+      Genel: Varlıkları ve ilişkileri çıkarmak için github.com/microsoft/graphrag tarafından sağlanan istemler kullanılır.</br>
+      NER: Varlıkları ve ilişkileri çıkarmak için spaCy NER ve kural tabanlı anahtar kelime çıkarma kullanılır. Çıkarma işlemi için LLM gerekmez, bu da onu hızlı ve kaynak verimli yapar.`,
       resolution: 'Varlık çözünürlüğü',
       resolutionTip: `Varlık tekilleştirme anahtarı. Etkinleştirildiğinde LLM benzer varlıkları birleştirir - örneğin '2025' ve '2025 yılı' veya 'BT' ve 'Bilgi Teknolojisi' - daha doğru bir grafik oluşturmak için`,
       community: 'Topluluk raporları',
