@@ -18,6 +18,11 @@ type BaiduModel struct {
 	httpClient *http.Client
 }
 
+func (b *BaiduModel) ParseFile() {
+	//TODO implement me
+	panic("implement me")
+}
+
 func (b *BaiduModel) NewInstance(baseURL map[string]string) ModelDriver {
 	return &BaiduModel{
 		BaseURL:   baseURL,
@@ -424,7 +429,7 @@ type baiduEmbeddingResponse struct {
 type baiduEmbeddingData struct {
 	Object    string    `json:"object"`
 	Embedding []float64 `json:"embedding"`
-	Index     int       `json:"index"`
+	Index     *int      `json:"index"`
 }
 
 type baiduUsage struct {
@@ -433,6 +438,12 @@ type baiduUsage struct {
 }
 
 func (b *BaiduModel) Embed(modelName *string, texts []string, apiConfig *APIConfig, embeddingConfig *EmbeddingConfig) ([]EmbeddingData, error) {
+	if apiConfig == nil || apiConfig.ApiKey == nil || *apiConfig.ApiKey == "" {
+		return nil, fmt.Errorf("api key is required")
+	}
+	if modelName == nil || *modelName == "" {
+		return nil, fmt.Errorf("model name is required")
+	}
 	if len(texts) == 0 {
 		return []EmbeddingData{}, nil
 	}
@@ -447,6 +458,9 @@ func (b *BaiduModel) Embed(modelName *string, texts []string, apiConfig *APIConf
 	reqBody := map[string]interface{}{
 		"model": *modelName,
 		"input": texts,
+	}
+	if embeddingConfig != nil && embeddingConfig.Dimension > 0 {
+		reqBody["dimensions"] = embeddingConfig.Dimension
 	}
 
 	jsonData, err := json.Marshal(reqBody)
@@ -482,12 +496,37 @@ func (b *BaiduModel) Embed(modelName *string, texts []string, apiConfig *APIConf
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
 
-	var embeddings []EmbeddingData
-	for _, dataElem := range parsed.Data {
-		var embeddingData EmbeddingData
-		embeddingData.Embedding = dataElem.Embedding
-		embeddingData.Index = dataElem.Index
-		embeddings = append(embeddings, embeddingData)
+	if len(parsed.Data) != len(texts) {
+		return nil, fmt.Errorf("expected %d embeddings, got %d", len(texts), len(parsed.Data))
+	}
+
+	embeddings := make([]EmbeddingData, len(texts))
+	seen := make([]bool, len(texts))
+	for _, item := range parsed.Data {
+		if item.Index == nil {
+			return nil, fmt.Errorf("missing index field in embedding item")
+		}
+		idx := *item.Index
+		if idx < 0 || idx >= len(texts) {
+			return nil, fmt.Errorf("embedding index %d out of range", idx)
+		}
+		if seen[idx] {
+			return nil, fmt.Errorf("duplicate embedding index %d", idx)
+		}
+		if len(item.Embedding) == 0 {
+			return nil, fmt.Errorf("empty embedding at index %d", idx)
+		}
+		seen[idx] = true
+		embeddings[idx] = EmbeddingData{
+			Embedding: item.Embedding,
+			Index:     idx,
+		}
+	}
+
+	for i, ok := range seen {
+		if !ok {
+			return nil, fmt.Errorf("missing embedding index %d", i)
+		}
 	}
 
 	return embeddings, nil
@@ -566,6 +605,29 @@ func (b *BaiduModel) Rerank(modelName *string, query string, documents []string,
 	}
 
 	return &rerankResponse, nil
+}
+
+// TranscribeAudio transcribe audio
+func (b *BaiduModel) TranscribeAudio(modelName *string, file *string, apiConfig *APIConfig, asrConfig *ASRConfig) (*ASRResponse, error) {
+	return nil, fmt.Errorf("%s, no such method", b.Name())
+}
+
+func (z *BaiduModel) TranscribeAudioWithSender(modelName *string, file *string, apiConfig *APIConfig, asrConfig *ASRConfig, sender func(*string, *string) error) error {
+	return fmt.Errorf("%s, no such method", z.Name())
+}
+
+// AudioSpeech convert audio to text
+func (b *BaiduModel) AudioSpeech(modelName *string, audioContent *string, apiConfig *APIConfig, asrConfig *TTSConfig) (*TTSResponse, error) {
+	return nil, fmt.Errorf("%s, no such method", b.Name())
+}
+
+func (z *BaiduModel) AudioSpeechWithSender(modelName *string, audioContent *string, apiConfig *APIConfig, ttsConfig *TTSConfig, sender func(*string, *string) error) error {
+	return fmt.Errorf("%s, no such method", z.Name())
+}
+
+// OCRFile OCR file
+func (b *BaiduModel) OCRFile(modelName *string, fileContent *string, apiConfig *APIConfig, ocrConfig *OCRConfig) (*OCRResponse, error) {
+	return nil, fmt.Errorf("%s, no such method", b.Name())
 }
 
 func (b *BaiduModel) ListModels(apiConfig *APIConfig) ([]string, error) {
