@@ -10,10 +10,20 @@ export type IMetaDataReturnJSONType = Record<
   Array<string | number> | string
 >;
 
+export interface IValueSource {
+  connector_id?: string;
+  /** Result field: JSON key (REST) or SQL SELECT column name/alias (MySQL/PostgreSQL). */
+  enum_value_field?: string;
+  /** Optional human-readable field: JSON key (REST) or SQL result column name/alias (SQL). */
+  enum_description_field?: string;
+}
+
 export interface IMetaDataReturnJSONSettingItem {
   key: string;
+  type?: string;
   description?: string;
   enum?: string[];
+  value_source?: IValueSource;
 }
 export interface IMetaDataJsonSchemaProperty {
   type?: string;
@@ -48,6 +58,7 @@ export type IMetaDataTableData = {
   restrictDefinedValues?: boolean;
   values: string[];
   valueType?: MetadataValueType;
+  valueSource?: IValueSource;
 };
 
 export type IBuiltInMetadataItem = {

@@ -454,6 +454,27 @@ async def build_chunks(task, progress_callback):
         chat_model_config = get_model_config_by_type_and_name(task["tenant_id"], LLMType.CHAT, task["llm_id"])
         chat_mdl = LLMBundle(task["tenant_id"], chat_model_config, lang=task["language"])
 
+        # Pre-fetch value_source enum values (once per batch, not per chunk)
+        _metadata_conf_raw = task["parser_config"].get("metadata", [])
+        if isinstance(_metadata_conf_raw, list):
+            from rag.utils.value_source_connector import ValueSourceConnector
+            from api.db.services.connector_service import ConnectorService
+            for _field in _metadata_conf_raw:
+                if not isinstance(_field, dict):
+                    continue
+                _vs = _field.get("value_source")
+                if _vs and _vs.get("connector_id"):
+                    _ok, _conn = ConnectorService.get_by_id(_vs["connector_id"])
+                    if not _ok:
+                        raise ValueError(
+                            f"Value source connector not found: {_vs['connector_id']} "
+                            f"(field '{_field.get('name', _field.get('key', ''))}')"
+                        )
+                    _field["enum_options"] = ValueSourceConnector.fetch_enum_options(
+                        _conn.to_dict(), _vs
+                    )
+                    _field["enum"] = [x["value"] for x in _field["enum_options"]]
+
         async def gen_metadata_task(chat_mdl, d):
             metadata_conf = task["parser_config"].get("metadata", [])
             built_in_metadata = list(task["parser_config"].get("built_in_metadata") or [])

@@ -426,6 +426,20 @@ Example: A 1 KB message with 1024-dim embedding uses ~9 KB. The 5 MB default lim
           'This value will be deleted from this file.',
         deleteSettingFieldWarn: `This field will be deleted; existing metadata won't be affected.`,
         deleteSettingValueWarn: `This value will be deleted; existing metadata won't be affected.`,
+        valueSourceMode: 'Value Source',
+        manual: 'Manual Input',
+        fromConnector: 'From Connector',
+        selectConnector: 'Select Connector',
+        enumValueField: 'Enum value field',
+        enumValueFieldTip:
+          'REST: JSON property name on each list item. MySQL/PostgreSQL: column name or alias in the SELECT result (must match cursor.description labels, same idea as RDBMSConnector._row_to_document).',
+        enumValueFieldPlaceholder: 'e.g. id',
+        enumValueFieldRequired:
+          'Please set the enum value field for this connector.',
+        enumDescriptionField: 'Enum description field',
+        enumDescriptionFieldTip:
+          'Optional. REST: JSON property on each item. MySQL/PostgreSQL: description column name or alias in the SELECT result.',
+        enumDescriptionFieldPlaceholder: 'e.g. name',
       },
       redoAll: 'Clear existing chunks',
       applyAutoMetadataSettings: 'Apply global auto-metadata settings',

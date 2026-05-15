@@ -7,11 +7,13 @@ import EditTag from '@/components/edit-tag';
 import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Input } from '@/components/ui/input';
+import message from '@/components/ui/message';
 import { Modal } from '@/components/ui/modal/modal';
+import dataSourceService from '@/services/data-source-service';
 import { formatDate } from '@/utils/date';
 import dayjs from 'dayjs';
 import { Plus, Trash2 } from 'lucide-react';
-import { memo, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   MetadataType,
@@ -150,6 +152,31 @@ export const ManageValuesModal = (props: IManageValuesProps) => {
     metaData.valueType || 'string',
   );
 
+  const [valueSourceMode, setValueSourceMode] = useState<string>(
+    metaData.valueSource?.connector_id ? 'connector' : 'manual',
+  );
+
+  const [connectorList, setConnectorList] = useState<
+    Array<{ id: string; name: string; source: string }>
+  >([]);
+
+  useEffect(() => {
+    const fetchConnectors = async () => {
+      try {
+        const { data } = await dataSourceService.dataSourceList();
+        if (data?.code === 0 && Array.isArray(data.data)) {
+          const supported = data.data.filter((c: any) =>
+            ['mysql', 'postgresql', 'rest_api'].includes(c.source),
+          );
+          setConnectorList(supported);
+        }
+      } catch (e) {
+        console.error('Failed to fetch connectors:', e);
+      }
+    };
+    fetchConnectors();
+  }, []);
+
   // Define form fields based on component properties
   const formFields = [
     ...(isEditField
@@ -235,12 +262,103 @@ export const ManageValuesModal = (props: IManageValuesProps) => {
             onChange: (value: boolean) =>
               handleChange('restrictDefinedValues', value),
           },
+          {
+            name: 'valueSourceMode',
+            label: t('knowledgeDetails.metadata.valueSourceMode'),
+            type: FormFieldType.Select,
+            options: [
+              {
+                label: t('knowledgeDetails.metadata.manual'),
+                value: 'manual',
+              },
+              {
+                label: t('knowledgeDetails.metadata.fromConnector'),
+                value: 'connector',
+              },
+            ],
+            defaultValue: metaData.valueSource?.connector_id
+              ? 'connector'
+              : 'manual',
+            shouldRender: (formData: any) =>
+              formData.restrictDefinedValues === true,
+            onChange: (value: string) => {
+              setValueSourceMode(value);
+              if (value === 'manual') {
+                handleChange('valueSource', undefined);
+              }
+            },
+          },
+          {
+            name: 'connectorId',
+            label: t('knowledgeDetails.metadata.selectConnector'),
+            type: FormFieldType.Select,
+            options: connectorList.map((c) => ({
+              label: `${c.name} (${c.source})`,
+              value: c.id,
+            })),
+            defaultValue: metaData.valueSource?.connector_id || '',
+            shouldRender: (formData: any) =>
+              formData.restrictDefinedValues === true &&
+              formData.valueSourceMode === 'connector',
+            onChange: (value: string) => {
+              handleChange(
+                'valueSource',
+                value ? { connector_id: value } : undefined,
+              );
+            },
+          },
+          {
+            name: 'enumValueField',
+            label: t('knowledgeDetails.metadata.enumValueField'),
+            tooltip: t('knowledgeDetails.metadata.enumValueFieldTip'),
+            type: FormFieldType.Text,
+            required: true,
+            placeholder: t(
+              'knowledgeDetails.metadata.enumValueFieldPlaceholder',
+            ),
+            defaultValue: metaData.valueSource?.enum_value_field || '',
+            shouldRender: (formData: any) =>
+              formData.restrictDefinedValues === true &&
+              formData.valueSourceMode === 'connector',
+            onChange: (value: string) => {
+              handleChange('valueSource', {
+                enum_value_field: (value || '').trim(),
+              });
+            },
+          },
+          {
+            name: 'enumDescriptionField',
+            label: t('knowledgeDetails.metadata.enumDescriptionField'),
+            tooltip: t('knowledgeDetails.metadata.enumDescriptionFieldTip'),
+            type: FormFieldType.Text,
+            placeholder: t(
+              'knowledgeDetails.metadata.enumDescriptionFieldPlaceholder',
+            ),
+            defaultValue: metaData.valueSource?.enum_description_field || '',
+            shouldRender: (formData: any) =>
+              formData.restrictDefinedValues === true &&
+              formData.valueSourceMode === 'connector',
+            onChange: (value: string) => {
+              handleChange('valueSource', {
+                enum_description_field: (value || '').trim(),
+              });
+            },
+          },
         ]
       : []),
   ];
 
   // Handle form submission
   const handleSubmit = () => {
+    if (
+      metaData.restrictDefinedValues &&
+      valueSourceMode === 'connector' &&
+      metaData.valueSource?.connector_id &&
+      !(metaData.valueSource?.enum_value_field || '').trim()
+    ) {
+      message.error(t('knowledgeDetails.metadata.enumValueFieldRequired'));
+      return;
+    }
     handleSave();
   };
 
@@ -249,7 +367,7 @@ export const ManageValuesModal = (props: IManageValuesProps) => {
       title={title}
       open={visible}
       onCancel={handleHideModal}
-      className="!w-[460px]"
+      className="!w-[520px]"
       okText={t('common.confirm')}
       onOk={() => formRef.current?.submit(handleSubmit)}
       maskClosable={false}
@@ -274,69 +392,72 @@ export const ManageValuesModal = (props: IManageValuesProps) => {
         )}
 
         {((metaData.restrictDefinedValues && isShowValueSwitch) ||
-          !isShowValueSwitch) && (
-          <div className="flex flex-col gap-2">
-            <div className="flex justify-between items-center">
-              <div>{t('knowledgeDetails.metadata.values')}</div>
-              {isAddValue &&
-                isVerticalShowValue &&
-                metaData.valueType === metadataValueTypeEnum['list'] && (
-                  <div>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={handleAddValue}
-                      data-testid={addValueButtonTestId}
-                    >
-                      <Plus />
-                    </Button>
-                  </div>
-                )}
-            </div>
-            {isVerticalShowValue && (
-              <div className="flex flex-col gap-2 w-full">
-                {tempValues?.map((item, index) => {
-                  return (
-                    <ValueInputItem
-                      key={`value-item-${index}`}
-                      item={item}
-                      index={index}
-                      type={valueType || 'string'}
-                      onValueChange={handleValueChange}
-                      onDelete={(idx: number) => {
-                        showDeleteModal(item, () => {
-                          handleDelete(idx);
-                        });
-                      }}
-                      isCanDelete={tempValues.length > 1}
-                      onBlur={() => handleValueBlur()}
-                    />
-                  );
-                })}
+          !isShowValueSwitch) &&
+          valueSourceMode !== 'connector' && (
+            <div className="flex flex-col gap-2">
+              <div className="flex justify-between items-center">
+                <div>{t('knowledgeDetails.metadata.values')}</div>
+                {isAddValue &&
+                  isVerticalShowValue &&
+                  metaData.valueType === metadataValueTypeEnum['list'] && (
+                    <div>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={handleAddValue}
+                        data-testid={addValueButtonTestId}
+                      >
+                        <Plus />
+                      </Button>
+                    </div>
+                  )}
               </div>
-            )}
-            {!isVerticalShowValue && (
-              <EditTag
-                value={metaData.values}
-                onChange={(value) => {
-                  // find deleted value
-                  const item = metaData.values.find(
-                    (item) => !value.includes(item),
-                  );
-                  if (item) {
-                    showDeleteModal(item, () => {
-                      // handleDelete(idx);
+              {isVerticalShowValue && (
+                <div className="flex flex-col gap-2 w-full">
+                  {tempValues?.map((item, index) => {
+                    return (
+                      <ValueInputItem
+                        key={`value-item-${index}`}
+                        item={item}
+                        index={index}
+                        type={valueType || 'string'}
+                        onValueChange={handleValueChange}
+                        onDelete={(idx: number) => {
+                          showDeleteModal(item, () => {
+                            handleDelete(idx);
+                          });
+                        }}
+                        isCanDelete={tempValues.length > 1}
+                        onBlur={() => handleValueBlur()}
+                      />
+                    );
+                  })}
+                </div>
+              )}
+              {!isVerticalShowValue && (
+                <EditTag
+                  value={metaData.values}
+                  onChange={(value) => {
+                    // find deleted value
+                    const item = metaData.values.find(
+                      (item) => !value.includes(item),
+                    );
+                    if (item) {
+                      showDeleteModal(item, () => {
+                        // handleDelete(idx);
+                        handleChange('values', value);
+                      });
+                    } else {
                       handleChange('values', value);
-                    });
-                  } else {
-                    handleChange('values', value);
-                  }
-                }}
-              />
-            )}
-            <div className="text-state-error text-sm">{valueError.values}</div>
-          </div>
-        )}
+                    }
+                  }}
+                />
+              )}
+              <div className="text-state-error text-sm">
+                {valueError.values}
+              </div>
+            </div>
+          )}
         {deleteDialogContent.visible && (
           <ConfirmDeleteDialog
             open={deleteDialogContent.visible}

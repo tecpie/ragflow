@@ -96,12 +96,26 @@ export const util = {
     data: IMetaDataTableData[],
   ): IMetaDataReturnJSONSettings {
     return data.map((item) => {
-      return {
+      const result: any = {
         key: item.field,
         type: item.valueType?.toLowerCase(),
         description: item.description,
         enum: item.values,
       };
+      if (item.valueSource?.connector_id) {
+        result.value_source = {
+          connector_id: item.valueSource.connector_id,
+        };
+        const evf = item.valueSource.enum_value_field?.trim();
+        if (evf) {
+          result.value_source.enum_value_field = evf;
+        }
+        const edf = item.valueSource.enum_description_field?.trim();
+        if (edf) {
+          result.value_source.enum_description_field = edf;
+        }
+      }
+      return result;
     });
   },
 
@@ -115,8 +129,17 @@ export const util = {
           field: item.key,
           description: item.description,
           values: item.enum || [],
-          restrictDefinedValues: !!item.enum?.length,
-          valueType: DEFAULT_VALUE_TYPE,
+          restrictDefinedValues:
+            !!item.enum?.length || !!item.value_source?.connector_id,
+          valueType: (item.type as MetadataValueType) || DEFAULT_VALUE_TYPE,
+          valueSource: item.value_source?.connector_id
+            ? {
+                connector_id: item.value_source.connector_id,
+                enum_value_field: item.value_source.enum_value_field || '',
+                enum_description_field:
+                  item.value_source.enum_description_field || '',
+              }
+            : undefined,
         } as IMetaDataTableData;
       });
     }

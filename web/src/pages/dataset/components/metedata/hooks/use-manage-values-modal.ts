@@ -90,6 +90,12 @@ export const useManageValues = (props: IManageValuesProps) => {
           ...prev,
           [field]: value,
         };
+        if (field === 'valueSource' && value && typeof value === 'object') {
+          return {
+            ...prev,
+            valueSource: { ...(prev.valueSource || {}), ...value },
+          };
+        }
         return newMetadata;
       });
       return true;

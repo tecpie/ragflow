@@ -76,6 +76,7 @@ async def create_dataset(tenant_id: str, req: dict):
                     "description": f.get("description"),
                     "examples": f.get("examples"),
                     "restrict_values": f.get("restrict_values", False),
+                    "value_source": f.get("value_source"),
                 }
             )
         parser_cfg["metadata"] = fields
@@ -258,6 +259,7 @@ async def update_dataset(tenant_id: str, dataset_id: str, req: dict):
                     "description": f.get("description"),
                     "examples": f.get("examples"),
                     "restrict_values": f.get("restrict_values", False),
+                    "value_source": f.get("value_source"),
                 }
             )
         parser_cfg["metadata"] = fields

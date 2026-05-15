@@ -345,10 +345,39 @@ def metadata_schema(metadata: dict|list|None) -> Dict[str, Any]:
         if not key:
             continue
 
-        prop_schema = {
-            "description": item.get("description", "")
+        prop_schema: Dict[str, Any] = {
+            "description": item.get("description", ""),
         }
-        if "enum" in item and item["enum"]:
+        enum_options = item.get("enum_options")
+        if isinstance(enum_options, list) and enum_options:
+            cleaned: list[dict[str, str]] = []
+            values: list[str] = []
+            for opt in enum_options:
+                if not isinstance(opt, dict) or opt.get("value") is None:
+                    continue
+                values.append(str(opt["value"]))
+                cleaned.append(
+                    {
+                        "value": str(opt["value"]),
+                        "description": str(opt.get("description", ""))[:800],
+                    }
+                )
+            if cleaned:
+                prop_schema["type"] = "string"
+                prop_schema["enum"] = list(dict.fromkeys(values))
+                lines = "\n".join(
+                    f"- `{c['value']}`: {c['description']}"
+                    if c["description"]
+                    else f"- `{c['value']}`"
+                    for c in cleaned
+                )
+                base_desc = prop_schema.get("description") or ""
+                prop_schema["description"] = (
+                    base_desc
+                    + "\n\nAllowed values (pick exactly one; use descriptions to decide):\n"
+                    + lines
+                )
+        elif "enum" in item and item["enum"]:
             prop_schema["enum"] = item["enum"]
             prop_schema["type"] = "string"
 
@@ -382,6 +411,20 @@ def _is_metadata_list(obj: list) -> bool:
             return False
         if "enum" in item and not isinstance(item["enum"], list):
             return False
+        if "enum_options" in item:
+            eo = item["enum_options"]
+            if eo is not None and not isinstance(eo, list):
+                return False
+            if isinstance(eo, list):
+                for opt in eo:
+                    if not isinstance(opt, dict) or "value" not in opt:
+                        return False
+        if "value_source" in item and item["value_source"] is not None and not isinstance(
+            item["value_source"], dict
+        ):
+            return False
+        if "type" in item and item["type"] is not None and not isinstance(item["type"], str):
+            return False
         if "description" in item and not isinstance(item["description"], str):
             return False
         if "descriptions" in item and not isinstance(item["descriptions"], str):
@@ -402,6 +445,12 @@ def turn2jsonschema(obj: dict | list) -> Dict[str, Any]:
             }
             if "enum" in item:
                 normalized_item["enum"] = item["enum"]
+            if "enum_options" in item:
+                normalized_item["enum_options"] = item["enum_options"]
+            if "value_source" in item:
+                normalized_item["value_source"] = item["value_source"]
+            if "type" in item and item["type"] is not None:
+                normalized_item["type"] = item["type"]
             normalized.append(normalized_item)
         return metadata_schema(normalized)
     return {}
