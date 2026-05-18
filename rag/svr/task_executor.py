@@ -457,7 +457,7 @@ async def build_chunks(task, progress_callback):
         # Pre-fetch value_source enum values (once per batch, not per chunk)
         _metadata_conf_raw = task["parser_config"].get("metadata", [])
         if isinstance(_metadata_conf_raw, list):
-            from rag.utils.value_source_connector import ValueSourceConnector
+            from common.data_source.value_source_connector import fetch_enum_options
             from api.db.services.connector_service import ConnectorService
             for _field in _metadata_conf_raw:
                 if not isinstance(_field, dict):
@@ -470,9 +470,7 @@ async def build_chunks(task, progress_callback):
                             f"Value source connector not found: {_vs['connector_id']} "
                             f"(field '{_field.get('name', _field.get('key', ''))}')"
                         )
-                    _field["enum_options"] = ValueSourceConnector.fetch_enum_options(
-                        _conn.to_dict(), _vs
-                    )
+                    _field["enum_options"] = fetch_enum_options(_conn.to_dict(), _vs)
                     _field["enum"] = [x["value"] for x in _field["enum_options"]]
 
         async def gen_metadata_task(chat_mdl, d):

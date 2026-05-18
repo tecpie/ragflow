@@ -28,6 +28,12 @@ from api.db import InputType
 from api.db.services.connector_service import ConnectorService, SyncLogsService
 from api.utils.api_utils import get_data_error_result, get_json_result, get_request_json, validate_request
 from common.constants import RetCode, TaskStatus
+from common.data_source.value_source_connector import (
+    DEFAULT_QUERY_LIMIT,
+    fetch_enum_options,
+    is_queryable_source,
+    query_connector_data,
+)
 from common.data_source.config import GOOGLE_DRIVE_WEB_OAUTH_REDIRECT_URI, GMAIL_WEB_OAUTH_REDIRECT_URI, BOX_WEB_OAUTH_REDIRECT_URI, DocumentSource
 from common.data_source.google_util.constant import WEB_OAUTH_POPUP_TEMPLATE, GOOGLE_SCOPES
 from common.misc_utils import get_uuid
@@ -144,7 +150,11 @@ async def test_connector(connector_id):
     if not ok:
         return get_data_error_result(message="Can't find this Connector!")
 
-    config = conn.config or {}
+    req = await get_request_json() or {}
+    if isinstance(req.get("config"), dict):
+        config = req["config"]
+    else:
+        config = conn.config or {}
 
     def _validate() -> None:
         connector = build_connector_for_source(conn.source, config)
@@ -167,6 +177,80 @@ async def test_connector(connector_id):
         )
 
     return get_json_result(data=True)
+
+
+@manager.route("/connectors/<connector_id>/query", methods=["POST"])  # noqa: F821
+@login_required
+async def query_connector(connector_id):
+    """Query preview rows (RDBMS) or first-page items (REST API) from a saved connector."""
+    from common.data_source.exceptions import ConnectorMissingCredentialError, ConnectorValidationError
+
+    ok, conn = ConnectorService.get_by_id(connector_id)
+    if not ok:
+        return get_data_error_result(message="Can't find this Connector!")
+
+    if conn.tenant_id != current_user.id:
+        return get_json_result(
+            code=RetCode.PERMISSION_ERROR,
+            message="You are not allowed to access this connector.",
+        )
+
+    if not is_queryable_source(conn.source):
+        return get_json_result(
+            code=RetCode.ARGUMENT_ERROR,
+            message="Data query is only supported for MySQL, PostgreSQL, and REST API connectors.",
+        )
+
+    req = await get_request_json() or {}
+    record = {
+        "id": conn.id,
+        "source": conn.source,
+        "config": conn.config or {},
+    }
+
+    enum_value_field = (req.get("enum_value_field") or "").strip()
+    if enum_value_field:
+        vs = {
+            "enum_value_field": enum_value_field,
+            "enum_description_field": (req.get("enum_description_field") or "").strip(),
+        }
+
+        def _fetch_enum() -> dict:
+            return {"options": fetch_enum_options(record, vs)}
+
+        try:
+            data = await asyncio.to_thread(_fetch_enum)
+        except (ConnectorValidationError, ConnectorMissingCredentialError, ValueError) as exc:
+            return get_json_result(code=RetCode.DATA_ERROR, message=str(exc), data=False)
+        except Exception as exc:
+            logging.exception("Connector enum query failed for %s: %s", connector_id, exc)
+            return get_json_result(
+                code=RetCode.SERVER_ERROR,
+                message="Connector query failed, please check logs.",
+                data=False,
+            )
+        return get_json_result(data=data)
+
+    limit = int(req.get("limit", DEFAULT_QUERY_LIMIT))
+    if limit <= 0:
+        return get_json_result(code=RetCode.ARGUMENT_ERROR, message="limit must be a positive integer.")
+
+    def _query() -> dict:
+        return query_connector_data(record, limit=limit)
+
+    try:
+        data = await asyncio.to_thread(_query)
+    except (ConnectorValidationError, ConnectorMissingCredentialError, ValueError) as exc:
+        return get_json_result(code=RetCode.DATA_ERROR, message=str(exc), data=False)
+    except Exception as exc:
+        logging.exception("Connector data query failed for %s: %s", connector_id, exc)
+        return get_json_result(
+            code=RetCode.SERVER_ERROR,
+            message="Connector query failed, please check logs.",
+            data=False,
+        )
+
+    return get_json_result(data=data)
 
 
 WEB_FLOW_TTL_SECS = 15 * 60
