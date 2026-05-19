@@ -1409,6 +1409,7 @@ async def do_handle_task(task):
                             "category",
                         ],
                         "method": "light",
+                        "batch_chunk_token_size": 4096,
                     }
                 }
             )

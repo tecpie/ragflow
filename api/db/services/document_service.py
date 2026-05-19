@@ -91,7 +91,7 @@ class DocumentService(CommonService):
             docs = docs.where(cls.model.name == name)
         if keywords:
             docs = docs.where(fn.LOWER(cls.model.name).contains(keywords.lower()))
-        if doc_ids:
+        if doc_ids is not None:
             docs = docs.where(cls.model.id.in_(doc_ids))
         if suffix:
             docs = docs.where(cls.model.suffix.in_(suffix))
@@ -157,7 +157,7 @@ class DocumentService(CommonService):
                 .join(User, on=(cls.model.created_by == User.id), join_type=JOIN.LEFT_OUTER)
                 .where(cls.model.kb_id == kb_id)
             )
-        if doc_ids:
+        if doc_ids is not None:
             docs = docs.where(cls.model.id.in_(doc_ids))
         if run_status:
             docs = docs.where(cls.model.run.in_(run_status))
@@ -723,7 +723,7 @@ class DocumentService(CommonService):
     def clear_chunk_num(cls, doc_id):
         """Deprecated: use delete_document_and_update_kb_counts instead."""
         doc = cls.model.get_by_id(doc_id)
-        assert doc, "Can't fine document in database."
+        assert doc, "Can't find document in database."
 
         num = (
             Knowledgebase.update(token_num=Knowledgebase.token_num - doc.token_num, chunk_num=Knowledgebase.chunk_num - doc.chunk_num, doc_num=Knowledgebase.doc_num - 1)
@@ -736,7 +736,7 @@ class DocumentService(CommonService):
     @DB.connection_context()
     def clear_chunk_num_when_rerun(cls, doc_id):
         doc = cls.model.get_by_id(doc_id)
-        assert doc, "Can't fine document in database."
+        assert doc, "Can't find document in database."
 
         num = (
             Knowledgebase.update(
