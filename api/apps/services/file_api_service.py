@@ -808,7 +808,7 @@ async def update_file_info(uid: str, file_id: str, req: dict):
             file_update_data["name"] = new_name
             document_update_data["name"] = new_name
 
-        if new_status is not None and new_status > file.status:
+        if new_status is not None:
             file_update_data["status"] = new_status
 
         if new_created_by:
