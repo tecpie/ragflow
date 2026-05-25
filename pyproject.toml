@@ -1,6 +1,6 @@
 [project]
 name = "ragflow"
-version = "0.25.4"
+version = "0.25.5"
 description = "[RAGFlow](https://ragflow.io/) is an open-source RAG (Retrieval-Augmented Generation) engine based on deep document understanding. It offers a streamlined RAG workflow for businesses of any scale, combining LLM (Large Language Models) to provide truthful question-answering capabilities, backed by well-founded citations from various complex formatted data."
 authors = [{ name = "Zhichang Yu", email = "yuzhichang@gmail.com" }]
 license-files = ["LICENSE"]
@@ -21,6 +21,7 @@ dependencies = [
     "azure-storage-file-datalake==12.16.0",
     "beartype>=0.20.0,<1.0.0",
     "bio==1.7.1",
+    "browser-use>=0.11.1,<0.12.0",
     "boto3>=1.28.0",
     "browser-use>=0.11.1,<0.12.0",
     "boto3>=1.28.0",
@@ -81,7 +82,7 @@ dependencies = [
     "opencv-python-headless==4.10.0.84",
     "opendal>=0.45.0,<0.46.0",
     "opensearch-py==2.7.1",
-    "ormsgpack>=1.5.0",
+    "ormsgpack>=1.6.0",
     "pdfplumber==0.10.4",
     "pluginlib>=0.10.0",
     "psycopg2-binary>=2.9.11,<3.0.0",
@@ -94,6 +95,7 @@ dependencies = [
     "pypdf>=6.10.2",
     "python-calamine>=0.4.0",
     "python-docx>=1.1.2,<2.0.0",
+    "paramiko>=3.5.1",
     "python-pptx>=1.0.2,<2.0.0",
     # "pywencai>=0.13.1,<1.0.0",  # Temporarily disabled: conflicts with agentrun-sdk (pydash>=8), needed for agent/tools/wencai.py
     "qianfan==0.4.6",
@@ -126,6 +128,7 @@ dependencies = [
     "wikipedia==1.4.0",
     "word2number==1.1",
     "xgboost==1.6.0",
+    "setuptools>=78.1.1,<81.0.0",
     "xpinyin==0.7.6",
     "yfinance==0.2.65",
     "zhipuai==2.0.1",
@@ -145,7 +148,6 @@ dependencies = [
     #    "requests>=2.32.3,<3.0.0",
     #    "scikit-learn==1.5.0",
     #    "selenium==4.22.0",
-    #    "setuptools>=78.1.1,<81.0.0",
     #    "shapely==2.0.5",
     #    "six==1.16.0",
     #    "tabulate==0.9.0",
@@ -258,9 +260,12 @@ markers = [
 ]
 
 # Test collection and runtime configuration
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 filterwarnings = [
     "error",  # Treat warnings as errors
     "ignore::DeprecationWarning",  # Ignore specific warnings
+    "ignore:pkg_resources is deprecated:UserWarning",
 ]
 
 # Command line options
@@ -269,7 +274,9 @@ addopts = [
     "--strict-markers",  # Enforce marker definitions
     "--tb=short",  # Simplified traceback
     "--disable-warnings",  # Disable warnings
-    "--color=yes"  # Colored output
+    "--color=yes",  # Colored output
+    "-p",
+    "no:anyio",  # anyio's pytest plugin conflicts with pytest-asyncio on Py3.13
 ]
 
 
