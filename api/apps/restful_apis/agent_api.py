@@ -25,6 +25,7 @@ import json
 import logging
 import time
 from functools import partial, wraps
+from typing import Set
 
 from api.utils.web_utils import CONTENT_TYPE_MAP, apply_safe_file_response_headers
 import jwt
@@ -67,6 +68,9 @@ from peewee import MySQLDatabase, PostgresqlDatabase
 from rag.flow.pipeline import Pipeline
 from rag.nlp import search
 from rag.utils.redis_conn import REDIS_CONN
+
+# Keeps strong references to fire-and-forget tasks so they are not GC'd before completion.
+_background_tasks: Set[asyncio.Task] = set()
 
 
 def _require_canvas_access_sync(func):
@@ -2046,7 +2050,10 @@ async def webhook(agent_id: str):
                     except Exception:
                         logging.exception("Failed to append webhook trace")
 
-        asyncio.create_task(background_run())
+        task = asyncio.create_task(background_run())
+        if isinstance(task, asyncio.Task):
+            _background_tasks.add(task)
+            task.add_done_callback(_background_tasks.discard)
         return resp
     else:
         async def sse():
@@ -2234,7 +2241,7 @@ async def webhook_trace(agent_id: str):
         }
     )
 
-@manager.route("/agents/<attachment_id>/download", methods=["GET"])  # noqa: F821
+@manager.route("/agents/attachments/<attachment_id>/download", methods=["GET"])  # noqa: F821
 @login_required
 @add_tenant_id_to_kwargs
 async def download_attachment(tenant_id=None, attachment_id=None):
