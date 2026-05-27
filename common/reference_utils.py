@@ -20,11 +20,8 @@ from typing import Any
 
 from common.text_utils import normalize_arabic_digits
 
-# Agent / kb_prompt(hash_id=True): explicit [ID:n] only (chunk keys are hash ids).
-_CITATION_ID_RE = re.compile(r"\[\s*ID\s*[: ]*\s*(\d+)\s*\]", re.IGNORECASE)
-
-# Chat kb_prompt(hash_id=False): chunk index n matches [ID:n] or [n] (same as dialog_service.CITATION_MARKER_PATTERN).
-_LIST_CHUNK_CITATION_RE = re.compile(r"\[(?:ID:)?([0-9\u0660-\u0669\u06F0-\u06F9]+)\]")
+# Same as dialog_service.CITATION_MARKER_PATTERN: [ID:n] or [n], with Arabic-Indic digits normalized later.
+_CITATION_MARKER_RE = re.compile(r"\[(?:ID:)?([0-9\u0660-\u0669\u06F0-\u06F9]+)\]")
 
 
 def _strip_redacted_thinking(text: str) -> str:
@@ -53,6 +50,19 @@ def _chunk_doc_id(ck: Any) -> str | None:
     return _norm_doc_id(ck.get("doc_id"))
 
 
+def _extract_cited_ids(answer: str) -> set[int] | None:
+    normalized = normalize_arabic_digits(_strip_redacted_thinking(answer or "")) or ""
+    if not _CITATION_MARKER_RE.search(normalized):
+        return None
+    cited_ids: set[int] = set()
+    for match in _CITATION_MARKER_RE.finditer(normalized):
+        try:
+            cited_ids.add(int(match.group(1)))
+        except ValueError:
+            continue
+    return cited_ids
+
+
 def _filter_doc_aggs(doc_aggs: Any, used_doc_ids: set[str]) -> Any:
     if isinstance(doc_aggs, dict):
         out = {}
@@ -66,17 +76,23 @@ def _filter_doc_aggs(doc_aggs: Any, used_doc_ids: set[str]) -> Any:
     return doc_aggs
 
 
+def _empty_filtered_reference(chunks: Any, doc_aggs: Any) -> dict:
+    if isinstance(chunks, dict):
+        return {"chunks": {}, "doc_aggs": _filter_doc_aggs(doc_aggs, set())}
+    if isinstance(chunks, list):
+        return {"chunks": [], "doc_aggs": _filter_doc_aggs(doc_aggs, set())}
+    return {"chunks": chunks, "doc_aggs": doc_aggs}
+
+
 def filter_reference_by_answer_citations(answer: str, reference: dict) -> dict:
     """
     Keep only retrieval chunks cited in the answer and doc_aggs for those documents.
 
     - Agent/canvas style: reference["chunks"] is a dict keyed by hash id (kb_prompt hash_id=True);
-      citations must appear as [ID:n] matching those keys.
-    - Chat style: reference["chunks"] is a list; n is the chunk list index ([ID:n] or [n], digits
-      normalized like dialog_service).
+      citations [ID:n] or [n] must match those keys.
+    - Chat style: reference["chunks"] is a list; n is the chunk list index ([ID:n] or [n]).
 
-    If there is no applicable citation marker in the visible answer, returns reference unchanged
-    (e.g. quote disabled or model omitted citations).
+    If there is no citation marker in the visible answer, returns empty chunks/doc_aggs.
     """
     chunks = reference.get("chunks")
     doc_aggs = reference.get("doc_aggs") or {}
@@ -85,12 +101,11 @@ def filter_reference_by_answer_citations(answer: str, reference: dict) -> dict:
     if not chunks and not doc_aggs:
         return reference
 
-    visible = _strip_redacted_thinking(answer or "")
+    cited_ids = _extract_cited_ids(answer)
+    if cited_ids is None:
+        return _empty_filtered_reference(chunks, doc_aggs)
 
     if isinstance(chunks, dict):
-        if not _CITATION_ID_RE.search(visible):
-            return reference
-        cited_ids = {int(m.group(1)) for m in _CITATION_ID_RE.finditer(visible)}
         new_chunks: dict = {}
         for k, ck in chunks.items():
             try:
@@ -107,20 +122,10 @@ def filter_reference_by_answer_citations(answer: str, reference: dict) -> dict:
         return {"chunks": new_chunks, "doc_aggs": _filter_doc_aggs(doc_aggs, used_doc_ids)}
 
     if isinstance(chunks, list):
-        normalized = normalize_arabic_digits(visible) or ""
-        if not _LIST_CHUNK_CITATION_RE.search(normalized):
-            return reference
-        cited_ids: set[int] = set()
-        for m in _LIST_CHUNK_CITATION_RE.finditer(normalized):
-            try:
-                i = int(m.group(1))
-            except ValueError:
-                continue
-            if 0 <= i < len(chunks):
-                cited_ids.add(i)
-        if not cited_ids:
-            return {"chunks": [], "doc_aggs": _filter_doc_aggs(doc_aggs, set())}
-        new_list = [chunks[i] for i in sorted(cited_ids)]
+        list_cited_ids = {i for i in cited_ids if 0 <= i < len(chunks)}
+        if not list_cited_ids:
+            return _empty_filtered_reference(chunks, doc_aggs)
+        new_list = [chunks[i] for i in sorted(list_cited_ids)]
         used_doc_ids = set()
         for ck in new_list:
             did = _chunk_doc_id(ck)
