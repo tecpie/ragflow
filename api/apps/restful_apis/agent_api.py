@@ -409,7 +409,7 @@ async def create_agent_session(agent_id, tenant_id):
         "id": session_id,
         "name": req.get("name", ""),
         "dialog_id": cvs.id,
-        "user_id": user_id,
+        "user_id": tenant_id,
         "exp_user_id": user_id,
         "message": [{"role": "assistant", "content": canvas.get_prologue()}],
         "source": "agent",
@@ -1334,7 +1334,7 @@ async def agent_chat_completion(tenant_id, agent_id=None):
             workflow_conv = {
                 "id": session_id,
                 "dialog_id": cvs.id,
-                "user_id": user_id,
+                "user_id": tenant_id,
                 "exp_user_id": user_id,
                 "name": req.get("name", ""),
                 "message": [
@@ -1386,7 +1386,7 @@ async def agent_chat_completion(tenant_id, agent_id=None):
         workflow_conv = {
             "id": session_id,
             "dialog_id": cvs.id,
-            "user_id": user_id,
+            "user_id": tenant_id,
             "exp_user_id": user_id,
             "name": req.get("name", ""),
             "message": [
