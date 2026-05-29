@@ -165,13 +165,15 @@ class RAGFlowOSS:
     @use_default_bucket
     def obj_exist(self, bucket, fnm, tenant_id=None):
         try:
-            if self.conn.head_object(Bucket=bucket, Key=fnm):
-                return True
+            self.conn.head_object(Bucket=bucket, Key=fnm)
+            return True
         except ClientError as e:
-            if e.response['Error']['Code'] == '404':
+            code = e.response.get("Error", {}).get("Code", "")
+            if code in ("404", "NoSuchKey", "NotFound"):
                 return False
-            else:
-                raise
+            # 403 AccessDenied etc.: cannot verify existence, treat as not existing
+            logging.debug(f"head_object error {bucket}/{fnm}: {code}")
+            return False
 
     @use_prefix_path
     @use_default_bucket
