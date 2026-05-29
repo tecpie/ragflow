@@ -96,11 +96,14 @@ class RAGFlowOSS:
         try:
             logging.debug(f"head_bucket bucketname {bucket}")
             self.conn.head_bucket(Bucket=bucket)
-            exists = True
-        except ClientError:
-            logging.exception(f"head_bucket error {bucket}")
-            exists = False
-        return exists
+            return True
+        except ClientError as e:
+            code = e.response.get("Error", {}).get("Code", "")
+            if code in ("404", "NoSuchBucket", "NotFound"):
+                return False
+            # 403 AccessDenied etc.: bucket likely exists but HeadBucket is not allowed
+            logging.debug(f"head_bucket error {bucket}: {code}")
+            return True
 
     def health(self):
         bucket = self.bucket
