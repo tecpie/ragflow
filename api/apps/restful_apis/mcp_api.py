@@ -14,6 +14,8 @@
 #  limitations under the License.
 #
 
+import os
+
 from quart import Response, request
 
 from api.apps import current_user, login_required
@@ -26,6 +28,8 @@ from common.constants import VALID_MCP_SERVER_TYPES
 from common.mcp_tool_call_conn import MCPToolCallSession, close_multiple_mcp_toolcall_sessions
 from common.misc_utils import get_uuid, thread_pool_exec
 from common.ssrf_guard import assert_url_is_safe, pin_dns_global
+
+MCP_ALLOW_PRIVATE_IP = os.getenv("MCP_ALLOW_PRIVATE_IP", "true").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _get_mcp_ids_from_args() -> list[str]:
@@ -60,7 +64,7 @@ def _assert_mcp_url_is_safe(url, invalid_message: str = "Invalid url.") -> tuple
     if not isinstance(url, str) or not url:
         return "", "", invalid_message
     try:
-        hostname, resolved_ip = assert_url_is_safe(url)
+        hostname, resolved_ip = assert_url_is_safe(url, allow_private_ip=MCP_ALLOW_PRIVATE_IP)
     except ValueError as exc:
         return "", "", str(exc)
     return hostname, resolved_ip, None
