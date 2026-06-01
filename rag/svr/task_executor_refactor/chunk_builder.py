@@ -33,7 +33,6 @@ from rag.svr.task_executor_refactor.task_context import TaskContext
 from api.db.services.doc_metadata_service import DocMetadataService
 from common.metadata_utils import update_metadata_to
 from rag.utils.table_es_metadata import merge_table_parser_config_from_kb
-from rag.utils.file_utils import normalize_chunk_filename
 
 
 def get_parser(parser_id: str):
@@ -88,11 +87,10 @@ async def run_chunking(
         # Merge table parser config
         parser_config = merge_table_parser_config_from_kb(ctx.raw_task)
 
-        chunk_name = normalize_chunk_filename(ctx.location) if ctx.location else ctx.name
         async with ctx.chunk_limiter:
             cks = await thread_pool_exec(
                 chunker.chunk,
-                chunk_name,
+                ctx.name,
                 binary=binary,
                 from_page=ctx.from_page,
                 to_page=ctx.to_page,

@@ -329,7 +329,7 @@ async def build_chunks(task, progress_callback):
             task_language = task.get("language") or "Chinese"
             cks = await thread_pool_exec(
                 chunker.chunk,
-                task["location"],
+                task["name"],
                 binary=binary,
                 from_page=task["from_page"],
                 to_page=task["to_page"],

@@ -270,16 +270,3 @@ def extract_html(
             continue
 
     return None, metadata
-
-
-def normalize_chunk_filename(filename):
-    """Strip storage path prefix; keep plain names and http(s) URLs unchanged."""
-    if not filename:
-        return filename
-    name = str(filename)
-    if name.startswith(("http://", "https://")):
-        return name
-    name = name.replace("\\", "/")
-    if "/" in name:
-        return name.rsplit("/", 1)[-1]
-    return name

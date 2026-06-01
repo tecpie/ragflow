@@ -82,11 +82,13 @@ async def upload_file(tenant_id: str, pf_id: str, file_objs: list):
             )
 
         filetype = filename_type(file_obj_names[file_len - 1])
+        location = file_obj_names[file_len - 1]
+        while await thread_pool_exec(settings.STORAGE_IMPL.obj_exist, last_folder.id, location):
+            location += "_"
         blob = await thread_pool_exec(file_obj.read)
         filename = await thread_pool_exec(
             duplicate_name, FileService.query, name=file_obj_names[file_len - 1], parent_id=last_folder.id
         )
-        location = filename
         await thread_pool_exec(settings.STORAGE_IMPL.put, last_folder.id, location, blob)
         file_data = {
             "id": get_uuid(),

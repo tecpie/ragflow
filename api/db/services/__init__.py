@@ -14,7 +14,6 @@
 #  limitations under the License.
 #
 import re
-from pathlib import PurePath
 
 from .user_service import UserService as UserService
 
@@ -84,9 +83,11 @@ def duplicate_name(query_func, name_field: str="name", **kwargs) -> str:
         if not query_func(**kwargs):
             return current_name
 
-        path = PurePath(current_name)
-        stem = path.stem
-        suffix = path.suffix
+        if "." in current_name:
+            stem, suffix = current_name.rsplit(".", 1)
+            suffix = "." + suffix
+        else:
+            stem, suffix = current_name, ""
 
         main_part, counter = _split_name_counter(stem)
         counter = counter + 1 if counter else 1
