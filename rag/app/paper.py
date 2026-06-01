@@ -16,7 +16,6 @@
 
 import logging
 import copy
-import os
 import re
 
 from deepdoc.parser.figure_parser import vision_figure_parser_pdf_wrapper
@@ -209,7 +208,7 @@ def chunk(filename, binary=None, from_page=0, to_page=MAXIMUM_PAGE_NUMBER,
     else:
         raise NotImplementedError("file type not supported yet(pdf supported)")
 
-    doc = {"docnm_kwd": os.path.basename(filename), "authors_tks": rag_tokenizer.tokenize(paper["authors"]),
+    doc = {"docnm_kwd": filename, "authors_tks": rag_tokenizer.tokenize(paper["authors"]),
            "title_tks": rag_tokenizer.tokenize(paper["title"] if paper["title"] else filename)}
     doc["title_sm_tks"] = rag_tokenizer.fine_grained_tokenize(doc["title_tks"])
     doc["authors_sm_tks"] = rag_tokenizer.fine_grained_tokenize(doc["authors_tks"])

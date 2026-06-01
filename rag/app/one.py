@@ -15,7 +15,6 @@
 #
 
 import logging
-import os
 from io import BytesIO
 import re
 
@@ -162,7 +161,7 @@ def chunk(filename, binary=None, from_page=0, to_page=MAXIMUM_PAGE_NUMBER, lang=
     else:
         raise NotImplementedError("file type not supported yet(doc, docx, pdf, txt supported)")
 
-    doc = {"docnm_kwd": os.path.basename(filename), "title_tks": rag_tokenizer.tokenize(re.sub(r"\.[a-zA-Z]+$", "", filename))}
+    doc = {"docnm_kwd": filename, "title_tks": rag_tokenizer.tokenize(re.sub(r"\.[a-zA-Z]+$", "", filename))}
     doc["title_sm_tks"] = rag_tokenizer.fine_grained_tokenize(doc["title_tks"])
     tokenize(doc, "\n".join(sections), eng)
     return [doc]

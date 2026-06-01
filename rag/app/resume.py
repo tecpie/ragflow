@@ -30,7 +30,6 @@ Compatibility:
 """
 
 import json
-import os
 import re
 import random
 import datetime
@@ -2123,7 +2122,7 @@ def _build_chunk_document(filename: str, resume: dict,
     # Get the corresponding field map version based on language parameter
     field_map = get_field_map(lang)
     doc = {
-        "docnm_kwd": os.path.basename(filename),
+        "docnm_kwd": filename,
         "title_tks": rag_tokenizer.tokenize(re.sub(r"\.[a-zA-Z]+$", "", filename)),
     }
     doc["title_sm_tks"] = rag_tokenizer.fine_grained_tokenize(doc["title_tks"])

@@ -16,7 +16,6 @@
 
 import logging
 import copy
-import os
 import re
 
 from common.constants import ParserType, MAXIMUM_PAGE_NUMBER
@@ -141,7 +140,7 @@ def chunk(filename, binary=None, from_page=0, to_page=MAXIMUM_PAGE_NUMBER, lang=
     """
     parser_config = kwargs.get("parser_config", {"chunk_token_num": 512, "delimiter": "\n!?。；！？", "layout_recognize": "DeepDOC"})
     pdf_parser = None
-    doc = {"docnm_kwd": os.path.basename(filename)}
+    doc = {"docnm_kwd": filename}
     doc["title_tks"] = rag_tokenizer.tokenize(re.sub(r"\.[a-zA-Z]+$", "", doc["docnm_kwd"]))
     doc["title_sm_tks"] = rag_tokenizer.fine_grained_tokenize(doc["title_tks"])
     # is it English

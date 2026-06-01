@@ -16,13 +16,11 @@
 
 import copy
 import logging
-import os
 import re
 from collections import defaultdict
 from io import BytesIO
 
 from pypdf import PdfReader as pdf2_read
-
 
 from deepdoc.parser import PdfParser, PlainParser
 from deepdoc.parser.ppt_parser import RAGFlowPptParser
@@ -136,7 +134,7 @@ def chunk(filename, binary=None, from_page=0, to_page=MAXIMUM_PAGE_NUMBER, lang=
     if parser_config is None:
         parser_config = {}
     eng = lang.lower() == "english"
-    doc = {"docnm_kwd": os.path.basename(filename), "title_tks": rag_tokenizer.tokenize(re.sub(r"\.[a-zA-Z]+$", "", filename))}
+    doc = {"docnm_kwd": filename, "title_tks": rag_tokenizer.tokenize(re.sub(r"\.[a-zA-Z]+$", "", filename))}
     doc["title_sm_tks"] = rag_tokenizer.fine_grained_tokenize(doc["title_tks"])
     res = []
     if re.search(r"\.pptx?$", filename, re.IGNORECASE):
