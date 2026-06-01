@@ -27,6 +27,7 @@ from google_auth_oauthlib.flow import Flow
 from api.db import InputType
 from api.db.services.connector_service import ConnectorService, SyncLogsService
 from api.utils.api_utils import get_data_error_result, get_json_result, get_request_json, validate_request
+from api.utils.pagination_utils import validate_rest_api_page_size
 from common.constants import RetCode, TaskStatus
 from common.data_source.value_source_connector import (
     DEFAULT_QUERY_LIMIT,
@@ -146,7 +147,11 @@ def list_logs(connector_id):
         return _connector_auth_error(connector_id, current_user.id)
 
     req = request.args.to_dict(flat=True)
-    arr, total = SyncLogsService.list_sync_tasks(connector_id, int(req.get("page", 1)), int(req.get("page_size", 15)))
+    arr, total = SyncLogsService.list_sync_tasks(
+        connector_id,
+        int(req.get("page", 1)),
+        validate_rest_api_page_size(int(req.get("page_size", 15))),
+    )
     return get_json_result(data={"total": total, "logs": arr})
 
 
