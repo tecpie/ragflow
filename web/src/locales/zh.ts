@@ -1550,6 +1550,12 @@ NER：使用 spaCy NER 和基于规则的关键词提取来抽取实体和关系
       maxRetries: '最大重试轮数',
       maxSteps: '最大步数',
       headless: '无头模式',
+      useCdp: '使用 CDP 连接',
+      useCdpTip:
+        '通过 CDP 连接到已有的 Chromium/Chrome 浏览器，而不是启动新的本地浏览器进程。',
+      cdpUrl: 'CDP 地址',
+      cdpUrlTip:
+        '支持 HTTP 和 WebSocket 两种 CDP 端点，例如 http://127.0.0.1:9222 或 ws://127.0.0.1:9222/devtools/browser/<id>。',
       enableDefaultExtensions: '启用默认扩展',
       enableDefaultExtensionsTip:
         '启用 browser-use 默认扩展（uBlock、Cookie 处理、ClearURLs）。关闭后可避免运行时下载扩展。',
