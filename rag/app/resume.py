@@ -35,7 +35,6 @@ import random
 import datetime
 import unicodedata
 import concurrent.futures
-from rag.utils.file_utils import get_first_extension_filename
 from io import BytesIO
 from typing import Optional
 import numpy as np
@@ -2123,7 +2122,7 @@ def _build_chunk_document(filename: str, resume: dict,
     # Get the corresponding field map version based on language parameter
     field_map = get_field_map(lang)
     doc = {
-        "docnm_kwd": get_first_extension_filename(filename),
+        "docnm_kwd": filename,
         "title_tks": rag_tokenizer.tokenize(re.sub(r"\.[a-zA-Z]+$", "", filename)),
     }
     doc["title_sm_tks"] = rag_tokenizer.fine_grained_tokenize(doc["title_tks"])

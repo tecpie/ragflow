@@ -18,7 +18,6 @@ import logging
 from io import BytesIO
 import re
 
-from rag.utils.file_utils import get_first_extension_filename
 from deepdoc.parser.utils import get_text
 from rag.app import naive
 from rag.nlp import rag_tokenizer, tokenize
@@ -162,7 +161,7 @@ def chunk(filename, binary=None, from_page=0, to_page=MAXIMUM_PAGE_NUMBER, lang=
     else:
         raise NotImplementedError("file type not supported yet(doc, docx, pdf, txt supported)")
 
-    doc = {"docnm_kwd": get_first_extension_filename(filename), "title_tks": rag_tokenizer.tokenize(re.sub(r"\.[a-zA-Z]+$", "", filename))}
+    doc = {"docnm_kwd": filename, "title_tks": rag_tokenizer.tokenize(re.sub(r"\.[a-zA-Z]+$", "", filename))}
     doc["title_sm_tks"] = rag_tokenizer.fine_grained_tokenize(doc["title_tks"])
     tokenize(doc, "\n".join(sections), eng)
     return [doc]

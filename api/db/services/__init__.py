@@ -14,7 +14,6 @@
 #  limitations under the License.
 #
 import re
-from pathlib import PurePath
 
 from .user_service import UserService as UserService
 
@@ -42,7 +41,7 @@ def _split_name_counter(filename: str) -> tuple[str, int | None]:
     return filename, None
 
 
-def duplicate_name(query_func, **kwargs) -> str:
+def duplicate_name(query_func, name_field: str="name", **kwargs) -> str:
     """
     Generates a unique filename by appending/incrementing a counter when duplicates exist.
 
@@ -54,6 +53,7 @@ def duplicate_name(query_func, **kwargs) -> str:
         query_func: Callable that accepts keyword arguments and returns:
                   - True if name exists (should be modified)
                   - False if name is available
+        name_field: the field name of name in db. default to 'name'
         **kwargs: Must contain 'name' key with original filename to check
 
     Returns:
@@ -72,10 +72,10 @@ def duplicate_name(query_func, **kwargs) -> str:
     """
     MAX_RETRIES = 1000
 
-    if "name" not in kwargs:
-        raise KeyError("Arguments must contain 'name' key")
+    if name_field not in kwargs:
+        raise KeyError(f"Arguments must contain '{name_field}' key")
 
-    original_name = kwargs["name"]
+    original_name = kwargs[name_field]
     current_name = original_name
     retries = 0
 
@@ -83,16 +83,18 @@ def duplicate_name(query_func, **kwargs) -> str:
         if not query_func(**kwargs):
             return current_name
 
-        path = PurePath(current_name)
-        stem = path.stem
-        suffix = path.suffix
+        if "." in current_name:
+            stem, suffix = current_name.rsplit(".", 1)
+            suffix = "." + suffix
+        else:
+            stem, suffix = current_name, ""
 
         main_part, counter = _split_name_counter(stem)
         counter = counter + 1 if counter else 1
 
         new_name = f"{main_part}({counter}){suffix}"
 
-        kwargs["name"] = new_name
+        kwargs[name_field] = new_name
         current_name = new_name
         retries += 1
 
