@@ -131,7 +131,7 @@ export const util = {
           values: item.enum || [],
           restrictDefinedValues:
             !!item.enum?.length || !!item.value_source?.connector_id,
-          valueType: (item.type as MetadataValueType) || DEFAULT_VALUE_TYPE,
+          valueType: item.type || DEFAULT_VALUE_TYPE,
           valueSource: item.value_source?.connector_id
             ? {
                 connector_id: item.value_source.connector_id,
@@ -145,7 +145,7 @@ export const util = {
     }
     const properties = data.properties || {};
     return Object.entries(properties).map(([key, property]) => {
-      const valueType = 'string';
+      const valueType = property.type || 'string';
       const values = property.enum || property.items?.enum || [];
       return {
         field: key,
