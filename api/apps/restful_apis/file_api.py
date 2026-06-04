@@ -20,7 +20,6 @@ from quart import request, make_response
 from api.apps import login_required
 from api.db import FileType
 from api.db.services.file2document_service import File2DocumentService
-from api.db.services.file_service import FileService
 from api.utils.api_utils import (
     add_tenant_id_to_kwargs,
     get_error_argument_result,
@@ -34,8 +33,6 @@ from api.utils.validation_utils import (
     DeleteFileReq,
     ListFileReq,
     MoveFileReq,
-    ShareFileReq,
-    UpdateFileInfoReq,
     validate_and_parse_json_request,
     validate_and_parse_request_args,
 )
@@ -381,191 +378,6 @@ async def ancestors(tenant_id: str = None, file_id: str = None):
             return get_result(data=result)
         else:
             return get_error_data_result(message=result)
-    except Exception as e:
-        logging.exception(e)
-        return get_error_data_result(message="Internal server error")
-
-@manager.route("/files/upload_info", methods=["POST"])  # noqa: F821
-@login_required
-@add_tenant_id_to_kwargs
-async def upload_info(tenant_id: str = None):
-    """
-    Upload runtime file metadata for SDK chat completions.
-    ---
-    tags:
-      - File
-    security:
-      - ApiKeyAuth: []
-    parameters:
-      - in: formData
-        name: file
-        type: file
-        required: false
-        description: File(s) to upload as runtime attachments.
-      - in: query
-        name: url
-        type: string
-        required: false
-        description: Optional URL to fetch and convert into a runtime attachment.
-    responses:
-      200:
-        description: Runtime attachment descriptor(s) for the `files` field in completions requests.
-    """
-    files = await request.files
-    file_objs = files.getlist("file") if files and files.get("file") else []
-    url = request.args.get("url")
-
-    if file_objs and url:
-        return get_error_argument_result("Provide either multipart file(s) or ?url=..., not both.")
-
-    if not file_objs and not url:
-        return get_error_argument_result("Missing input: provide multipart file(s) or url")
-
-    try:
-        if url and not file_objs:
-            result = await thread_pool_exec(FileService.upload_info, tenant_id, None, url)
-            return get_result(data=result)
-
-        if len(file_objs) == 1:
-            result = await thread_pool_exec(FileService.upload_info, tenant_id, file_objs[0], None)
-            return get_result(data=result)
-
-        results = []
-        for f in file_objs:
-            results.append(await thread_pool_exec(FileService.upload_info, tenant_id, f, None))
-        return get_result(data=results)
-    except Exception as e:
-        logging.exception(e)
-        return get_error_data_result(message="Internal server error")
-
-
-@manager.route("/files/download/<attachment_id>", methods=["GET"])  # noqa: F821
-@login_required
-@add_tenant_id_to_kwargs
-async def download_attachment(tenant_id: str = None, attachment_id: str = None):
-    try:
-        ext = request.args.get("ext", "markdown")
-        data = await thread_pool_exec(settings.STORAGE_IMPL.get, tenant_id, attachment_id)
-        response = await make_response(data)
-        content_type = CONTENT_TYPE_MAP.get(ext, f"application/{ext}")
-        apply_safe_file_response_headers(response, content_type, ext)
-
-        return response
-
-    except Exception as e:
-        logging.exception(e)
-        return get_error_data_result(message="Internal server error")
-
-
-@manager.route("/files/convert", methods=["POST"])  # noqa: F821
-@login_required
-@add_tenant_id_to_kwargs
-async def convert(tenant_id: str = None):
-    req, err = await validate_and_parse_json_request(request, ShareFileReq)
-    if err is not None:
-        return get_error_argument_result(err)
-
-    try:
-        success, result = await file_api_service.convert_files(tenant_id, req["file_ids"], req["kb_ids"])
-        if success:
-            return get_result(data=result)
-        return get_error_data_result(message=result)
-    except Exception as e:
-        logging.exception(e)
-        return get_error_data_result(message="Internal server error")
-
-@manager.route("/files/share", methods=["POST"])  # noqa: F821
-@login_required
-@add_tenant_id_to_kwargs
-async def share(tenant_id: str = None):
-    """
-    Share files to target knowledge bases. Does not remove documents from source KBs.
-    If a file already exists in a target KB, that target is skipped.
-    ---
-    tags:
-      - File
-    security:
-      - ApiKeyAuth: []
-    parameters:
-      - in: body
-        name: body
-        required: true
-        schema:
-          type: object
-          properties:
-            file_ids:
-              type: array
-              items:
-                type: string
-              description: List of file IDs to share
-            kb_ids:
-              type: array
-              items:
-                type: string
-              description: List of knowledge base IDs to share to
-    responses:
-      200:
-        description: New file2document records created (existing in target KB are skipped)
-    """
-    req, err = await validate_and_parse_json_request(request, ShareFileReq)
-    if err is not None:
-        return get_error_argument_result(err)
-    try:
-        success, result = await file_api_service.share_files(tenant_id, req["file_ids"], req["kb_ids"])
-        if success:
-            return get_result(data=result)
-        return get_error_data_result(message=result)
-    except Exception as e:
-        logging.exception(e)
-        return get_error_data_result(message="Internal server error")
-
-
-@manager.route("/files/<file_id>", methods=["PUT"])  # noqa: F821
-@login_required
-@add_tenant_id_to_kwargs
-async def update_file_info(tenant_id: str = None, file_id: str = None):
-    """
-    Update file name, status, and created_by, along with associated documents info.
-    ---
-    tags:
-      - File
-    security:
-      - ApiKeyAuth: []
-    parameters:
-      - in: body
-        name: body
-        description: File update parameters
-        required: true
-        schema:
-          type: object
-          properties:
-            file_id:
-              type: string
-              description: Target file ID
-            name:
-              type: string
-              description: New file name (optional)
-            status:
-              type: integer
-              description: New file status (optional)
-            created_by:
-              type: string
-              description: New created_by value (optional)
-    responses:
-      200:
-        description: File updated successfully
-
-    """
-    req, err = await validate_and_parse_json_request(
-        request, UpdateFileInfoReq, extras={"file_id": file_id}, exclude_unset=True
-    )
-    if err is not None:
-        return get_error_argument_result(err)
-    try:
-        success, result = await file_api_service.update_file_info(tenant_id, file_id, req)
-        if success:
-            return get_result(data=result)
-        return get_error_data_result(message=result)
     except Exception as e:
         logging.exception(e)
         return get_error_data_result(message="Internal server error")
