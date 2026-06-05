@@ -1,0 +1,46 @@
+2026-05-12 14:45:52,542 INFO     24 task_executor_5271d8b5edc3_0 log path: /ragflow/logs/task_executor_5271d8b5edc3_0.log, log levels: {'peewee': 'WARNING', 'pdfminer': 'WARNING', 'root': 'INFO'}
+2026-05-12 14:45:52,542 INFO     24 Staggering startup by 0.15s to prevent connection storm
+2026-05-12 14:45:52,690 INFO     24 
+    ____                      __  _
+   /  _/___  ____ ____  _____/ /_(_)___  ____     ________  ______   _____  _____
+   / // __ \/ __ `/ _ \/ ___/ __/ / __ \/ __ \   / ___/ _ \/ ___/ | / / _ \/ ___/
+ _/ // / / / /_/ /  __(__  ) /_/ / /_/ / / / /  (__  )  __/ /   | |/ /  __/ /
+/___/_/ /_/\__, /\___/____/\__/_/\____/_/ /_/  /____/\___/_/    |___/\___/_/
+          /____/
+    
+2026-05-12 14:45:52,691 INFO     24 RAGFlow ingestion version: 88bf24c42
+2026-05-12 14:45:52,691 INFO     24 Current configs, from /ragflow/conf/service_conf.yaml:
+	ragflow: {'host': '0.0.0.0', 'http_port': 9380}
+	admin: {'host': '0.0.0.0', 'http_port': 9381}
+	mysql: {'name': 'ragflow', 'user': 'tecpie', 'password': '********', 'host': '172.16.0.20', 'port': 3306, 'max_connections': 900, 'stale_timeout': 300, 'max_allowed_packet': 1073741824}
+	minio: {'user': 'minioadmin', 'password': '********', 'host': '172.16.0.106:9000', 'bucket': '', 'prefix_path': ''}
+	es: {'hosts': 'http://172.16.0.23:9200', 'username': 'elastic', 'password': '********'}
+	os: {'hosts': 'http://opensearch01:9201', 'username': 'admin', 'password': '********'}
+	infinity: {'uri': 'infinity:23817', 'postgres_port': 5432, 'db_name': 'default_db'}
+	oceanbase: {'scheme': 'oceanbase', 'config': {'db_name': 'ragflow_doc', 'user': 'root@ragflow', 'password': 'infini_rag_flow', 'host': 'oceanbase', 'port': 2881}}
+	seekdb: {'scheme': 'oceanbase', 'config': {'db_name': 'ragflow_doc', 'user': 'root', 'password': 'infini_rag_flow', 'host': 'seekdb', 'port': 2881}}
+	redis: {'db': 1, 'username': '', 'password': '********', 'host': '172.16.0.31:6379'}
+	user_default_llm: {'default_models': {'embedding_model': {'api_key': 'xxx', 'base_url': 'http://tei:80'}}}
+2026-05-12 14:45:52,698 INFO     24 GET http://172.16.0.23:9200/ [status:200 duration:0.002s]
+2026-05-12 14:45:52,700 INFO     24 HEAD http://172.16.0.23:9200/ [status:200 duration:0.001s]
+2026-05-12 14:45:52,700 INFO     24 Use Elasticsearch http://172.16.0.23:9200 as the doc engine.
+2026-05-12 14:45:52,700 INFO     24 Elasticsearch http://172.16.0.23:9200 is healthy.
+2026-05-12 14:45:52,700 INFO     24 Use Elasticsearch http://172.16.0.23:9200 as the doc engine.
+2026-05-12 14:45:52,703 INFO     24 Elasticsearch http://172.16.0.23:9200 is healthy.
+2026-05-12 14:45:52,708 WARNING  24 Load term.freq FAIL!
+2026-05-12 14:45:52,715 WARNING  24 Realtime synonym is disabled, since no redis connection.
+2026-05-12 14:45:52,726 WARNING  24 Load term.freq FAIL!
+2026-05-12 14:45:52,737 WARNING  24 Realtime synonym is disabled, since no redis connection.
+2026-05-12 14:45:52,738 INFO     24 can't import package 'torch'
+2026-05-12 14:45:52,738 INFO     24 default embedding config: {'model': '', 'factory': '', 'api_key': 'xxx', 'base_url': 'http://tei:80'}
+2026-05-12 14:45:52,738 INFO     24 MAX_CONTENT_LENGTH: 134217728
+2026-05-12 14:45:52,738 INFO     24 MAX_FILE_COUNT_PER_USER: 0
+2026-05-12 14:45:52,738 INFO     24 RAGFlow ingestion is ready after 56.8501935005188s initialization.
+2026-05-12 14:45:52,740 INFO     24 task_executor_5271d8b5edc3_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 24, "name": "task_executor_5271d8b5edc3_0", "now": "2026-05-12T14:45:52.740+08:00", "boot_at": "2026-05-12T14:45:52.541+08:00", "pending": 2, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-05-12 14:46:22,746 INFO     24 task_executor_5271d8b5edc3_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 24, "name": "task_executor_5271d8b5edc3_0", "now": "2026-05-12T14:46:22.745+08:00", "boot_at": "2026-05-12T14:45:52.541+08:00", "pending": 2, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-05-12 14:46:52,752 INFO     24 task_executor_5271d8b5edc3_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 24, "name": "task_executor_5271d8b5edc3_0", "now": "2026-05-12T14:46:52.751+08:00", "boot_at": "2026-05-12T14:45:52.541+08:00", "pending": 2, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-05-12 14:47:22,756 INFO     24 task_executor_5271d8b5edc3_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 24, "name": "task_executor_5271d8b5edc3_0", "now": "2026-05-12T14:47:22.755+08:00", "boot_at": "2026-05-12T14:45:52.541+08:00", "pending": 2, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-05-12 14:47:52,759 INFO     24 task_executor_5271d8b5edc3_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 24, "name": "task_executor_5271d8b5edc3_0", "now": "2026-05-12T14:47:52.758+08:00", "boot_at": "2026-05-12T14:45:52.541+08:00", "pending": 2, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-05-12 14:48:22,761 INFO     24 task_executor_5271d8b5edc3_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 24, "name": "task_executor_5271d8b5edc3_0", "now": "2026-05-12T14:48:22.761+08:00", "boot_at": "2026-05-12T14:45:52.541+08:00", "pending": 2, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-05-12 14:48:52,764 INFO     24 task_executor_5271d8b5edc3_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 24, "name": "task_executor_5271d8b5edc3_0", "now": "2026-05-12T14:48:52.763+08:00", "boot_at": "2026-05-12T14:45:52.541+08:00", "pending": 2, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-05-12 14:49:22,806 INFO     24 task_executor_5271d8b5edc3_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 24, "name": "task_executor_5271d8b5edc3_0", "now": "2026-05-12T14:49:22.806+08:00", "boot_at": "2026-05-12T14:45:52.541+08:00", "pending": 2, "lag": 0, "done": 0, "failed": 0, "current": {}}

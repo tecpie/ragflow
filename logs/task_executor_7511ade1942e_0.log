@@ -1,0 +1,44 @@
+2025-12-16 17:54:09,637 INFO     23 task_executor_7511ade1942e_0 log path: /ragflow/logs/task_executor_7511ade1942e_0.log, log levels: {'peewee': 'WARNING', 'pdfminer': 'WARNING', 'root': 'INFO'}
+2025-12-16 17:54:09,637 INFO     23 
+    ____                      __  _
+   /  _/___  ____ ____  _____/ /_(_)___  ____     ________  ______   _____  _____
+   / // __ \/ __ `/ _ \/ ___/ __/ / __ \/ __ \   / ___/ _ \/ ___/ | / / _ \/ ___/
+ _/ // / / / /_/ /  __(__  ) /_/ / /_/ / / / /  (__  )  __/ /   | |/ /  __/ /
+/___/_/ /_/\__, /\___/____/\__/_/\____/_/ /_/  /____/\___/_/    |___/\___/_/
+          /____/
+    
+2025-12-16 17:54:09,638 INFO     23 RAGFlow version: v0.17.0-680-g8a771ec5
+2025-12-16 17:54:09,638 INFO     23 Current configs, from /ragflow/conf/service_conf.yaml:
+	ragflow: {'host': '0.0.0.0', 'http_port': 9380}
+	admin: {'host': '0.0.0.0', 'http_port': 9381}
+	mysql: {'name': 'rag_flow', 'user': 'rag_flow', 'password': '********', 'host': '172.16.0.20', 'port': 3306, 'max_connections': 900, 'stale_timeout': 300, 'max_allowed_packet': 1073741824}
+	minio: {'user': 'minioadmin', 'password': '********', 'host': '172.16.0.106:9000', 'bucket': '', 'prefix_path': ''}
+	es: {'hosts': 'http://172.16.0.23:9200', 'username': 'elastic', 'password': '********'}
+	os: {'hosts': 'http://opensearch01:9201', 'username': 'admin', 'password': '********'}
+	infinity: {'uri': 'infinity:23817', 'db_name': 'default_db'}
+	oceanbase: {'scheme': 'oceanbase', 'config': {'db_name': 'ragflow_doc', 'user': 'root@ragflow', 'password': 'infini_rag_flow', 'host': 'oceanbase', 'port': 2881}}
+	redis: {'db': 1, 'username': '', 'password': '********', 'host': '172.16.0.23:6379'}
+	user_default_llm: {'default_models': {'embedding_model': {'api_key': 'xxx', 'base_url': 'http://tei:80'}}}
+2025-12-16 17:54:09,640 WARNING  23 SECURITY WARNING: Using auto-generated SECRET_KEY.
+2025-12-16 17:54:09,640 INFO     23 Use Elasticsearch http://172.16.0.23:9200 as the doc engine.
+2025-12-16 17:54:09,643 INFO     23 GET http://172.16.0.23:9200/ [status:200 duration:0.002s]
+2025-12-16 17:54:09,644 INFO     23 HEAD http://172.16.0.23:9200/ [status:200 duration:0.001s]
+2025-12-16 17:54:09,645 INFO     23 Elasticsearch http://172.16.0.23:9200 is healthy.
+2025-12-16 17:54:09,648 WARNING  23 Load term.freq FAIL!
+2025-12-16 17:54:09,655 WARNING  23 Realtime synonym is disabled, since no redis connection.
+2025-12-16 17:54:09,664 WARNING  23 Load term.freq FAIL!
+2025-12-16 17:54:09,670 WARNING  23 Realtime synonym is disabled, since no redis connection.
+2025-12-16 17:54:09,670 INFO     23 can't import package 'torch'
+2025-12-16 17:54:09,670 INFO     23 USE_MINERU='false'. Skipping MinerU installation.
+2025-12-16 17:54:09,670 INFO     23 default embedding config: {'model': '', 'factory': '', 'api_key': 'xxx', 'base_url': 'http://tei:80'}
+2025-12-16 17:54:09,670 INFO     23 MAX_CONTENT_LENGTH: 134217728
+2025-12-16 17:54:09,671 INFO     23 MAX_FILE_COUNT_PER_USER: 0
+2025-12-16 17:54:09,673 INFO     23 task_executor_7511ade1942e_0 reported heartbeat: {"ip_address": "172.21.0.2", "pid": 23, "name": "task_executor_7511ade1942e_0", "now": "2025-12-16T17:54:09.673+08:00", "boot_at": "2025-12-16T17:54:09.636+08:00", "pending": 7, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2025-12-16 17:54:39,681 INFO     23 task_executor_7511ade1942e_0 reported heartbeat: {"ip_address": "172.21.0.2", "pid": 23, "name": "task_executor_7511ade1942e_0", "now": "2025-12-16T17:54:39.680+08:00", "boot_at": "2025-12-16T17:54:09.636+08:00", "pending": 7, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2025-12-16 17:55:09,685 INFO     23 task_executor_7511ade1942e_0 reported heartbeat: {"ip_address": "172.21.0.2", "pid": 23, "name": "task_executor_7511ade1942e_0", "now": "2025-12-16T17:55:09.684+08:00", "boot_at": "2025-12-16T17:54:09.636+08:00", "pending": 7, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2025-12-16 17:55:09,687 INFO     23 task_executor_669e64828eae_0 expired, removed
+2025-12-16 17:55:39,689 INFO     23 task_executor_7511ade1942e_0 reported heartbeat: {"ip_address": "172.21.0.2", "pid": 23, "name": "task_executor_7511ade1942e_0", "now": "2025-12-16T17:55:39.688+08:00", "boot_at": "2025-12-16T17:54:09.636+08:00", "pending": 7, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2025-12-16 17:56:09,696 INFO     23 task_executor_7511ade1942e_0 reported heartbeat: {"ip_address": "172.21.0.2", "pid": 23, "name": "task_executor_7511ade1942e_0", "now": "2025-12-16T17:56:09.694+08:00", "boot_at": "2025-12-16T17:54:09.636+08:00", "pending": 7, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2025-12-16 17:56:39,701 INFO     23 task_executor_7511ade1942e_0 reported heartbeat: {"ip_address": "172.21.0.2", "pid": 23, "name": "task_executor_7511ade1942e_0", "now": "2025-12-16T17:56:39.700+08:00", "boot_at": "2025-12-16T17:54:09.636+08:00", "pending": 7, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2025-12-16 17:57:09,706 INFO     23 task_executor_7511ade1942e_0 reported heartbeat: {"ip_address": "172.21.0.2", "pid": 23, "name": "task_executor_7511ade1942e_0", "now": "2025-12-16T17:57:09.705+08:00", "boot_at": "2025-12-16T17:54:09.636+08:00", "pending": 7, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2025-12-16 17:57:39,709 INFO     23 task_executor_7511ade1942e_0 reported heartbeat: {"ip_address": "172.21.0.2", "pid": 23, "name": "task_executor_7511ade1942e_0", "now": "2025-12-16T17:57:39.708+08:00", "boot_at": "2025-12-16T17:54:09.636+08:00", "pending": 7, "lag": 0, "done": 0, "failed": 0, "current": {}}

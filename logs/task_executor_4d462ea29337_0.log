@@ -1,0 +1,65 @@
+2026-03-24 17:52:43,817 INFO     23 task_executor_4d462ea29337_0 log path: /ragflow/logs/task_executor_4d462ea29337_0.log, log levels: {'peewee': 'WARNING', 'pdfminer': 'WARNING', 'root': 'INFO'}
+2026-03-24 17:52:43,818 INFO     23 Staggering startup by 0.46s to prevent connection storm
+2026-03-24 17:52:44,280 INFO     23 
+    ____                      __  _
+   /  _/___  ____ ____  _____/ /_(_)___  ____     ________  ______   _____  _____
+   / // __ \/ __ `/ _ \/ ___/ __/ / __ \/ __ \   / ___/ _ \/ ___/ | / / _ \/ ___/
+ _/ // / / / /_/ /  __(__  ) /_/ / /_/ / / / /  (__  )  __/ /   | |/ /  __/ /
+/___/_/ /_/\__, /\___/____/\__/_/\____/_/ /_/  /____/\___/_/    |___/\___/_/
+          /____/
+    
+2026-03-24 17:52:44,280 INFO     23 RAGFlow version: 3fc3a78a2
+2026-03-24 17:52:44,280 INFO     23 Current configs, from /ragflow/conf/service_conf.yaml:
+	ragflow: {'host': '0.0.0.0', 'http_port': 9380}
+	admin: {'host': '0.0.0.0', 'http_port': 9381}
+	mysql: {'name': 'ragflow', 'user': 'tecpie', 'password': '********', 'host': '172.16.0.20', 'port': 3306, 'max_connections': 900, 'stale_timeout': 300, 'max_allowed_packet': 1073741824}
+	minio: {'user': 'minioadmin', 'password': '********', 'host': '172.16.0.106:9000', 'bucket': '', 'prefix_path': ''}
+	es: {'hosts': 'http://172.16.0.23:9200', 'username': 'elastic', 'password': '********'}
+	os: {'hosts': 'http://opensearch01:9201', 'username': 'admin', 'password': '********'}
+	infinity: {'uri': 'infinity:23817', 'postgres_port': 5432, 'db_name': 'default_db'}
+	oceanbase: {'scheme': 'oceanbase', 'config': {'db_name': 'ragflow_doc', 'user': 'root@ragflow', 'password': 'infini_rag_flow', 'host': 'oceanbase', 'port': 2881}}
+	seekdb: {'scheme': 'oceanbase', 'config': {'db_name': 'ragflow_doc', 'user': 'root', 'password': 'infini_rag_flow', 'host': 'seekdb', 'port': 2881}}
+	redis: {'db': 1, 'username': '', 'password': '********', 'host': '172.16.0.31:6379'}
+	user_default_llm: {'default_models': {'embedding_model': {'api_key': 'xxx', 'base_url': 'http://tei:80'}}}
+2026-03-24 17:52:44,284 WARNING  23 SECURITY WARNING: Using auto-generated SECRET_KEY.
+2026-03-24 17:52:44,289 INFO     23 GET http://172.16.0.23:9200/ [status:200 duration:0.003s]
+2026-03-24 17:52:44,291 INFO     23 HEAD http://172.16.0.23:9200/ [status:200 duration:0.001s]
+2026-03-24 17:52:44,291 INFO     23 Use Elasticsearch http://172.16.0.23:9200 as the doc engine.
+2026-03-24 17:52:44,291 INFO     23 Elasticsearch http://172.16.0.23:9200 is healthy.
+2026-03-24 17:52:44,291 INFO     23 Use Elasticsearch http://172.16.0.23:9200 as the doc engine.
+2026-03-24 17:52:44,291 INFO     23 Elasticsearch http://172.16.0.23:9200 is healthy.
+2026-03-24 17:52:44,296 WARNING  23 Load term.freq FAIL!
+2026-03-24 17:52:44,302 WARNING  23 Realtime synonym is disabled, since no redis connection.
+2026-03-24 17:52:44,311 WARNING  23 Load term.freq FAIL!
+2026-03-24 17:52:44,317 WARNING  23 Realtime synonym is disabled, since no redis connection.
+2026-03-24 17:52:44,318 INFO     23 can't import package 'torch'
+2026-03-24 17:52:44,318 INFO     23 default embedding config: {'model': '', 'factory': '', 'api_key': 'xxx', 'base_url': 'http://tei:80'}
+2026-03-24 17:52:44,318 INFO     23 MAX_CONTENT_LENGTH: 134217728
+2026-03-24 17:52:44,318 INFO     23 MAX_FILE_COUNT_PER_USER: 0
+2026-03-24 17:52:44,318 INFO     23 RAGFlow ingestion is ready after 48.713146924972534s initialization.
+2026-03-24 17:52:44,319 INFO     23 task_executor_4d462ea29337_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_4d462ea29337_0", "now": "2026-03-24T17:52:44.319+08:00", "boot_at": "2026-03-24T17:52:43.817+08:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-03-24 17:53:14,322 INFO     23 task_executor_4d462ea29337_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_4d462ea29337_0", "now": "2026-03-24T17:53:14.322+08:00", "boot_at": "2026-03-24T17:52:43.817+08:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-03-24 17:53:44,326 INFO     23 task_executor_4d462ea29337_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_4d462ea29337_0", "now": "2026-03-24T17:53:44.326+08:00", "boot_at": "2026-03-24T17:52:43.817+08:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-03-24 17:53:44,327 INFO     23 task_executor_48dbad7ebf13_0 expired, removed
+2026-03-24 17:54:14,332 INFO     23 task_executor_4d462ea29337_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_4d462ea29337_0", "now": "2026-03-24T17:54:14.331+08:00", "boot_at": "2026-03-24T17:52:43.817+08:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-03-24 17:54:44,335 INFO     23 task_executor_4d462ea29337_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_4d462ea29337_0", "now": "2026-03-24T17:54:44.334+08:00", "boot_at": "2026-03-24T17:52:43.817+08:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-03-24 17:55:14,338 INFO     23 task_executor_4d462ea29337_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_4d462ea29337_0", "now": "2026-03-24T17:55:14.337+08:00", "boot_at": "2026-03-24T17:52:43.817+08:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-03-24 17:55:44,427 INFO     23 task_executor_4d462ea29337_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_4d462ea29337_0", "now": "2026-03-24T17:55:44.426+08:00", "boot_at": "2026-03-24T17:52:43.817+08:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-03-24 17:56:14,428 INFO     23 task_executor_4d462ea29337_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_4d462ea29337_0", "now": "2026-03-24T17:56:14.428+08:00", "boot_at": "2026-03-24T17:52:43.817+08:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-03-24 17:56:44,433 INFO     23 task_executor_4d462ea29337_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_4d462ea29337_0", "now": "2026-03-24T17:56:44.432+08:00", "boot_at": "2026-03-24T17:52:43.817+08:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-03-24 17:57:14,437 INFO     23 task_executor_4d462ea29337_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_4d462ea29337_0", "now": "2026-03-24T17:57:14.436+08:00", "boot_at": "2026-03-24T17:52:43.817+08:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-03-24 17:57:44,440 INFO     23 task_executor_4d462ea29337_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_4d462ea29337_0", "now": "2026-03-24T17:57:44.439+08:00", "boot_at": "2026-03-24T17:52:43.817+08:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-03-24 17:58:14,444 INFO     23 task_executor_4d462ea29337_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_4d462ea29337_0", "now": "2026-03-24T17:58:14.443+08:00", "boot_at": "2026-03-24T17:52:43.817+08:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-03-24 17:58:44,447 INFO     23 task_executor_4d462ea29337_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_4d462ea29337_0", "now": "2026-03-24T17:58:44.446+08:00", "boot_at": "2026-03-24T17:52:43.817+08:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-03-24 17:59:14,449 INFO     23 task_executor_4d462ea29337_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_4d462ea29337_0", "now": "2026-03-24T17:59:14.449+08:00", "boot_at": "2026-03-24T17:52:43.817+08:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-03-24 17:59:44,509 INFO     23 task_executor_4d462ea29337_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_4d462ea29337_0", "now": "2026-03-24T17:59:44.509+08:00", "boot_at": "2026-03-24T17:52:43.817+08:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-03-24 18:00:14,515 INFO     23 task_executor_4d462ea29337_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_4d462ea29337_0", "now": "2026-03-24T18:00:14.514+08:00", "boot_at": "2026-03-24T17:52:43.817+08:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-03-24 18:00:44,518 INFO     23 task_executor_4d462ea29337_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_4d462ea29337_0", "now": "2026-03-24T18:00:44.517+08:00", "boot_at": "2026-03-24T17:52:43.817+08:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-03-24 18:01:14,522 INFO     23 task_executor_4d462ea29337_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_4d462ea29337_0", "now": "2026-03-24T18:01:14.521+08:00", "boot_at": "2026-03-24T17:52:43.817+08:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-03-24 18:01:44,526 INFO     23 task_executor_4d462ea29337_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_4d462ea29337_0", "now": "2026-03-24T18:01:44.525+08:00", "boot_at": "2026-03-24T17:52:43.817+08:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-03-24 18:02:14,529 INFO     23 task_executor_4d462ea29337_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_4d462ea29337_0", "now": "2026-03-24T18:02:14.528+08:00", "boot_at": "2026-03-24T17:52:43.817+08:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-03-24 18:02:44,536 INFO     23 task_executor_4d462ea29337_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_4d462ea29337_0", "now": "2026-03-24T18:02:44.536+08:00", "boot_at": "2026-03-24T17:52:43.817+08:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-03-24 18:03:14,540 INFO     23 task_executor_4d462ea29337_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_4d462ea29337_0", "now": "2026-03-24T18:03:14.540+08:00", "boot_at": "2026-03-24T17:52:43.817+08:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-03-24 18:03:44,545 INFO     23 task_executor_4d462ea29337_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_4d462ea29337_0", "now": "2026-03-24T18:03:44.544+08:00", "boot_at": "2026-03-24T17:52:43.817+08:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-03-24 18:04:14,550 INFO     23 task_executor_4d462ea29337_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_4d462ea29337_0", "now": "2026-03-24T18:04:14.549+08:00", "boot_at": "2026-03-24T17:52:43.817+08:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-03-24 18:04:44,554 INFO     23 task_executor_4d462ea29337_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_4d462ea29337_0", "now": "2026-03-24T18:04:44.553+08:00", "boot_at": "2026-03-24T17:52:43.817+08:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}

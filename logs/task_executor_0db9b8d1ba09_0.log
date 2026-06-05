@@ -1,0 +1,39 @@
+2025-12-16 17:59:10,758 INFO     23 task_executor_0db9b8d1ba09_0 log path: /ragflow/logs/task_executor_0db9b8d1ba09_0.log, log levels: {'peewee': 'WARNING', 'pdfminer': 'WARNING', 'root': 'INFO'}
+2025-12-16 17:59:10,759 INFO     23 
+    ____                      __  _
+   /  _/___  ____ ____  _____/ /_(_)___  ____     ________  ______   _____  _____
+   / // __ \/ __ `/ _ \/ ___/ __/ / __ \/ __ \   / ___/ _ \/ ___/ | / / _ \/ ___/
+ _/ // / / / /_/ /  __(__  ) /_/ / /_/ / / / /  (__  )  __/ /   | |/ /  __/ /
+/___/_/ /_/\__, /\___/____/\__/_/\____/_/ /_/  /____/\___/_/    |___/\___/_/
+          /____/
+    
+2025-12-16 17:59:10,759 INFO     23 RAGFlow version: v0.17.0-680-g8a771ec5
+2025-12-16 17:59:10,760 INFO     23 Current configs, from /ragflow/conf/service_conf.yaml:
+	ragflow: {'host': '0.0.0.0', 'http_port': 9380}
+	admin: {'host': '0.0.0.0', 'http_port': 9381}
+	mysql: {'name': 'rag_flow', 'user': 'rag_flow', 'password': '********', 'host': '172.16.0.20', 'port': 3306, 'max_connections': 900, 'stale_timeout': 300, 'max_allowed_packet': 1073741824}
+	minio: {'user': 'minioadmin', 'password': '********', 'host': '172.16.0.106:9000', 'bucket': '', 'prefix_path': ''}
+	es: {'hosts': 'http://172.16.0.23:9200', 'username': 'elastic', 'password': '********'}
+	os: {'hosts': 'http://opensearch01:9201', 'username': 'admin', 'password': '********'}
+	infinity: {'uri': 'infinity:23817', 'db_name': 'default_db'}
+	oceanbase: {'scheme': 'oceanbase', 'config': {'db_name': 'ragflow_doc', 'user': 'root@ragflow', 'password': 'infini_rag_flow', 'host': 'oceanbase', 'port': 2881}}
+	redis: {'db': 1, 'username': '', 'password': '********', 'host': '172.16.0.23:6379'}
+	user_default_llm: {'default_models': {'embedding_model': {'api_key': 'xxx', 'base_url': 'http://tei:80'}}}
+2025-12-16 17:59:10,762 WARNING  23 SECURITY WARNING: Using auto-generated SECRET_KEY.
+2025-12-16 17:59:10,762 INFO     23 Use Elasticsearch http://172.16.0.23:9200 as the doc engine.
+2025-12-16 17:59:10,765 INFO     23 GET http://172.16.0.23:9200/ [status:200 duration:0.002s]
+2025-12-16 17:59:10,766 INFO     23 HEAD http://172.16.0.23:9200/ [status:200 duration:0.001s]
+2025-12-16 17:59:10,767 INFO     23 Elasticsearch http://172.16.0.23:9200 is healthy.
+2025-12-16 17:59:10,773 WARNING  23 Load term.freq FAIL!
+2025-12-16 17:59:10,779 WARNING  23 Realtime synonym is disabled, since no redis connection.
+2025-12-16 17:59:10,787 WARNING  23 Load term.freq FAIL!
+2025-12-16 17:59:10,793 WARNING  23 Realtime synonym is disabled, since no redis connection.
+2025-12-16 17:59:10,794 INFO     23 can't import package 'torch'
+2025-12-16 17:59:10,794 INFO     23 USE_MINERU='false'. Skipping MinerU installation.
+2025-12-16 17:59:10,794 INFO     23 default embedding config: {'model': '', 'factory': '', 'api_key': 'xxx', 'base_url': 'http://tei:80'}
+2025-12-16 17:59:10,794 INFO     23 MAX_CONTENT_LENGTH: 134217728
+2025-12-16 17:59:10,794 INFO     23 MAX_FILE_COUNT_PER_USER: 0
+2025-12-16 17:59:10,798 INFO     23 task_executor_0db9b8d1ba09_0 reported heartbeat: {"ip_address": "172.21.0.2", "pid": 23, "name": "task_executor_0db9b8d1ba09_0", "now": "2025-12-16T17:59:10.797+08:00", "boot_at": "2025-12-16T17:59:10.757+08:00", "pending": 7, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2025-12-16 17:59:40,805 INFO     23 task_executor_0db9b8d1ba09_0 reported heartbeat: {"ip_address": "172.21.0.2", "pid": 23, "name": "task_executor_0db9b8d1ba09_0", "now": "2025-12-16T17:59:40.804+08:00", "boot_at": "2025-12-16T17:59:10.757+08:00", "pending": 7, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2025-12-16 17:59:40,807 INFO     23 task_executor_7511ade1942e_0 expired, removed
+2025-12-16 18:00:10,813 INFO     23 task_executor_0db9b8d1ba09_0 reported heartbeat: {"ip_address": "172.21.0.2", "pid": 23, "name": "task_executor_0db9b8d1ba09_0", "now": "2025-12-16T18:00:10.812+08:00", "boot_at": "2025-12-16T17:59:10.757+08:00", "pending": 7, "lag": 0, "done": 0, "failed": 0, "current": {}}

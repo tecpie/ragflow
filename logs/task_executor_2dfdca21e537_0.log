@@ -1,0 +1,43 @@
+2026-03-03 14:54:57,366 INFO     23 task_executor_2dfdca21e537_0 log path: /ragflow/logs/task_executor_2dfdca21e537_0.log, log levels: {'peewee': 'WARNING', 'pdfminer': 'WARNING', 'root': 'INFO'}
+2026-03-03 14:54:57,366 INFO     23 Staggering startup by 0.01s to prevent connection storm
+2026-03-03 14:54:57,373 INFO     23 
+    ____                      __  _
+   /  _/___  ____ ____  _____/ /_(_)___  ____     ________  ______   _____  _____
+   / // __ \/ __ `/ _ \/ ___/ __/ / __ \/ __ \   / ___/ _ \/ ___/ | / / _ \/ ___/
+ _/ // / / / /_/ /  __(__  ) /_/ / /_/ / / / /  (__  )  __/ /   | |/ /  __/ /
+/___/_/ /_/\__, /\___/____/\__/_/\____/_/ /_/  /____/\___/_/    |___/\___/_/
+          /____/
+    
+2026-03-03 14:54:57,373 INFO     23 RAGFlow version: 040be9ab2
+2026-03-03 14:54:57,373 INFO     23 Current configs, from /ragflow/conf/service_conf.yaml:
+	ragflow: {'host': '0.0.0.0', 'http_port': 9380}
+	admin: {'host': '0.0.0.0', 'http_port': 9381}
+	mysql: {'name': 'ragflow', 'user': 'tecpie', 'password': '********', 'host': '172.16.0.20', 'port': 3306, 'max_connections': 900, 'stale_timeout': 300, 'max_allowed_packet': 1073741824}
+	minio: {'user': 'minioadmin', 'password': '********', 'host': '172.16.0.106:9000', 'bucket': '', 'prefix_path': ''}
+	es: {'hosts': 'http://172.16.0.23:9200', 'username': 'elastic', 'password': '********'}
+	os: {'hosts': 'http://opensearch01:9201', 'username': 'admin', 'password': '********'}
+	infinity: {'uri': 'infinity:23817', 'postgres_port': 5432, 'db_name': 'default_db'}
+	oceanbase: {'scheme': 'oceanbase', 'config': {'db_name': 'ragflow_doc', 'user': 'root@ragflow', 'password': 'infini_rag_flow', 'host': 'oceanbase', 'port': 2881}}
+	seekdb: {'scheme': 'oceanbase', 'config': {'db_name': 'ragflow_doc', 'user': 'root', 'password': 'infini_rag_flow', 'host': 'seekdb', 'port': 2881}}
+	redis: {'db': 1, 'username': '', 'password': '********', 'host': '172.16.0.31:6379'}
+	user_default_llm: {'default_models': {'embedding_model': {'api_key': 'xxx', 'base_url': 'http://tei:80'}}}
+2026-03-03 14:54:57,375 WARNING  23 SECURITY WARNING: Using auto-generated SECRET_KEY.
+2026-03-03 14:54:57,379 INFO     23 GET http://172.16.0.23:9200/ [status:200 duration:0.002s]
+2026-03-03 14:54:57,380 INFO     23 HEAD http://172.16.0.23:9200/ [status:200 duration:0.001s]
+2026-03-03 14:54:57,381 INFO     23 Use Elasticsearch http://172.16.0.23:9200 as the doc engine.
+2026-03-03 14:54:57,381 INFO     23 Elasticsearch http://172.16.0.23:9200 is healthy.
+2026-03-03 14:54:57,381 INFO     23 Use Elasticsearch http://172.16.0.23:9200 as the doc engine.
+2026-03-03 14:54:57,381 INFO     23 Elasticsearch http://172.16.0.23:9200 is healthy.
+2026-03-03 14:54:57,385 WARNING  23 Load term.freq FAIL!
+2026-03-03 14:54:57,392 WARNING  23 Realtime synonym is disabled, since no redis connection.
+2026-03-03 14:54:57,400 WARNING  23 Load term.freq FAIL!
+2026-03-03 14:54:57,406 WARNING  23 Realtime synonym is disabled, since no redis connection.
+2026-03-03 14:54:57,407 INFO     23 can't import package 'torch'
+2026-03-03 14:54:57,407 INFO     23 default embedding config: {'model': '', 'factory': '', 'api_key': 'xxx', 'base_url': 'http://tei:80'}
+2026-03-03 14:54:57,407 INFO     23 MAX_CONTENT_LENGTH: 134217728
+2026-03-03 14:54:57,407 INFO     23 MAX_FILE_COUNT_PER_USER: 0
+2026-03-03 14:54:57,407 INFO     23 RAGFlow ingestion is ready after 53.14701843261719s initialization.
+2026-03-03 14:54:57,409 INFO     23 task_executor_2dfdca21e537_0 reported heartbeat: {"ip_address": "172.23.0.3", "pid": 23, "name": "task_executor_2dfdca21e537_0", "now": "2026-03-03T14:54:57.409+08:00", "boot_at": "2026-03-03T14:54:57.365+08:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-03-03 14:55:27,413 INFO     23 task_executor_2dfdca21e537_0 reported heartbeat: {"ip_address": "172.23.0.3", "pid": 23, "name": "task_executor_2dfdca21e537_0", "now": "2026-03-03T14:55:27.413+08:00", "boot_at": "2026-03-03T14:54:57.365+08:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-03-03 14:55:57,417 INFO     23 task_executor_2dfdca21e537_0 reported heartbeat: {"ip_address": "172.23.0.3", "pid": 23, "name": "task_executor_2dfdca21e537_0", "now": "2026-03-03T14:55:57.416+08:00", "boot_at": "2026-03-03T14:54:57.365+08:00", "pending": 0, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-03-03 14:55:57,418 INFO     23 task_executor_54546fa05341_0 expired, removed

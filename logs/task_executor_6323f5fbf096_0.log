@@ -1,0 +1,60 @@
+2026-05-11 11:01:27,436 INFO     23 task_executor_6323f5fbf096_0 log path: /ragflow/logs/task_executor_6323f5fbf096_0.log, log levels: {'peewee': 'WARNING', 'pdfminer': 'WARNING', 'root': 'INFO'}
+2026-05-11 11:01:27,437 INFO     23 Staggering startup by 0.08s to prevent connection storm
+2026-05-11 11:01:27,518 INFO     23 
+    ____                      __  _
+   /  _/___  ____ ____  _____/ /_(_)___  ____     ________  ______   _____  _____
+   / // __ \/ __ `/ _ \/ ___/ __/ / __ \/ __ \   / ___/ _ \/ ___/ | / / _ \/ ___/
+ _/ // / / / /_/ /  __(__  ) /_/ / /_/ / / / /  (__  )  __/ /   | |/ /  __/ /
+/___/_/ /_/\__, /\___/____/\__/_/\____/_/ /_/  /____/\___/_/    |___/\___/_/
+          /____/
+    
+2026-05-11 11:01:27,519 INFO     23 RAGFlow ingestion version: 250838ce3
+2026-05-11 11:01:27,519 INFO     23 Current configs, from /ragflow/conf/service_conf.yaml:
+	ragflow: {'host': '0.0.0.0', 'http_port': 9380}
+	admin: {'host': '0.0.0.0', 'http_port': 9381}
+	mysql: {'name': 'ragflow', 'user': 'tecpie', 'password': '********', 'host': '172.16.0.20', 'port': 3306, 'max_connections': 900, 'stale_timeout': 300, 'max_allowed_packet': 1073741824}
+	minio: {'user': 'minioadmin', 'password': '********', 'host': '172.16.0.106:9000', 'bucket': '', 'prefix_path': ''}
+	es: {'hosts': 'http://172.16.0.23:9200', 'username': 'elastic', 'password': '********'}
+	os: {'hosts': 'http://opensearch01:9201', 'username': 'admin', 'password': '********'}
+	infinity: {'uri': 'infinity:23817', 'postgres_port': 5432, 'db_name': 'default_db'}
+	oceanbase: {'scheme': 'oceanbase', 'config': {'db_name': 'ragflow_doc', 'user': 'root@ragflow', 'password': 'infini_rag_flow', 'host': 'oceanbase', 'port': 2881}}
+	seekdb: {'scheme': 'oceanbase', 'config': {'db_name': 'ragflow_doc', 'user': 'root', 'password': 'infini_rag_flow', 'host': 'seekdb', 'port': 2881}}
+	redis: {'db': 1, 'username': '', 'password': '********', 'host': '172.16.0.31:6379'}
+	user_default_llm: {'default_models': {'embedding_model': {'api_key': 'xxx', 'base_url': 'http://tei:80'}}}
+2026-05-11 11:01:27,529 INFO     23 GET http://172.16.0.23:9200/ [status:200 duration:0.003s]
+2026-05-11 11:01:27,530 INFO     23 HEAD http://172.16.0.23:9200/ [status:200 duration:0.001s]
+2026-05-11 11:01:27,531 INFO     23 Use Elasticsearch http://172.16.0.23:9200 as the doc engine.
+2026-05-11 11:01:27,531 INFO     23 Elasticsearch http://172.16.0.23:9200 is healthy.
+2026-05-11 11:01:27,531 INFO     23 Use Elasticsearch http://172.16.0.23:9200 as the doc engine.
+2026-05-11 11:01:27,531 INFO     23 Elasticsearch http://172.16.0.23:9200 is healthy.
+2026-05-11 11:01:27,536 WARNING  23 Load term.freq FAIL!
+2026-05-11 11:01:27,543 WARNING  23 Realtime synonym is disabled, since no redis connection.
+2026-05-11 11:01:27,552 WARNING  23 Load term.freq FAIL!
+2026-05-11 11:01:27,559 WARNING  23 Realtime synonym is disabled, since no redis connection.
+2026-05-11 11:01:27,559 INFO     23 can't import package 'torch'
+2026-05-11 11:01:27,559 INFO     23 default embedding config: {'model': '', 'factory': '', 'api_key': 'xxx', 'base_url': 'http://tei:80'}
+2026-05-11 11:01:27,559 INFO     23 MAX_CONTENT_LENGTH: 134217728
+2026-05-11 11:01:27,559 INFO     23 MAX_FILE_COUNT_PER_USER: 0
+2026-05-11 11:01:27,560 INFO     23 RAGFlow ingestion is ready after 60.858792543411255s initialization.
+2026-05-11 11:01:27,561 INFO     23 task_executor_6323f5fbf096_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_6323f5fbf096_0", "now": "2026-05-11T11:01:27.561+08:00", "boot_at": "2026-05-11T11:01:27.435+08:00", "pending": 1, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-05-11 11:01:57,568 INFO     23 task_executor_6323f5fbf096_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_6323f5fbf096_0", "now": "2026-05-11T11:01:57.567+08:00", "boot_at": "2026-05-11T11:01:27.435+08:00", "pending": 1, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-05-11 11:02:27,573 INFO     23 task_executor_6323f5fbf096_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_6323f5fbf096_0", "now": "2026-05-11T11:02:27.572+08:00", "boot_at": "2026-05-11T11:01:27.435+08:00", "pending": 1, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-05-11 11:02:57,577 INFO     23 task_executor_6323f5fbf096_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_6323f5fbf096_0", "now": "2026-05-11T11:02:57.577+08:00", "boot_at": "2026-05-11T11:01:27.435+08:00", "pending": 1, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-05-11 11:03:27,581 INFO     23 task_executor_6323f5fbf096_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_6323f5fbf096_0", "now": "2026-05-11T11:03:27.580+08:00", "boot_at": "2026-05-11T11:01:27.435+08:00", "pending": 1, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-05-11 11:03:57,584 INFO     23 task_executor_6323f5fbf096_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_6323f5fbf096_0", "now": "2026-05-11T11:03:57.583+08:00", "boot_at": "2026-05-11T11:01:27.435+08:00", "pending": 1, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-05-11 11:04:27,656 INFO     23 task_executor_6323f5fbf096_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_6323f5fbf096_0", "now": "2026-05-11T11:04:27.655+08:00", "boot_at": "2026-05-11T11:01:27.435+08:00", "pending": 1, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-05-11 11:04:57,660 INFO     23 task_executor_6323f5fbf096_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_6323f5fbf096_0", "now": "2026-05-11T11:04:57.659+08:00", "boot_at": "2026-05-11T11:01:27.435+08:00", "pending": 1, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-05-11 11:05:27,664 INFO     23 task_executor_6323f5fbf096_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_6323f5fbf096_0", "now": "2026-05-11T11:05:27.663+08:00", "boot_at": "2026-05-11T11:01:27.435+08:00", "pending": 1, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-05-11 11:05:57,667 INFO     23 task_executor_6323f5fbf096_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_6323f5fbf096_0", "now": "2026-05-11T11:05:57.666+08:00", "boot_at": "2026-05-11T11:01:27.435+08:00", "pending": 1, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-05-11 11:06:27,671 INFO     23 task_executor_6323f5fbf096_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_6323f5fbf096_0", "now": "2026-05-11T11:06:27.670+08:00", "boot_at": "2026-05-11T11:01:27.435+08:00", "pending": 1, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-05-11 11:06:57,675 INFO     23 task_executor_6323f5fbf096_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_6323f5fbf096_0", "now": "2026-05-11T11:06:57.674+08:00", "boot_at": "2026-05-11T11:01:27.435+08:00", "pending": 1, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-05-11 11:07:27,678 INFO     23 task_executor_6323f5fbf096_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_6323f5fbf096_0", "now": "2026-05-11T11:07:27.677+08:00", "boot_at": "2026-05-11T11:01:27.435+08:00", "pending": 1, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-05-11 11:07:57,681 INFO     23 task_executor_6323f5fbf096_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_6323f5fbf096_0", "now": "2026-05-11T11:07:57.680+08:00", "boot_at": "2026-05-11T11:01:27.435+08:00", "pending": 1, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-05-11 11:08:27,687 INFO     23 task_executor_6323f5fbf096_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_6323f5fbf096_0", "now": "2026-05-11T11:08:27.686+08:00", "boot_at": "2026-05-11T11:01:27.435+08:00", "pending": 1, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-05-11 11:08:57,690 INFO     23 task_executor_6323f5fbf096_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_6323f5fbf096_0", "now": "2026-05-11T11:08:57.689+08:00", "boot_at": "2026-05-11T11:01:27.435+08:00", "pending": 1, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-05-11 11:09:27,695 INFO     23 task_executor_6323f5fbf096_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_6323f5fbf096_0", "now": "2026-05-11T11:09:27.694+08:00", "boot_at": "2026-05-11T11:01:27.435+08:00", "pending": 1, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-05-11 11:09:57,699 INFO     23 task_executor_6323f5fbf096_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_6323f5fbf096_0", "now": "2026-05-11T11:09:57.698+08:00", "boot_at": "2026-05-11T11:01:27.435+08:00", "pending": 1, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-05-11 11:10:27,703 INFO     23 task_executor_6323f5fbf096_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_6323f5fbf096_0", "now": "2026-05-11T11:10:27.702+08:00", "boot_at": "2026-05-11T11:01:27.435+08:00", "pending": 1, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-05-11 11:10:57,706 INFO     23 task_executor_6323f5fbf096_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_6323f5fbf096_0", "now": "2026-05-11T11:10:57.705+08:00", "boot_at": "2026-05-11T11:01:27.435+08:00", "pending": 1, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-05-11 11:11:27,790 INFO     23 task_executor_6323f5fbf096_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_6323f5fbf096_0", "now": "2026-05-11T11:11:27.789+08:00", "boot_at": "2026-05-11T11:01:27.435+08:00", "pending": 1, "lag": 0, "done": 0, "failed": 0, "current": {}}
+2026-05-11 11:11:57,796 INFO     23 task_executor_6323f5fbf096_0 reported heartbeat: {"ip_address": "172.23.0.2", "pid": 23, "name": "task_executor_6323f5fbf096_0", "now": "2026-05-11T11:11:57.795+08:00", "boot_at": "2026-05-11T11:01:27.435+08:00", "pending": 1, "lag": 0, "done": 0, "failed": 0, "current": {}}
