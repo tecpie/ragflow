@@ -1592,6 +1592,9 @@ NER：使用 spaCy NER 和基于规则的关键词提取来抽取实体和关系
       cdpUrl: 'CDP 地址',
       cdpUrlTip:
         '支持 HTTP 和 WebSocket 两种 CDP 端点，例如 http://127.0.0.1:9222 或 ws://127.0.0.1:9222/devtools/browser/<id>。',
+      useVision: '启用视觉输入',
+      useVisionTip:
+        '开启后会将浏览器截图发送给视觉模型。纯文本模型（如 Qwen3-14B）请关闭，否则模型接口可能拒绝请求。',
       enableDefaultExtensions: '启用默认扩展',
       enableDefaultExtensionsTip:
         '启用 browser-use 默认扩展（uBlock、Cookie 处理、ClearURLs）。关闭后可避免运行时下载扩展。',

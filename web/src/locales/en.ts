@@ -1906,6 +1906,9 @@ Best for: Documents with flowing, contextually connected content — such as boo
       cdpUrl: 'CDP URL',
       cdpUrlTip:
         'Supports both HTTP and WebSocket CDP endpoints, for example http://127.0.0.1:9222 or ws://127.0.0.1:9222/devtools/browser/<id>.',
+      useVision: 'Enable vision input',
+      useVisionTip:
+        'When enabled, browser screenshots are sent to the vision model. Disable this for text-only models such as Qwen3-14B, otherwise the model API may reject requests.',
       enableDefaultExtensions: 'Enable default extensions',
       enableDefaultExtensionsTip:
         'Enable browser-use default extensions (uBlock, cookie handling, ClearURLs). Disable this to avoid runtime extension downloads.',

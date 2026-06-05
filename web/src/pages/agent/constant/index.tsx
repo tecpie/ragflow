@@ -993,6 +993,7 @@ export const initialBrowserValues = {
   headless: true,
   use_cdp: false,
   cdp_url: '',
+  use_vision: false,
   enable_default_extensions: false,
   chromium_sandbox: false,
   persist_session: true,
