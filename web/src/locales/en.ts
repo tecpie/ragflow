@@ -1900,6 +1900,12 @@ Best for: Documents with flowing, contextually connected content — such as boo
       maxRetries: 'Max retry rounds',
       maxSteps: 'Max steps',
       headless: 'Headless',
+      useCdp: 'Use CDP connection',
+      useCdpTip:
+        'Connect to an existing Chromium/Chrome instance via CDP instead of launching a new local browser process.',
+      cdpUrl: 'CDP URL',
+      cdpUrlTip:
+        'Supports both HTTP and WebSocket CDP endpoints, for example http://127.0.0.1:9222 or ws://127.0.0.1:9222/devtools/browser/<id>.',
       enableDefaultExtensions: 'Enable default extensions',
       enableDefaultExtensionsTip:
         'Enable browser-use default extensions (uBlock, cookie handling, ClearURLs). Disable this to avoid runtime extension downloads.',

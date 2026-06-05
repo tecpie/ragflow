@@ -991,6 +991,8 @@ export const initialBrowserValues = {
   prompts: `{${AgentGlobals.SysQuery}}`,
   max_steps: 30,
   headless: true,
+  use_cdp: false,
+  cdp_url: '',
   enable_default_extensions: false,
   chromium_sandbox: false,
   persist_session: true,

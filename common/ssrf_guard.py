@@ -112,6 +112,7 @@ def assert_url_is_safe(
     url: str,
     *,
     allowed_schemes: frozenset[str] = _DEFAULT_ALLOWED_SCHEMES,
+    allow_private_ip: bool = False,
 ) -> tuple[str, str]:
     """Raise ``ValueError`` if *url* is not safe to fetch (SSRF guard).
 
@@ -123,6 +124,8 @@ def assert_url_is_safe(
        (``ip.is_global``).  This is an allowlist approach: it catches private,
        loopback, link-local, reserved, multicast, and all other
        special-purpose ranges rather than individual deny-list flags.
+       When ``allow_private_ip`` is ``True``, RFC1918/ULA private addresses are
+       allowed while all other special-purpose ranges remain blocked.
        IPv4-mapped IPv6 addresses (e.g. ``::ffff:127.0.0.1``) are normalised
        to their IPv4 form via :func:`_effective_ip` before the check.
 
@@ -156,6 +159,11 @@ def assert_url_is_safe(
         raw_ip = ipaddress.ip_address(sockaddr[0])
         eff_ip = _effective_ip(raw_ip)
         if not eff_ip.is_global:
+            is_allowed_private = allow_private_ip and eff_ip.is_private
+            if is_allowed_private:
+                if resolved_ip is None:
+                    resolved_ip = str(raw_ip)
+                continue
             logger.warning(
                 "SSRF guard blocked URL: hostname=%r resolved to non-public address=%s",
                 hostname,
