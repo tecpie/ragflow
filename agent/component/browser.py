@@ -53,6 +53,8 @@ class BrowserParam(LLMParam):
         self.prompts = "{sys.query}"
         self.max_steps = 30
         self.headless = True
+        self.use_cdp = False
+        self.cdp_url = ""
         self.enable_default_extensions = False
         self.chromium_sandbox = False
         # Reuse browser profile across runs of the same agent node by default.
@@ -67,6 +69,9 @@ class BrowserParam(LLMParam):
         self.check_empty(self.llm_id, "[Browser] LLM")
         self.check_positive_integer(self.max_steps, "[Browser] Max steps")
         self.check_boolean(self.headless, "[Browser] Headless")
+        self.check_boolean(self.use_cdp, "[Browser] Use CDP")
+        if self.use_cdp:
+            self.check_empty(str(self.cdp_url or "").strip(), "[Browser] CDP URL")
         self.check_boolean(self.enable_default_extensions, "[Browser] Enable default extensions")
         self.check_boolean(self.chromium_sandbox, "[Browser] Chromium sandbox")
         self.check_boolean(self.persist_session, "[Browser] Persist session")
@@ -402,9 +407,11 @@ class Browser(ComponentBase, ABC):
     def _build_browser_llm(self):
         from browser_use.llm import ChatBrowserUse, ChatOpenAI
 
+        model_types = get_model_type_by_name(self._canvas.get_tenant_id(), self._param.llm_id)
+        model_type = "chat" if "chat" in model_types else model_types[0]
         chat_model_config = get_model_config_from_provider_instance(
             self._canvas.get_tenant_id(),
-            get_model_type_by_name(self._param.llm_id),
+            model_type,
             self._param.llm_id,
         )
         cfg = self._as_model_config_dict(chat_model_config)
@@ -465,38 +472,74 @@ class Browser(ComponentBase, ABC):
         browser_obj = None
         previous_disable_extensions = os.environ.get("BROWSER_USE_DISABLE_EXTENSIONS")
         previous_browser_binary_path = os.environ.get("BROWSER_USE_BROWSER_BINARY_PATH")
+        cdp_url = str(getattr(self._param, "cdp_url", "") or "").strip()
+        use_cdp = bool(getattr(self._param, "use_cdp", False) and cdp_url)
 
         try:
-            enable_default_extensions = bool(self._param.enable_default_extensions)
-            if not enable_default_extensions:
-                os.environ["BROWSER_USE_DISABLE_EXTENSIONS"] = "1"
-            else:
-                os.environ.pop("BROWSER_USE_DISABLE_EXTENSIONS", None)
-
-            executable_path = self._resolve_browser_executable()
-            browser_kwargs = {
-                "headless": self._param.headless,
-                "downloads_path": download_dir,
-                # Docker often runs as root without user namespaces; disable sandbox by default.
-                "chromium_sandbox": bool(self._param.chromium_sandbox),
-                # Disable runtime extension download by default for intranet/offline environments.
-                # Enable only when explicitly required and extensions are pre-cached.
-                "enable_default_extensions": enable_default_extensions,
-            }
-            if executable_path:
-                browser_kwargs["executable_path"] = executable_path
-                # Keep browser-use watchdog fallback in sync with our resolved path.
-                os.environ["BROWSER_USE_BROWSER_BINARY_PATH"] = executable_path
-            else:
-                logging.warning(
-                    "Browser no local browser executable found. "
-                    "Set BROWSER_USE_EXECUTABLE_PATH or preinstall chromium in image to avoid runtime playwright install."
+            browser_kwargs: dict[str, Any] = {}
+            browser_init_params = set()
+            browser_accepts_any_kwargs = False
+            try:
+                browser_signature = inspect.signature(BrowserUseBrowser)
+                browser_init_params = set(browser_signature.parameters.keys())
+                browser_accepts_any_kwargs = any(
+                    p.kind == inspect.Parameter.VAR_KEYWORD for p in browser_signature.parameters.values()
                 )
-            if profile_dir:
-                browser_kwargs["user_data_dir"] = profile_dir
-                # browser-use expects profile_directory to be a profile name
-                # such as "Default" / "Profile 1", not an absolute path.
-                browser_kwargs["profile_directory"] = "Default"
+            except (TypeError, ValueError):
+                browser_init_params = set()
+                browser_accepts_any_kwargs = False
+
+            if use_cdp:
+                cdp_param = ""
+                for candidate in ("cdp_url", "connect_url", "browser_ws_endpoint", "ws_endpoint", "browser_cdp_url"):
+                    if candidate in browser_init_params:
+                        cdp_param = candidate
+                        break
+                if not cdp_param and browser_accepts_any_kwargs:
+                    cdp_param = "cdp_url"
+                if cdp_param:
+                    browser_kwargs[cdp_param] = cdp_url
+                    if browser_accepts_any_kwargs or not browser_init_params or "downloads_path" in browser_init_params:
+                        browser_kwargs["downloads_path"] = download_dir
+                    logging.info("Browser will connect via CDP. url=%s", cdp_url)
+                else:
+                    logging.warning(
+                        "Browser CDP is enabled but browser-use Browser has no recognized CDP argument. "
+                        "Fallback to local browser launch."
+                    )
+                    use_cdp = False
+
+            if not use_cdp:
+                enable_default_extensions = bool(self._param.enable_default_extensions)
+                if not enable_default_extensions:
+                    os.environ["BROWSER_USE_DISABLE_EXTENSIONS"] = "1"
+                else:
+                    os.environ.pop("BROWSER_USE_DISABLE_EXTENSIONS", None)
+
+                browser_kwargs = {
+                    "headless": self._param.headless,
+                    "downloads_path": download_dir,
+                    # Docker often runs as root without user namespaces; disable sandbox by default.
+                    "chromium_sandbox": bool(self._param.chromium_sandbox),
+                    # Disable runtime extension download by default for intranet/offline environments.
+                    # Enable only when explicitly required and extensions are pre-cached.
+                    "enable_default_extensions": enable_default_extensions,
+                }
+                executable_path = self._resolve_browser_executable()
+                if executable_path:
+                    browser_kwargs["executable_path"] = executable_path
+                    # Keep browser-use watchdog fallback in sync with our resolved path.
+                    os.environ["BROWSER_USE_BROWSER_BINARY_PATH"] = executable_path
+                else:
+                    logging.warning(
+                        "Browser no local browser executable found. "
+                        "Set BROWSER_USE_EXECUTABLE_PATH or preinstall chromium in image to avoid runtime playwright install."
+                    )
+                if profile_dir:
+                    browser_kwargs["user_data_dir"] = profile_dir
+                    # browser-use expects profile_directory to be a profile name
+                    # such as "Default" / "Profile 1", not an absolute path.
+                    browser_kwargs["profile_directory"] = "Default"
 
             browser_obj = BrowserUseBrowser(**browser_kwargs)
             agent_kwargs["browser"] = browser_obj

@@ -14,6 +14,7 @@
 #  limitations under the License.
 #
 
+import asyncio
 import sys
 import types
 from pathlib import Path
@@ -227,3 +228,46 @@ def test_save_downloads_persists_file_records(monkeypatch, tmp_path):
     assert stored["location"] == "report.txt"
     assert stored["blob"] == b"ok"
     assert Path(download_file).exists()
+
+
+def test_run_browser_use_async_supports_cdp_connection(monkeypatch, tmp_path):
+    component = _build_component()
+    component._param = SimpleNamespace(
+        max_steps=3,
+        headless=True,
+        enable_default_extensions=False,
+        chromium_sandbox=False,
+        use_cdp=True,
+        cdp_url="ws://127.0.0.1:9222/devtools/browser/mock-id",
+    )
+    component._build_browser_llm = lambda: object()
+
+    captured = {}
+
+    class _FakeBrowser:
+        def __init__(self, **kwargs):
+            captured["browser_kwargs"] = kwargs
+
+        def close(self):
+            captured["browser_closed"] = True
+
+    class _FakeAgent:
+        def __init__(self, **kwargs):
+            captured["agent_kwargs"] = kwargs
+
+        async def run(self, **kwargs):
+            captured["run_kwargs"] = kwargs
+            return SimpleNamespace(final_result=lambda: "ok")
+
+    fake_browser_use = types.ModuleType("browser_use")
+    fake_browser_use.Agent = _FakeAgent
+    fake_browser_use.Browser = _FakeBrowser
+    monkeypatch.setitem(sys.modules, "browser_use", fake_browser_use)
+
+    history = asyncio.run(component._run_browser_use_async("open ragflow.io", str(tmp_path)))
+
+    assert history.final_result() == "ok"
+    assert captured["browser_kwargs"]["cdp_url"] == "ws://127.0.0.1:9222/devtools/browser/mock-id"
+    assert captured["browser_kwargs"]["downloads_path"] == str(tmp_path)
+    assert "executable_path" not in captured["browser_kwargs"]
+    assert captured["run_kwargs"]["max_steps"] == 3

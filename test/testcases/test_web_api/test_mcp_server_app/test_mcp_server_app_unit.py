@@ -144,7 +144,7 @@ def _set_request_json(monkeypatch, module, payload):
 def _stub_url_safety(monkeypatch, module, unsafe_urls=None):
     unsafe_urls = set(unsafe_urls or [])
 
-    def _assert_url_is_safe(url):
+    def _assert_url_is_safe(url, **_kwargs):
         if url in unsafe_urls:
             raise ValueError("blocked unsafe url")
         return "safe.example", "93.184.216.34"

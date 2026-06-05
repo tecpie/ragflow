@@ -1,7 +1,7 @@
 import { NextLLMSelect } from '@/components/llm-select/next';
 import { RAGFlowFormItem } from '@/components/ragflow-form';
 import { Form } from '@/components/ui/form';
-import { NumberInput } from '@/components/ui/input';
+import { Input, NumberInput } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { memo } from 'react';
@@ -20,6 +20,8 @@ const FormSchema = z.object({
   prompts: z.string(),
   max_steps: z.coerce.number().min(1),
   headless: z.boolean(),
+  use_cdp: z.boolean(),
+  cdp_url: z.string().optional(),
   enable_default_extensions: z.boolean(),
   chromium_sandbox: z.boolean(),
   persist_session: z.boolean(),
@@ -38,6 +40,7 @@ function BrowserForm({ node }: INextOperatorForm) {
   });
 
   useWatchFormChange(node?.id, form);
+  const useCdp = form.watch('use_cdp');
 
   return (
     <Form {...form}>
@@ -59,6 +62,32 @@ function BrowserForm({ node }: INextOperatorForm) {
             ></Switch>
           )}
         </RAGFlowFormItem>
+        <RAGFlowFormItem
+          label={t('flow.useCdp')}
+          tooltip={t('flow.useCdpTip')}
+          name="use_cdp"
+        >
+          {(field) => (
+            <Switch
+              checked={field.value}
+              onCheckedChange={field.onChange}
+            ></Switch>
+          )}
+        </RAGFlowFormItem>
+        {useCdp && (
+          <RAGFlowFormItem
+            label={t('flow.cdpUrl')}
+            tooltip={t('flow.cdpUrlTip')}
+            name="cdp_url"
+          >
+            {(field) => (
+              <Input
+                {...field}
+                placeholder="http://127.0.0.1:9222 or ws://127.0.0.1:9222/devtools/browser/<id>"
+              ></Input>
+            )}
+          </RAGFlowFormItem>
+        )}
         <RAGFlowFormItem
           label={t('flow.enableDefaultExtensions')}
           tooltip={t('flow.enableDefaultExtensionsTip')}
