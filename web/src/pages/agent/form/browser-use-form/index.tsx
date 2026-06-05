@@ -22,6 +22,7 @@ const FormSchema = z.object({
   headless: z.boolean(),
   use_cdp: z.boolean(),
   cdp_url: z.string().optional(),
+  use_vision: z.boolean(),
   enable_default_extensions: z.boolean(),
   chromium_sandbox: z.boolean(),
   persist_session: z.boolean(),
@@ -88,6 +89,18 @@ function BrowserForm({ node }: INextOperatorForm) {
             )}
           </RAGFlowFormItem>
         )}
+        <RAGFlowFormItem
+          label={t('flow.useVision')}
+          tooltip={t('flow.useVisionTip')}
+          name="use_vision"
+        >
+          {(field) => (
+            <Switch
+              checked={field.value}
+              onCheckedChange={field.onChange}
+            ></Switch>
+          )}
+        </RAGFlowFormItem>
         <RAGFlowFormItem
           label={t('flow.enableDefaultExtensions')}
           tooltip={t('flow.enableDefaultExtensionsTip')}

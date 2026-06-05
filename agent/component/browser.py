@@ -55,6 +55,7 @@ class BrowserParam(LLMParam):
         self.headless = True
         self.use_cdp = False
         self.cdp_url = ""
+        self.use_vision = False
         self.enable_default_extensions = False
         self.chromium_sandbox = False
         # Reuse browser profile across runs of the same agent node by default.
@@ -72,6 +73,7 @@ class BrowserParam(LLMParam):
         self.check_boolean(self.use_cdp, "[Browser] Use CDP")
         if self.use_cdp:
             self.check_empty(str(self.cdp_url or "").strip(), "[Browser] CDP URL")
+        self.check_boolean(self.use_vision, "[Browser] Use vision")
         self.check_boolean(self.enable_default_extensions, "[Browser] Enable default extensions")
         self.check_boolean(self.chromium_sandbox, "[Browser] Chromium sandbox")
         self.check_boolean(self.persist_session, "[Browser] Persist session")
@@ -468,6 +470,7 @@ class Browser(ComponentBase, ABC):
             "task": task_text,
             "llm": llm,
             "available_file_paths": available_file_paths,
+            "use_vision": bool(getattr(self._param, "use_vision", False)),
         }
         browser_obj = None
         previous_disable_extensions = os.environ.get("BROWSER_USE_DISABLE_EXTENSIONS")
