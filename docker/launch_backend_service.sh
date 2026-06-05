@@ -12,9 +12,10 @@ load_env_file() {
     # Check if .env file exists
     if [ -f "$env_file" ]; then
         echo "Loading environment variables from: $env_file"
-        # Source the .env file
+        # Source the .env file (strip CR for Windows line endings)
         set -a
-        source "$env_file" 
+        # shellcheck disable=SC1090
+        source <(sed 's/\r$//' "$env_file")
         set +a
     else
         echo "Warning: .env file not found at: $env_file"

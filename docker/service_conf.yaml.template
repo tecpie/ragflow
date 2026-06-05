@@ -24,7 +24,7 @@ minio:
   # optional: set to false to allow self-signed certificates (e.g. in development).
   # verify: ${MINIO_VERIFY:-true}
 es:
-  hosts: 'http://${ES_HOST:-es01}:9200'
+  hosts: 'http://${ES_HOST:-es01}:${ES_SERVICE_PORT:-9200}'
   username: '${ES_USER:-elastic}'
   password: '${ELASTIC_PASSWORD:-infini_rag_flow}'
 os:
@@ -52,10 +52,10 @@ seekdb:
     host: '${SEEKDB_HOST:-seekdb}'
     port: ${SEEKDB_PORT:-2881}
 redis:
-  db: 1
+  db: ${REDIS_DB:-1}
   username: '${REDIS_USERNAME:-}'
   password: '${REDIS_PASSWORD:-infini_rag_flow}'
-  host: '${REDIS_HOST:-redis}:6379'
+  host: '${REDIS_HOST:-redis}:${REDIS_PORT:-6379}'
 user_default_llm:
   default_models:
     embedding_model:
@@ -78,15 +78,15 @@ user_default_llm:
 #   prefix_path: 'prefix_path'
 #   signature_version: 'v4'
 #   addressing_style: 'path'
-# oss:
-#   access_key: '${ACCESS_KEY}'
-#   secret_key: '${SECRET_KEY}'
-#   endpoint_url: '${ENDPOINT}'
-#   region: '${REGION}'
-#   bucket: '${BUCKET}'
-#   prefix_path: '${OSS_PREFIX_PATH}'
-#   signature_version: 's3'
-#   addressing_style: 'virtual'
+oss:
+  access_key: '${ACCESS_KEY}'
+  secret_key: '${SECRET_KEY}'
+  endpoint_url: '${ENDPOINT}'
+  region: '${REGION}'
+  bucket: '${BUCKET}'
+  prefix_path: '${OSS_PREFIX_PATH}'
+  signature_version: 's3'
+  addressing_style: 'virtual'
 # azure:
 #   auth_type: 'sas'
 #   container_url: 'container_url'

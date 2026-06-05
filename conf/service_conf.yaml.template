@@ -20,7 +20,7 @@ minio:
   bucket: '${MINIO_BUCKET:-}'
   prefix_path: '${MINIO_PREFIX_PATH:-}'
 es:
-  hosts: 'http://${ES_HOST:-es01}:9200'
+  hosts: 'http://${ES_HOST:-es01}:${ES_SERVICE_PORT:-9200}'
   username: '${ES_USER:-elastic}'
   password: '${ELASTIC_PASSWORD:-infini_rag_flow}'
 os:
@@ -48,10 +48,10 @@ seekdb:
     host: '${SEEKDB_HOST:-seekdb}'
     port: ${SEEKDB_PORT:-2881}
 redis:
-  db: 1
+  db: ${REDIS_DB:-1}
   username: '${REDIS_USERNAME:-}'
   password: '${REDIS_PASSWORD:-infini_rag_flow}'
-  host: '${REDIS_HOST:-redis}:6379'
+  host: '${REDIS_HOST:-redis}:${REDIS_PORT:-6379}'
 user_default_llm:
   default_models:
     embedding_model:
