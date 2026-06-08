@@ -17,7 +17,7 @@ import logging
 import os
 import enum
 from common import settings
-from common.constants import LLMType, ActiveStatusEnum
+from common.constants import LLMType, ActiveStatusEnum, StatusEnum
 from api.db.services.tenant_llm_service import TenantLLMService, TenantService
 from api.db.services.tenant_model_provider_service import TenantModelProviderService
 from api.db.services.tenant_model_instance_service import TenantModelInstanceService
@@ -70,6 +70,29 @@ def split_model_name(model_name: str):
         instance_name = parts[1]
         provider_name = parts[2]
     return pure_model_name, instance_name, provider_name
+
+
+def _get_model_config_from_tenant_llm(tenant_id: str, model_name: str, model_type: str | None = None):
+    """Resolve self-added models (e.g. OpenAI-API-Compatible) stored only in tenant_llm."""
+    tenant_llm = TenantLLMService.get_api_key(tenant_id, model_name, model_type)
+    if not tenant_llm:
+        return None
+    if str(tenant_llm.status) == StatusEnum.INVALID.value:
+        raise LookupError(f"Model {model_name} is disabled.")
+
+    record = tenant_llm.to_dict()
+    api_key, is_tools, api_key_payload = TenantLLMService._decode_api_key_config(record.get("api_key", ""))
+    model_config = {
+        "llm_factory": record["llm_factory"],
+        "api_key": api_key,
+        "llm_name": record["llm_name"],
+        "api_base": record.get("api_base") or "",
+        "model_type": record["model_type"],
+        "is_tool": bool(is_tools) if is_tools is not None else False,
+    }
+    if api_key_payload is not None:
+        model_config["api_key_payload"] = api_key_payload
+    return model_config
 
 
 def _get_provider_or_sync_legacy(tenant_id: str, provider_name: str):
@@ -140,6 +163,9 @@ def get_model_config_from_provider_instance(tenant_id, model_type: str|enum.Enum
             raise LookupError(f"Model provider config not found: {provider_name}")
         llm_list = [llm for llm in fac_list[0]["llm"] if llm["llm_name"] == pure_model_name]
         if not llm_list:
+            tenant_llm_config = _get_model_config_from_tenant_llm(tenant_id, model_name, model_type_val)
+            if tenant_llm_config:
+                return tenant_llm_config
             raise LookupError(f"Model config not found: {model_name}")
         llm_info = llm_list[0]
         model_config = {
@@ -184,6 +210,9 @@ def get_model_type_by_name(tenant_id: str, model_name: str):
             raise LookupError(f"Model provider config not found: {provider_name}")
         llm_list = [llm for llm in fac_list[0]["llm"] if llm["llm_name"] == pure_model_name]
         if not llm_list:
+            tenant_llm_config = _get_model_config_from_tenant_llm(tenant_id, model_name)
+            if tenant_llm_config:
+                return [tenant_llm_config["model_type"]]
             raise LookupError(f"Model {pure_model_name} not found for model {model_name}.")
         return [llm_list[0]["model_type"]]
     return [model_obj.model_type for model_obj in model_objs]
