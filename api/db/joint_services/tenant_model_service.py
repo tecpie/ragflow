@@ -72,6 +72,18 @@ def split_model_name(model_name: str):
     return pure_model_name, instance_name, provider_name
 
 
+def _get_provider_or_sync_legacy(tenant_id: str, provider_name: str):
+    provider_obj = TenantModelProviderService.get_by_tenant_id_and_provider_name(tenant_id, provider_name)
+    if provider_obj:
+        return provider_obj
+
+    from api.db.joint_services.tenant_llm_sync_service import sync_tenant_llm_factory_if_exists
+
+    if sync_tenant_llm_factory_if_exists(tenant_id, provider_name):
+        return TenantModelProviderService.get_by_tenant_id_and_provider_name(tenant_id, provider_name)
+    return None
+
+
 def get_model_config_from_provider_instance(tenant_id, model_type: str|enum.Enum, model_name: str):
     pure_model_name, instance_name, provider_name = split_model_name(model_name)
     model_type_val = model_type if isinstance(model_type, str) else model_type.value
@@ -94,7 +106,7 @@ def get_model_config_from_provider_instance(tenant_id, model_type: str|enum.Enum
             "model_type": LLMType.EMBEDDING.value,
         }
 
-    provider_obj = TenantModelProviderService.get_by_tenant_id_and_provider_name(tenant_id, provider_name)
+    provider_obj = _get_provider_or_sync_legacy(tenant_id, provider_name)
     if not provider_obj:
         raise LookupError(f"Provider {provider_name} not found for model {model_name}.")
     instance_obj = TenantModelInstanceService.get_by_provider_id_and_instance_name(provider_obj.id, instance_name)
@@ -148,7 +160,7 @@ def get_api_key(tenant_id: str, model_name: str):
 
     if not provider_name:
         raise LookupError("Provider name is required.")
-    provider_obj = TenantModelProviderService.get_by_tenant_id_and_provider_name(tenant_id, provider_name)
+    provider_obj = _get_provider_or_sync_legacy(tenant_id, provider_name)
     if not provider_obj:
         raise LookupError(f"Provider {provider_name} not found.")
     instance_obj = TenantModelInstanceService.get_by_provider_id_and_instance_name(provider_obj.id, instance_name)
@@ -159,7 +171,7 @@ def get_api_key(tenant_id: str, model_name: str):
 
 def get_model_type_by_name(tenant_id: str, model_name: str):
     pure_model_name, instance_name, provider_name = split_model_name(model_name)
-    provider_obj = TenantModelProviderService.get_by_tenant_id_and_provider_name(tenant_id, provider_name)
+    provider_obj = _get_provider_or_sync_legacy(tenant_id, provider_name)
     if not provider_obj:
         raise LookupError(f"Provider {provider_name} not found for model {model_name}.")
     instance_obj = TenantModelInstanceService.get_by_provider_id_and_instance_name(provider_obj.id, instance_name)

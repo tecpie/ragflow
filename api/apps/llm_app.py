@@ -463,6 +463,9 @@ async def delete_factory():
 @login_required
 def my_llms():
     try:
+        from api.db.joint_services.tenant_llm_sync_service import sync_tenant_llm_records
+
+        sync_tenant_llm_records(current_user.id)
         TenantLLMService.ensure_mineru_from_env(current_user.id)
         TenantLLMService.ensure_opendataloader_from_env(current_user.id)
         include_details = request.args.get("include_details", "false").lower() == "true"

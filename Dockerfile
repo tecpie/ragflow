@@ -200,6 +200,7 @@ COPY docker/nginx/ragflow.conf.golang docker/nginx/ragflow.conf.python docker/ng
 RUN mv /etc/nginx/ragflow.conf.golang /etc/nginx/conf.d/ragflow.conf.golang && \
     mv /etc/nginx/ragflow.conf.python /etc/nginx/conf.d/ragflow.conf.python && \
     mv /etc/nginx/ragflow.conf.hybrid /etc/nginx/conf.d/ragflow.conf.hybrid && \
+    cp /etc/nginx/conf.d/ragflow.conf.python /etc/nginx/conf.d/ragflow.conf && \
     rm -f /etc/nginx/sites-enabled/default
 
 # Copy compiled web pages

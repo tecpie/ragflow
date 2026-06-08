@@ -33,6 +33,50 @@ class LLMFactoriesService(CommonService):
 class TenantLLMService(CommonService):
     model = TenantLLM
 
+    @classmethod
+    @DB.connection_context()
+    def save(cls, **kwargs):
+        obj = cls.model(**kwargs)
+        obj.save(force_insert=True)
+        from api.db.joint_services.tenant_llm_sync_service import sync_tenant_llm_from_record
+
+        sync_tenant_llm_from_record(obj)
+        return obj
+
+    @classmethod
+    @DB.connection_context()
+    def insert_many(cls, data_list, batch_size=100):
+        super().insert_many(data_list, batch_size)
+        tenant_ids = {item["tenant_id"] for item in data_list if item.get("tenant_id")}
+        from api.db.joint_services.tenant_llm_sync_service import sync_tenant_llm_records
+
+        for tenant_id in tenant_ids:
+            sync_tenant_llm_records(tenant_id)
+
+    @classmethod
+    @DB.connection_context()
+    def filter_update(cls, filters, update_data):
+        affected = list(cls.model.select().where(*filters))
+        count = super().filter_update(filters, update_data)
+        from api.db.joint_services.tenant_llm_sync_service import sync_tenant_llm_from_record
+
+        for record in affected:
+            data = record.to_dict()
+            data.update(update_data)
+            sync_tenant_llm_from_record(data)
+        return count
+
+    @classmethod
+    @DB.connection_context()
+    def filter_delete(cls, filters):
+        affected = list(cls.model.select().where(*filters))
+        count = super().filter_delete(filters)
+        from api.db.joint_services.tenant_llm_sync_service import sync_tenant_llm_delete_record
+
+        for record in affected:
+            sync_tenant_llm_delete_record(record.tenant_id, record.llm_factory, record.llm_name)
+        return count
+
     @staticmethod
     def _decode_api_key_config(raw_api_key: str) -> tuple[str, bool | None, str | None]:
         if not raw_api_key:
