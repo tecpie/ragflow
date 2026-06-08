@@ -18,8 +18,8 @@ import os
 import enum
 import json
 from common import settings
-from common.constants import ActiveStatusEnum, LLMType, MINERU_DEFAULT_CONFIG, MINERU_ENV_KEYS, OPENDATALOADER_DEFAULT_CONFIG, OPENDATALOADER_ENV_KEYS, PADDLEOCR_DEFAULT_CONFIG, PADDLEOCR_ENV_KEYS
-from api.db.services.tenant_llm_service import TenantService
+from common.constants import ActiveStatusEnum, LLMType, MINERU_DEFAULT_CONFIG, MINERU_ENV_KEYS, OPENDATALOADER_DEFAULT_CONFIG, OPENDATALOADER_ENV_KEYS, PADDLEOCR_DEFAULT_CONFIG, PADDLEOCR_ENV_KEYS, StatusEnum
+from api.db.services.tenant_llm_service import TenantLLMService, TenantService
 from api.db.services.tenant_model_provider_service import TenantModelProviderService
 from api.db.services.tenant_model_instance_service import TenantModelInstanceService
 from api.db.services.tenant_model_service import TenantModelService
@@ -178,6 +178,42 @@ def split_model_name(model_name: str):
     return pure_model_name, instance_name, provider_name
 
 
+def _get_model_config_from_tenant_llm(tenant_id: str, model_name: str, model_type: str | None = None):
+    """Resolve self-added models (e.g. OpenAI-API-Compatible) stored only in tenant_llm."""
+    tenant_llm = TenantLLMService.get_api_key(tenant_id, model_name, model_type)
+    if not tenant_llm:
+        return None
+    if str(tenant_llm.status) == StatusEnum.INVALID.value:
+        raise LookupError(f"Model {model_name} is disabled.")
+
+    record = tenant_llm.to_dict()
+    api_key, is_tools, api_key_payload = TenantLLMService._decode_api_key_config(record.get("api_key", ""))
+    model_config = {
+        "llm_factory": record["llm_factory"],
+        "api_key": api_key,
+        "llm_name": record["llm_name"],
+        "api_base": record.get("api_base") or "",
+        "model_type": record["model_type"],
+        "is_tools": bool(is_tools) if is_tools is not None else False,
+        "max_tokens": 8192,
+    }
+    if api_key_payload is not None:
+        model_config["api_key_payload"] = api_key_payload
+    return model_config
+
+
+def _get_provider_or_sync_legacy(tenant_id: str, provider_name: str):
+    provider_obj = TenantModelProviderService.get_by_tenant_id_and_provider_name(tenant_id, provider_name)
+    if provider_obj:
+        return provider_obj
+
+    from api.db.joint_services.tenant_llm_sync_service import sync_tenant_llm_factory_if_exists
+
+    if sync_tenant_llm_factory_if_exists(tenant_id, provider_name):
+        return TenantModelProviderService.get_by_tenant_id_and_provider_name(tenant_id, provider_name)
+    return None
+
+
 def get_model_config_from_provider_instance(tenant_id, model_type: str|enum.Enum, model_name: str):
     pure_model_name, instance_name, provider_name = split_model_name(model_name)
     model_type_val = model_type if isinstance(model_type, str) else model_type.value
@@ -200,7 +236,7 @@ def get_model_config_from_provider_instance(tenant_id, model_type: str|enum.Enum
             "model_type": LLMType.EMBEDDING.value,
         }
 
-    provider_obj = TenantModelProviderService.get_by_tenant_id_and_provider_name(tenant_id, provider_name)
+    provider_obj = _get_provider_or_sync_legacy(tenant_id, provider_name)
     if not provider_obj:
         raise LookupError(f"Provider {provider_name} not found for model {model_name}.")
     instance_obj = TenantModelInstanceService.get_by_provider_id_and_instance_name(provider_obj.id, instance_name)
@@ -242,6 +278,9 @@ def get_model_config_from_provider_instance(tenant_id, model_type: str|enum.Enum
             raise LookupError(f"Model provider config not found: {provider_name}")
         llm_list = [llm for llm in fac_list[0]["llm"] if llm["llm_name"] == pure_model_name]
         if not llm_list:
+            tenant_llm_config = _get_model_config_from_tenant_llm(tenant_id, model_name, model_type_val)
+            if tenant_llm_config:
+                return tenant_llm_config
             raise LookupError(f"Model config not found: {model_name}")
         llm_info = llm_list[0]
         if model_type_val not in _factory_model_types(llm_info):
@@ -265,7 +304,7 @@ def get_api_key(tenant_id: str, model_name: str):
 
     if not provider_name:
         raise LookupError("Provider name is required.")
-    provider_obj = TenantModelProviderService.get_by_tenant_id_and_provider_name(tenant_id, provider_name)
+    provider_obj = _get_provider_or_sync_legacy(tenant_id, provider_name)
     if not provider_obj:
         raise LookupError(f"Provider {provider_name} not found.")
     instance_obj = TenantModelInstanceService.get_by_provider_id_and_instance_name(provider_obj.id, instance_name)
@@ -276,7 +315,7 @@ def get_api_key(tenant_id: str, model_name: str):
 
 def get_model_type_by_name(tenant_id: str, model_name: str):
     pure_model_name, instance_name, provider_name = split_model_name(model_name)
-    provider_obj = TenantModelProviderService.get_by_tenant_id_and_provider_name(tenant_id, provider_name)
+    provider_obj = _get_provider_or_sync_legacy(tenant_id, provider_name)
     if not provider_obj:
         raise LookupError(f"Provider {provider_name} not found for model {model_name}.")
     instance_obj = TenantModelInstanceService.get_by_provider_id_and_instance_name(provider_obj.id, instance_name)
@@ -296,6 +335,9 @@ def get_model_type_by_name(tenant_id: str, model_name: str):
             raise LookupError(f"Model provider config not found: {provider_name}")
         llm_list = [llm for llm in fac_list[0]["llm"] if llm["llm_name"] == pure_model_name]
         if not llm_list:
+            tenant_llm_config = _get_model_config_from_tenant_llm(tenant_id, model_name)
+            if tenant_llm_config:
+                return [tenant_llm_config["model_type"]]
             raise LookupError(f"Model {pure_model_name} not found for model {model_name}.")
         types_in_json = _factory_model_types(llm_list[0])
     return list(set(types_in_json + [model_obj.model_type for model_obj in model_objs if model_obj.status != ActiveStatusEnum.UNSUPPORTED.value]) - {model_obj.model_type for model_obj in model_objs if model_obj.status == ActiveStatusEnum.UNSUPPORTED.value})
