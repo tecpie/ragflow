@@ -1,6 +1,7 @@
 ragflow:
   host: ${RAGFLOW_HOST:-0.0.0.0}
   http_port: 9380
+  rest_api_max_page_size: ${REST_API_MAX_PAGE_SIZE:-100}
 admin:
   host: ${RAGFLOW_HOST:-0.0.0.0}
   http_port: 9381
