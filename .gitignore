@@ -235,3 +235,4 @@ bin/*
 .claude/settings.local.json
 
 /docker/ragflow/*
+.run/

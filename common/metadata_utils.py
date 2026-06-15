@@ -428,7 +428,7 @@ def _is_metadata_list(obj: list) -> bool:
         key = item.get("key")
         if not isinstance(key, str) or not key:
             return False
-        if "enum" in item and not isinstance(item["enum"], list):
+        if "enum" in item and item["enum"] is not None and not isinstance(item["enum"], list):
             return False
         if "enum_options" in item:
             eo = item["enum_options"]
@@ -444,9 +444,9 @@ def _is_metadata_list(obj: list) -> bool:
             return False
         if "type" in item and item["type"] is not None and not isinstance(item["type"], str):
             return False
-        if "description" in item and not isinstance(item["description"], str):
+        if "description" in item and item["description"] is not None and not isinstance(item["description"], str):
             return False
-        if "descriptions" in item and not isinstance(item["descriptions"], str):
+        if "descriptions" in item and item["descriptions"] is not None and not isinstance(item["descriptions"], str):
             return False
     return True
 
@@ -457,12 +457,12 @@ def turn2jsonschema(obj: dict | list) -> Dict[str, Any]:
     if isinstance(obj, list) and _is_metadata_list(obj):
         normalized = []
         for item in obj:
-            description = item.get("description", item.get("descriptions", ""))
+            description = item.get("description") or item.get("descriptions") or ""
             normalized_item = {
                 "key": item.get("key"),
                 "description": description,
             }
-            if "enum" in item:
+            if "enum" in item and item["enum"] is not None:
                 normalized_item["enum"] = item["enum"]
             if "enum_options" in item:
                 normalized_item["enum_options"] = item["enum_options"]

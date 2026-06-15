@@ -135,6 +135,9 @@ const FloatingChatWidget = () => {
     '#111827',
   );
 
+  const hookResult = (
+    isFromAgent ? useSendNextSharedMessage : useSendSharedMessage
+  )(() => {});
   const {
     handlePressEnter,
     handleInputChange,
@@ -142,7 +145,8 @@ const FloatingChatWidget = () => {
     sendLoading,
     derivedMessages,
     hasError,
-  } = (isFromAgent ? useSendNextSharedMessage : useSendSharedMessage)(() => {});
+  } = hookResult;
+  const findReferenceByMessageId = (hookResult as any).findReferenceByMessageId;
 
   // Sync our local input with the hook's value when needed
   useEffect(() => {
@@ -632,6 +636,7 @@ const FloatingChatWidget = () => {
                           loading={false}
                           content={message.content}
                           reference={
+                            findReferenceByMessageId?.(message.id) ||
                             message.reference || {
                               doc_aggs: [],
                               chunks: [],
@@ -846,6 +851,7 @@ const FloatingChatWidget = () => {
                             loading={false}
                             content={message.content}
                             reference={
+                              findReferenceByMessageId?.(message.id) ||
                               message.reference || {
                                 doc_aggs: [],
                                 chunks: [],

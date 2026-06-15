@@ -505,6 +505,8 @@ class TenantLLMService(CommonService):
 
 class LLM4Tenant:
     def __init__(self, tenant_id: str, model_config: dict, lang="Chinese", **kwargs):
+        self.trace_context = kwargs.pop("trace_context", None) or {}
+        self.langfuse_session_id = kwargs.pop("langfuse_session_id", None)
         self.tenant_id = tenant_id
         self.llm_name = model_config["llm_name"]
         self.model_config = model_config
@@ -524,8 +526,9 @@ class LLM4Tenant:
             try:
                 if langfuse.auth_check():
                     self.langfuse = langfuse
-                    trace_id = self.langfuse.create_trace_id()
-                    self.trace_context = {"trace_id": trace_id}
+                    if not self.trace_context:
+                        trace_id = self.langfuse.create_trace_id()
+                        self.trace_context = {"trace_id": trace_id}
             except Exception:
                 # Skip langfuse tracing if connection fails
                 pass
@@ -561,6 +564,8 @@ class LLM4Tenant:
     def _start_langfuse_observation(self, **kwargs):
         if not self.langfuse:
             return None, None
+        if self.langfuse_session_id:
+            kwargs["session_id"] = self.langfuse_session_id
         kwargs.setdefault("trace_context", self.trace_context)
         ctx = None
         if self.user_id:

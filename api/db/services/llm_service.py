@@ -115,8 +115,8 @@ class LLMBundle(LLM4Tenant):
             # Embedding APIs (OpenAI-compatible, Zhipu, etc.) reject empty or
             # whitespace-only inputs with errors like "Input at index N cannot
             # be empty or whitespace only". Upstream parsers can produce such
-            # chunks — e.g. when OCR/vision on an embedded DOCX image returns
-            # nothing, or a table has only empty cells — so coerce to a safe
+            # chunks �?e.g. when OCR/vision on an embedded DOCX image returns
+            # nothing, or a table has only empty cells �?so coerce to a safe
             # placeholder here, at the single boundary every embedding path
             # funnels through.
             if text is None or not str(text).strip():

@@ -69,6 +69,7 @@ export interface FormFieldConfig {
   required?: boolean;
   placeholder?: string;
   options?: { label: string; value: string }[];
+  allowCustomValue?: boolean;
   defaultValue?: any;
   validation?: {
     pattern?: RegExp;
@@ -457,6 +458,7 @@ export const RenderField = ({
                 triggerClassName="!shrink"
                 {...finalFieldProps}
                 options={field.options}
+                allowCustomValue={field.allowCustomValue}
                 disabled={field.disabled}
               />
             );
