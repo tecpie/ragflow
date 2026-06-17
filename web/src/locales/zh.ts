@@ -1529,6 +1529,7 @@ NER：使用 spaCy NER 和基于规则的关键词提取来抽取实体和关系
       selectModelBeforeVerify: '请至少选择一个模型后再验证。',
       addCustomModel: '添加自定义模型',
       addCustomModelTitle: '添加自定义模型',
+      editCustomModelTitle: '编辑模型',
       modelMaxTokens: '最大 Token 数',
       modelTypes: {
         chat: 'Chat',
@@ -1536,7 +1537,8 @@ NER：使用 spaCy NER 和基于规则的关键词提取来抽取实体和关系
         rerank: 'Rerank',
         sequence2text: 'sequence2text',
         tts: 'TTS',
-        image2text: 'OCR',
+        image2text: 'VLM',
+        ocr: 'OCR',
         speech2text: 'ASR',
       },
       modelFeatures: '模型特性',

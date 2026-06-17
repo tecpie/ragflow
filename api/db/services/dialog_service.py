@@ -901,8 +901,10 @@ async def async_chat(dialog, messages, stream=True, **kwargs):
                 "input": {"prompt": prompt, "prompt4citation": prompt4citation, "messages": msg},
             }
             if session_id:
-                observation_kwargs["session_id"] = session_id
-            langfuse_generation = langfuse_tracer.start_observation(**observation_kwargs)
+                with propagate_attributes(session_id=session_id):
+                    langfuse_generation = langfuse_tracer.start_observation(**observation_kwargs)
+            else:
+                langfuse_generation = langfuse_tracer.start_observation(**observation_kwargs)
         except Exception as e:  # noqa: BLE001 - tracing must not break chat flow
             if langfuse_ctx is not None:
                 langfuse_ctx.__exit__(None, None, None)
@@ -929,6 +931,7 @@ async def async_chat(dialog, messages, stream=True, **kwargs):
             final = await decorate_answer(_extract_visible_answer(thought + full_answer))
             final["final"] = True
             final["audio_binary"] = None
+            final["answer"] = ""
             yield final
     else:
         if llm_model_config["model_type"] == "chat":
@@ -1745,6 +1748,7 @@ async def async_ask(question, kb_ids, tenant_id, chat_llm_name=None, search_conf
     full_answer = last_state.full_text if last_state else ""
     final = await decorate_answer(_extract_visible_answer(full_answer))
     final["final"] = True
+    final["answer"] = ""
     yield final
 
 
