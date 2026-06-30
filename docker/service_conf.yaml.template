@@ -95,6 +95,15 @@ user_default_llm:
 #   prefix_path: '${OSS_PREFIX_PATH}'
 #   signature_version: 's3'
 #   addressing_style: 'virtual'
+oss:
+  access_key: '${ACCESS_KEY}'
+  secret_key: '${SECRET_KEY}'
+  endpoint_url: '${ENDPOINT}'
+  region: '${REGION}'
+  bucket: '${BUCKET}'
+  prefix_path: '${OSS_PREFIX_PATH}'
+  signature_version: 's3'
+  addressing_style: 'virtual'
 # azure:
 #   auth_type: 'sas'
 #   container_url: 'container_url'
