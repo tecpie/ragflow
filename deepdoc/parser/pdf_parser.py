@@ -1533,18 +1533,42 @@ class RAGFlowPdfParser:
         self.page_cum_height = [0]
         self.page_layout = []
         self.page_from = page_from
+        self.page_images = []
+        self.page_chars = []
+        self.total_page = 0
         start = timer()
         try:
             with sys.modules[LOCK_KEY_pdfplumber]:
                 with pdfplumber.open(fnm) if isinstance(fnm, str) else pdfplumber.open(BytesIO(fnm)) as pdf:
                     self.pdf = pdf
-                    self.page_images = [p.to_image(resolution=72 * zoomin, antialias=True).annotated for i, p in enumerate(self.pdf.pages[page_from:page_to])]
-
-                    try:
-                        self.page_chars = [[c for c in page.dedupe_chars().chars if self._has_color(c)] for page in self.pdf.pages[page_from:page_to]]
-                    except Exception as e:
-                        logging.warning(f"Failed to extract characters for pages {page_from}-{page_to}: {str(e)}")
-                        self.page_chars = [[] for _ in range(len(self.page_images))]  # If failed to extract, using empty list instead.
+                    self.total_page = len(self.pdf.pages)
+                    for pi, page in enumerate(self.pdf.pages[page_from:page_to]):
+                        page_no = page_from + pi + 1
+                        try:
+                            self.page_images.append(
+                                page.to_image(resolution=72 * zoomin, antialias=True).annotated
+                            )
+                        except Exception as e:
+                            logging.warning(
+                                "Failed to render page %d (range %d-%d): %s",
+                                page_no,
+                                page_from,
+                                page_to,
+                                e,
+                            )
+                            continue
+                        try:
+                            chars = [c for c in page.dedupe_chars().chars if self._has_color(c)]
+                        except Exception as e:
+                            logging.warning(
+                                "Failed to extract characters for page %d (range %d-%d): %s",
+                                page_no,
+                                page_from,
+                                page_to,
+                                e,
+                            )
+                            chars = []
+                        self.page_chars.append(chars)
 
                     # Detect garbled pages and clear their chars so the OCR
                     # path will be used instead. Two detection strategies:
@@ -1574,11 +1598,24 @@ class RAGFlowPdfParser:
                             )
                             self.page_chars[pi] = []
 
-                    self.total_page = len(self.pdf.pages)
-
         except Exception as e:
             logging.exception(f"RAGFlowPdfParser __images__, exception: {e}")
+        if len(self.page_chars) != len(self.page_images):
+            logging.warning(
+                "page_chars/page_images length mismatch (%d vs %d), padding empty char lists",
+                len(self.page_chars),
+                len(self.page_images),
+            )
+            self.page_chars = (self.page_chars + [[]] * len(self.page_images))[: len(self.page_images)]
         logging.info(f"__images__ dedupe_chars cost {timer() - start}s")
+
+        if not self.page_images:
+            logging.warning(
+                "No page images extracted for pages %d-%d, skipping OCR",
+                page_from,
+                page_to,
+            )
+            return
 
         logging.debug("Images converted.")
         self.is_english = [
