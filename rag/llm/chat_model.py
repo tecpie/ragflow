@@ -220,7 +220,7 @@ class Base(ABC):
             if not resp.choices[0].delta.content:
                 resp.choices[0].delta.content = ""
             _reasoning = getattr(resp.choices[0].delta, "reasoning_content", None) or getattr(resp.choices[0].delta, "reasoning", None)
-            if kwargs.get("with_reasoning", True) and _reasoning:
+            if kwargs.get("with_reasoning", True) and _reasoning and str(_reasoning).strip():
                 ans = ""
                 if not reasoning_start:
                     reasoning_start = True
@@ -1570,7 +1570,7 @@ class LiteLLMBase(ABC):
                         delta.content = ""
 
                     _reasoning = getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None)
-                    if kwargs.get("with_reasoning", True) and _reasoning:
+                    if kwargs.get("with_reasoning", True) and _reasoning and str(_reasoning).strip():
                         ans = ""
                         if not reasoning_start:
                             reasoning_start = True

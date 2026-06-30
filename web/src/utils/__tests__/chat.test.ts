@@ -1,4 +1,8 @@
-import { preprocessLaTeX } from '../chat';
+import {
+  preprocessLaTeX,
+  replaceThinkToSection,
+  stripEmptyThinkBlocks,
+} from '../chat';
 
 describe('preprocessLaTeX', () => {
   it('converts block \\[ \\] to $$ $$', () => {
@@ -31,5 +35,33 @@ describe('preprocessLaTeX', () => {
     const content = 'First \\[ a \\] then \\[ b \\right] c \\]';
     const result = preprocessLaTeX(content);
     expect(result).toBe('First $$a$$ then $$ b \\right] c $$');
+  });
+});
+
+describe('stripEmptyThinkBlocks', () => {
+  it('removes empty redacted_thinking blocks', () => {
+    expect(stripEmptyThinkBlocks('<think></think>你好')).toBe('你好');
+  });
+
+  it('removes empty think blocks with mixed closing tags', () => {
+    const input = '<think></' + 'think>答案';
+    expect(stripEmptyThinkBlocks(input)).toBe('答案');
+  });
+
+  it('keeps non-empty think blocks', () => {
+    const input = '<think>推理内容</think>答案';
+    expect(stripEmptyThinkBlocks(input)).toBe(input);
+  });
+});
+
+describe('replaceThinkToSection', () => {
+  it('does not render empty think blocks', () => {
+    expect(replaceThinkToSection('<think></think>你好')).toBe('你好');
+  });
+
+  it('renders non-empty think blocks as details', () => {
+    expect(replaceThinkToSection('<think>分析中</think>你好')).toBe(
+      '<details class="think"><summary>Thinking...</summary>分析中</details>你好',
+    );
   });
 });

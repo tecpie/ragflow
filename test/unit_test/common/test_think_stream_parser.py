@@ -295,6 +295,30 @@ CASES = [
         },
     ),
     (
+        "empty_think",
+        {
+            "min_tokens": 16,
+            "chunks": ["<think></think>你好"],
+            "expected": {
+                "think": "",
+                "answer": "你好",
+                "markers": [],
+            },
+        },
+    ),
+    (
+        "empty_think_split_tags",
+        {
+            "min_tokens": 16,
+            "chunks": ["<think>", "</think>你好"],
+            "expected": {
+                "think": "",
+                "answer": "你好",
+                "markers": [],
+            },
+        },
+    ),
+    (
         "think_then_answer_then_think",
         {
             "min_tokens": 16,

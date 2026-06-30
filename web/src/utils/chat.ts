@@ -78,15 +78,25 @@ export const preprocessLaTeX = (content: string) => {
   return inlineProcessedContent;
 };
 
-export function replaceThinkToSection(text: string = '') {
-  const pattern = /<think>([\s\S]*?)<\/think>/g;
+const THINK_BLOCK_PATTERN =
+  /<(redacted_thinking|think)>([\s\S]*?)<\/(?:redacted_thinking|think)>/gi;
 
-  const result = text.replace(
-    pattern,
-    '<details class="think"><summary>Thinking...</summary>$1</details>',
+export function stripEmptyThinkBlocks(text: string = '') {
+  return text.replace(THINK_BLOCK_PATTERN, (match, _tag, content: string) =>
+    content.trim() ? match : '',
   );
+}
 
-  return result;
+export function replaceThinkToSection(text: string = '') {
+  const withoutEmptyBlocks = stripEmptyThinkBlocks(text);
+
+  return withoutEmptyBlocks.replace(
+    THINK_BLOCK_PATTERN,
+    (_match, _tag, content: string) =>
+      content.trim()
+        ? `<details class="think"><summary>Thinking...</summary>${content}</details>`
+        : '',
+  );
 }
 
 export function replaceRetrievingToSection(text: string = '') {

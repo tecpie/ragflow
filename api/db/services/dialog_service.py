@@ -1489,6 +1489,7 @@ class _ThinkStreamState:
         self.last_idx = 0
         self.last_model_full = ""
         self.in_think = False
+        self.think_open_emitted = False
         self.close_pending = False
         self.pending_after_close = ""
         self.think_buffer = ""
@@ -1523,6 +1524,33 @@ async def _stream_with_think_delta(stream_iter, min_tokens: int = 16):
             return out
         return None
 
+    def _yield_think_events(text: str):
+        if not text:
+            return []
+        events = []
+        if state.in_think and not state.think_open_emitted:
+            state.think_open_emitted = True
+            events.append(("marker", "<think>", state))
+        events.append(("text", text, state))
+        return events
+
+    def _close_think_events():
+        events = []
+        if state.think_open_emitted:
+            events.append(("marker", "</think>", state))
+        state.in_think = False
+        state.think_open_emitted = False
+        state.close_pending = False
+        return events
+
+    def _emit_section_events(section: str, text: str):
+        if not text:
+            return []
+        if section == "think":
+            return _yield_think_events(text)
+        out = _emit_text(section, text)
+        return [("text", out, state)] if out is not None else []
+
     def _flush_think_buffer():
         if not state.think_buffer:
             return None
@@ -1555,20 +1583,18 @@ async def _stream_with_think_delta(stream_iter, min_tokens: int = 16):
             state.close_pending = False
             think_piece = _flush_think_buffer()
             if think_piece is not None:
-                yield ("text", think_piece, state)
-            state.in_think = False
-            yield ("marker", "</think>", state)
+                for evt in _yield_think_events(think_piece):
+                    yield evt
+            for evt in _close_think_events():
+                yield evt
             if state.pending_after_close:
                 answer_piece = state.pending_after_close
                 state.pending_after_close = ""
-                out = _emit_text("answer", answer_piece)
-                if out is not None:
-                    yield ("text", out, state)
+                for evt in _emit_section_events("answer", answer_piece):
+                    yield evt
             answer_piece = re.sub(r"</?think>", "", pending or "")
-            if answer_piece:
-                out = _emit_text("answer", answer_piece)
-                if out is not None:
-                    yield ("text", out, state)
+            for evt in _emit_section_events("answer", answer_piece):
+                yield evt
             continue
 
         while pending:
@@ -1577,48 +1603,44 @@ async def _stream_with_think_delta(stream_iter, min_tokens: int = 16):
 
             if open_idx == -1 and close_idx == -1:
                 piece = re.sub(r"</?think>", "", pending or "")
-                if piece:
-                    section = "think" if state.in_think else "answer"
-                    out = _emit_text(section, piece)
-                    if out is not None:
-                        yield ("text", out, state)
+                section = "think" if state.in_think else "answer"
+                for evt in _emit_section_events(section, piece):
+                    yield evt
                 break
 
             if open_idx != -1 and (close_idx == -1 or open_idx < close_idx):
-                before = pending[:open_idx]
+                before = re.sub(r"</?think>", "", pending[:open_idx] or "")
                 if before:
-                    piece = re.sub(r"</?think>", "", before or "")
                     section = "think" if state.in_think else "answer"
-                    out = _emit_text(section, piece)
-                    if out is not None:
-                        yield ("text", out, state)
+                    for evt in _emit_section_events(section, before):
+                        yield evt
                 pending = pending[open_idx + len("<think>") :]
                 if not state.in_think:
                     answer_piece = _flush_answer_buffer()
                     if answer_piece is not None:
-                        yield ("text", answer_piece, state)
+                        for evt in _emit_section_events("answer", answer_piece):
+                            yield evt
                     think_piece = _flush_think_buffer()
                     if think_piece is not None:
-                        yield ("text", think_piece, state)
+                        for evt in _yield_think_events(think_piece):
+                            yield evt
                     state.in_think = True
-                    yield ("marker", "<think>", state)
+                    state.think_open_emitted = False
                 continue
 
-            before = pending[:close_idx]
+            before = re.sub(r"</?think>", "", pending[:close_idx] or "")
             after = pending[close_idx + len("</think>") :]
             if before:
-                piece = re.sub(r"</?think>", "", before or "")
                 section = "think" if state.in_think else "answer"
-                out = _emit_text(section, piece)
-                if out is not None:
-                    yield ("text", out, state)
+                for evt in _emit_section_events(section, before):
+                    yield evt
             after_visible = re.sub(r"</?think>", "", after or "")
             if after_visible.strip():
                 think_piece = _flush_think_buffer()
-                if think_piece is not None:
-                    yield ("text", think_piece, state)
-                state.in_think = False
-                yield ("marker", "</think>", state)
+                for evt in _yield_think_events(think_piece or ""):
+                    yield evt
+                for evt in _close_think_events():
+                    yield evt
                 pending = after_visible
                 continue
             state.close_pending = True
@@ -1627,12 +1649,12 @@ async def _stream_with_think_delta(stream_iter, min_tokens: int = 16):
             pending = ""
             break
 
-    if state.think_buffer:
-        yield ("text", state.think_buffer, state)
-        state.think_buffer = ""
+    think_piece = _flush_think_buffer()
+    for evt in _yield_think_events(think_piece or ""):
+        yield evt
     if state.close_pending:
-        state.in_think = False
-        yield ("marker", "</think>", state)
+        for evt in _close_think_events():
+            yield evt
     if state.answer_buffer:
         yield ("text", state.answer_buffer, state)
         state.answer_buffer = ""
