@@ -26,6 +26,7 @@ const FormSchema = z.object({
   enable_default_extensions: z.boolean(),
   chromium_sandbox: z.boolean(),
   persist_session: z.boolean(),
+  enable_thinking: z.boolean(),
   upload_sources: z.string().optional(),
 });
 
@@ -129,6 +130,18 @@ function BrowserForm({ node }: INextOperatorForm) {
           label={t('flow.persistSession')}
           tooltip={t('flow.persistSessionTip')}
           name="persist_session"
+        >
+          {(field) => (
+            <Switch
+              checked={field.value}
+              onCheckedChange={field.onChange}
+            ></Switch>
+          )}
+        </RAGFlowFormItem>
+        <RAGFlowFormItem
+          label={t('flow.modelThinking')}
+          tooltip={t('flow.modelThinkingTip')}
+          name="enable_thinking"
         >
           {(field) => (
             <Switch

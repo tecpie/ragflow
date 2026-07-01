@@ -998,6 +998,7 @@ export const initialBrowserValues = {
   enable_default_extensions: false,
   chromium_sandbox: false,
   persist_session: true,
+  enable_thinking: false,
   upload_sources: '',
   outputs: {
     content: { type: 'string', value: '' },

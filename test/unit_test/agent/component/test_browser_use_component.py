@@ -15,6 +15,7 @@
 #
 
 import asyncio
+import json
 import sys
 import types
 from pathlib import Path
@@ -271,3 +272,80 @@ def test_run_browser_use_async_supports_cdp_connection(monkeypatch, tmp_path):
     assert captured["browser_kwargs"]["downloads_path"] == str(tmp_path)
     assert "executable_path" not in captured["browser_kwargs"]
     assert captured["run_kwargs"]["max_steps"] == 3
+
+
+def test_strip_think_tags_from_llm_output():
+    raw = '<' + 'think>\n\n</think>\n{"action": "done"}'
+    assert browser_use_module.strip_think_tags_from_llm_output(raw) == '{"action": "done"}'
+
+
+def test_resolve_browser_enable_thinking_defaults_to_false():
+    component = browser_use_module.Browser.__new__(browser_use_module.Browser)
+    component._canvas = _FakeCanvas()
+    component._canvas.globals = {}
+    component._param = browser_use_module.BrowserParam()
+    assert component._resolve_browser_enable_thinking() is False
+
+
+def test_resolve_browser_enable_thinking_uses_agent_global():
+    component = browser_use_module.Browser.__new__(browser_use_module.Browser)
+    component._canvas = _FakeCanvas()
+    component._canvas.globals = {"sys.enable_thinking": True}
+    component._param = browser_use_module.BrowserParam()
+    assert component._resolve_browser_enable_thinking() is True
+
+
+def test_normalize_browser_llm_output_extracts_json_from_prose():
+    raw = (
+        "The user wants me to:\n"
+        "1. open the page\n"
+        '{"action": [{"done": {"text": "ok", "success": true}}]}'
+    )
+    normalized = browser_use_module.normalize_browser_llm_output_for_json(raw)
+    assert json.loads(normalized) == {"action": [{"done": {"text": "ok", "success": True}}]}
+
+
+def test_normalize_browser_llm_output_strips_markdown_fence():
+    raw = 'The user requested me to finish.\n```json\n{"action": []}\n```'
+    normalized = browser_use_module.normalize_browser_llm_output_for_json(raw)
+    assert json.loads(normalized) == {"action": []}
+
+
+def test_patch_browser_llm_client_strips_think_tags_and_extra_body():
+    component = browser_use_module.Browser.__new__(browser_use_module.Browser)
+    captured = {}
+
+    class _FakeMessage:
+        def __init__(self, content):
+            self.content = content
+
+    class _FakeChoice:
+        def __init__(self, content):
+            self.message = _FakeMessage(content)
+
+    class _FakeResponse:
+        def __init__(self, content):
+            self.choices = [_FakeChoice(content)]
+
+    class _FakeCompletions:
+        async def create(self, **kwargs):
+            captured["kwargs"] = kwargs
+            return _FakeResponse('<' + 'think></think>\n{"ok": true}')
+
+    class _FakeChat:
+        completions = _FakeCompletions()
+
+    class _FakeClient:
+        chat = _FakeChat()
+
+    class _FakeLLM:
+        def get_client(self):
+            return _FakeClient()
+
+    llm = component._patch_browser_llm_client(_FakeLLM(), {"enable_thinking": False})
+    response = asyncio.run(llm.get_client().chat.completions.create(model="qwen3-14b"))
+    response_again = asyncio.run(llm.get_client().chat.completions.create(model="qwen3-14b"))
+
+    assert captured["kwargs"]["extra_body"] == {"enable_thinking": False}
+    assert json.loads(response.choices[0].message.content) == {"ok": True}
+    assert json.loads(response_again.choices[0].message.content) == {"ok": True}

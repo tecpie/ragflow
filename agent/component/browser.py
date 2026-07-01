@@ -30,6 +30,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import unquote, urlparse
 from urllib.request import Request, urlopen
 
+import json_repair
+
 from agent.component.base import ComponentBase
 from agent.component.llm import LLMParam
 from api.db import FileType
@@ -40,7 +42,54 @@ from api.utils.file_utils import filename_type
 from common import settings
 from common.connection_utils import timeout
 from common.misc_utils import get_uuid
+from common.model_thinking_utils import apply_enable_thinking_policy
 from rag.llm import FACTORY_DEFAULT_BASE_URL
+
+_THINK_BLOCK_RE = re.compile(
+    r"<(?:think|redacted_thinking|redacted_reasoning)>[\s\S]*?</(?:think|redacted_thinking|redacted_reasoning)>\s*",
+    re.IGNORECASE,
+)
+_MARKDOWN_FENCE_RE = re.compile(r"```(?:json)?\s*", re.IGNORECASE)
+
+
+def strip_think_tags_from_llm_output(text: str) -> str:
+    if not text:
+        return text
+    return _THINK_BLOCK_RE.sub("", text).lstrip("\n\r\t ")
+
+
+def _strip_markdown_json_fence(text: str) -> str:
+    cleaned = _MARKDOWN_FENCE_RE.sub("", text or "")
+    return re.sub(r"\s*```\s*$", "", cleaned).strip()
+
+
+def normalize_browser_llm_output_for_json(text: str) -> str:
+    """Normalize browser-use LLM output so AgentOutput JSON parsing can succeed."""
+    if not text:
+        return text
+
+    cleaned = _strip_markdown_json_fence(strip_think_tags_from_llm_output(text))
+    if not cleaned:
+        return cleaned
+
+    candidates = [cleaned]
+    for opener in ("{", "["):
+        idx = cleaned.find(opener)
+        if idx >= 0:
+            candidates.append(cleaned[idx:])
+
+    for candidate in candidates:
+        fragment = _strip_markdown_json_fence(candidate)
+        if not fragment:
+            continue
+        try:
+            parsed = json_repair.loads(fragment)
+            if isinstance(parsed, (dict, list)):
+                return json.dumps(parsed, ensure_ascii=False)
+        except Exception:
+            continue
+
+    return cleaned
 
 
 class BrowserParam(LLMParam):
@@ -60,6 +109,7 @@ class BrowserParam(LLMParam):
         self.chromium_sandbox = False
         # Reuse browser profile across runs of the same agent node by default.
         self.persist_session = True
+        self.enable_thinking = False
         self.upload_sources = []
         self.outputs = {
             "content": {"type": "string", "value": ""},
@@ -77,6 +127,7 @@ class BrowserParam(LLMParam):
         self.check_boolean(self.enable_default_extensions, "[Browser] Enable default extensions")
         self.check_boolean(self.chromium_sandbox, "[Browser] Chromium sandbox")
         self.check_boolean(self.persist_session, "[Browser] Persist session")
+        self.check_boolean(self.enable_thinking, "[Browser] Enable thinking")
         self.check_empty(self.prompts, "[Browser] Prompts")
         return True
 
@@ -406,6 +457,53 @@ class Browser(ComponentBase, ABC):
         fallback = str(FACTORY_DEFAULT_BASE_URL.get(provider, "")).strip()
         return fallback if fallback else ""
 
+    def _resolve_browser_enable_thinking(self) -> bool:
+        param_val = getattr(self._param, "enable_thinking", None)
+        if param_val is not None:
+            return bool(param_val)
+        global_val = self._canvas.globals.get("sys.enable_thinking")
+        if global_val is not None:
+            return bool(global_val)
+        return False
+
+    def _build_browser_thinking_extra_body(self, cfg: dict[str, Any], model_name: str) -> dict[str, Any]:
+        provider = self._infer_provider_name(cfg)
+        _, thinking_kwargs = apply_enable_thinking_policy(
+            model_name,
+            provider,
+            {"reasoning": self._resolve_browser_enable_thinking()},
+        )
+        extra_body = thinking_kwargs.get("extra_body")
+        return dict(extra_body) if isinstance(extra_body, dict) else {}
+
+    def _patch_browser_llm_client(self, llm, extra_body: dict[str, Any] | None = None):
+        original_get_client = llm.get_client
+        thinking_extra = dict(extra_body or {})
+
+        def patched_get_client():
+            client = original_get_client()
+            if getattr(client, "_ragflow_browser_patched", False):
+                return client
+            original_create = client.chat.completions.create
+
+            async def create_with_patch(**kwargs):
+                if thinking_extra:
+                    kwargs["extra_body"] = {**thinking_extra, **(kwargs.get("extra_body") or {})}
+                response = await original_create(**kwargs)
+                for choice in response.choices or []:
+                    message = getattr(choice, "message", None)
+                    content = getattr(message, "content", None) if message else None
+                    if content:
+                        message.content = normalize_browser_llm_output_for_json(content)
+                return response
+
+            client.chat.completions.create = create_with_patch
+            client._ragflow_browser_patched = True
+            return client
+
+        llm.get_client = patched_get_client
+        return llm
+
     def _build_browser_llm(self):
         from browser_use.llm import ChatBrowserUse, ChatOpenAI
 
@@ -421,6 +519,7 @@ class Browser(ComponentBase, ABC):
         if not model_name:
             raise ValueError(f"Invalid model config for Browser llm_id={self._param.llm_id}")
         base_url = self._resolve_openai_compatible_base_url(cfg)
+        thinking_extra_body = self._build_browser_thinking_extra_body(cfg, model_name)
 
         # ChatBrowserUse only supports bu-* models. For tenant models, use OpenAI-compatible adapter.
         if model_name.startswith("bu-") or model_name.startswith("browser-use/"):
@@ -432,7 +531,7 @@ class Browser(ComponentBase, ABC):
                 "max_retries": self._param.max_retries,
             }
             llm_kwargs = {k: v for k, v in llm_kwargs.items() if v not in (None, "")}
-            return ChatBrowserUse(**llm_kwargs)
+            return self._patch_browser_llm_client(ChatBrowserUse(**llm_kwargs), thinking_extra_body)
 
         # browser-use Agent defaults to json_schema response_format and may use tool_choice via
         # ChatDeepSeek. Many providers (e.g. DeepSeek thinking models) reject both. Use ChatOpenAI
@@ -447,7 +546,7 @@ class Browser(ComponentBase, ABC):
             "dont_force_structured_output": True,
         }
         llm_kwargs = {k: v for k, v in llm_kwargs.items() if v not in (None, "")}
-        return ChatOpenAI(**llm_kwargs)
+        return self._patch_browser_llm_client(ChatOpenAI(**llm_kwargs), thinking_extra_body)
 
     async def _run_browser_use_async(
         self,
