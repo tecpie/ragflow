@@ -78,11 +78,16 @@ def resolve_remote_staging_config(
     return RemoteStagingConfig(base_url=base_url, token=token, timeout=timeout, max_bytes=max_bytes)
 
 
+_SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
+# Only strip path/control characters; preserve Unicode display names (e.g. 项目建议书.pdf).
+_UNSAFE_PATH_CHARS_RE = re.compile(r'[\\/:\x00-\x1f\x7f<>|?*"]')
+
+
 def _safe_filename(name: str) -> str:
     base = os.path.basename(str(name or "").strip())
     if not base:
         return f"upload_{get_uuid()[:8]}.bin"
-    cleaned = _SAFE_FILENAME_RE.sub("_", base).strip("._")
+    cleaned = _UNSAFE_PATH_CHARS_RE.sub("_", base).strip().strip(".")
     return cleaned or f"upload_{get_uuid()[:8]}.bin"
 
 
@@ -140,7 +145,13 @@ class RemoteStagingClient:
             return False
         return str(payload.get("status", "")).lower() == "ok"
 
-    def upload_file(self, local_path: str, session_id: str | None = None) -> RemoteStagingUploadResult:
+    def upload_file(
+        self,
+        local_path: str,
+        session_id: str | None = None,
+        *,
+        filename: str | None = None,
+    ) -> RemoteStagingUploadResult:
         if not os.path.isfile(local_path):
             raise RemoteStagingError(f"local upload file does not exist: {local_path}")
 
@@ -153,10 +164,10 @@ class RemoteStagingClient:
             )
 
         session = str(session_id or get_uuid()).strip() or get_uuid()
-        filename = _safe_filename(os.path.basename(local_path))
+        upload_name = _safe_filename(str(filename or os.path.basename(local_path)))
         url = urljoin(
             self._config.base_url + "/",
-            f"staging/upload?filename={quote(filename)}",
+            f"staging/upload?filename={quote(upload_name)}",
         )
         with open(local_path, "rb") as f:
             body = f.read()
@@ -175,7 +186,7 @@ class RemoteStagingClient:
             raise RemoteStagingError(f"remote staging upload missing path field: {payload}")
         return RemoteStagingUploadResult(
             path=remote_path,
-            name=str(payload.get("name") or filename),
+            name=str(payload.get("name") or upload_name),
             size=int(payload.get("size") or file_size),
             session_id=str(payload.get("session_id") or session),
         )
@@ -191,18 +202,20 @@ class RemoteStagingClient:
             if not local_path:
                 logging.warning("Browser remote staging skipped item without local_path: %s", item)
                 continue
-            result = self.upload_file(local_path, session_id=session_id)
+            original_name = str(item.get("name") or os.path.basename(local_path)).strip()
+            result = self.upload_file(local_path, session_id=session_id, filename=original_name)
             staged.append(
                 {
                     **item,
                     "local_path": result.path,
                     "remote_path": result.path,
+                    "name": result.name or original_name,
                     "staging_session_id": result.session_id,
                 }
             )
             logging.info(
                 "Browser staged upload file for remote CDP browser. name=%s, remote_path=%s, session_id=%s",
-                result.name,
+                result.name or original_name,
                 result.path,
                 result.session_id,
             )

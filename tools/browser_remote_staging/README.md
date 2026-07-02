@@ -30,7 +30,31 @@ Chrome 的 9222 **不需要**对 RAGFlow 暴露，只在本机监听即可。
 
 ## 内网 Windows 没有 Python 怎么办？
 
-### 一键程序包（推荐）
+### 纯 CDP Blob 传文件（无需部署程序包）
+
+RAGFlow Browser 节点在 **CDP 模式** 下，若未配置 `remote_staging_url`，会自动使用 **Blob+CDP** 将文件写入远程 Chrome 下载目录：
+
+```bash
+# 可选：强制使用 blob 模式
+RAGFLOW_BROWSER_REMOTE_UPLOAD_MODE=blob_cdp
+RAGFLOW_BROWSER_CDP_BLOB_DOWNLOAD_DIR=C:\ProgramData\ragflow\browser-uploads
+```
+
+要求：远程 Chrome 至少有一个已打开的标签页（`/json/list` 可发现 page target）。
+
+**Windows 上必须先创建下载目录**（Chrome 不会自动创建）：
+
+```powershell
+mkdir C:\ProgramData\ragflow\browser-uploads
+```
+
+Docker 侧建议设置：
+
+```bash
+RAGFLOW_BROWSER_CDP_BLOB_DOWNLOAD_DIR=C:\ProgramData\ragflow\browser-uploads
+```
+
+`auto` 模式优先级：配置了 staging URL 时用 HTTP staging，否则用 Blob+CDP。
 
 已提供 **Windows 单文件 exe 程序包**，解压后双击 `start.bat` 即可，默认端口 **19080**：
 

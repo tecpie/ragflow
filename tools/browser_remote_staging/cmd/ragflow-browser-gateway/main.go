@@ -74,11 +74,14 @@ func safeFilename(name string) string {
 	if base == "" || base == "." {
 		return fmt.Sprintf("upload_%d.bin", time.Now().UnixNano())
 	}
-	cleaned := strings.Trim(safeNamePattern.ReplaceAllString(base, "_"), "._")
-	if cleaned == "" {
+	base = strings.ReplaceAll(base, "\\", "_")
+	base = strings.ReplaceAll(base, "/", "_")
+	base = strings.ReplaceAll(base, "\x00", "")
+	base = strings.Trim(base, " .")
+	if base == "" {
 		return fmt.Sprintf("upload_%d.bin", time.Now().UnixNano())
 	}
-	return cleaned
+	return base
 }
 
 func safeSessionID(raw string) string {

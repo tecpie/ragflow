@@ -33,6 +33,12 @@ from urllib.request import Request, urlopen
 import json_repair
 
 from agent.component.base import ComponentBase
+from agent.component.browser_cdp_blob_staging import (
+    CdpBlobStagingError,
+    resolve_remote_upload_mode,
+    stage_prepared_files_via_cdp_blob,
+)
+from agent.component.browser_cdp_file_upload import install_cdp_upload_event_dispatch_patch
 from agent.component.browser_remote_staging import (
     RemoteStagingClient,
     RemoteStagingError,
@@ -118,6 +124,7 @@ class BrowserParam(LLMParam):
         self.upload_sources = []
         self.remote_staging_url = ""
         self.remote_staging_token = ""
+        self.remote_upload_mode = "auto"
         self.outputs = {
             "content": {"type": "string", "value": ""},
             "downloaded_files": {"type": "Array<Object>", "value": []},
@@ -563,6 +570,8 @@ class Browser(ComponentBase, ABC):
         download_dir: str,
         available_file_paths: list[str] | None = None,
         profile_dir: str | None = None,
+        *,
+        upload_system_extension: str = "",
     ):
         from browser_use import Agent as BrowserUseAgent, Browser as BrowserUseBrowser
 
@@ -574,12 +583,16 @@ class Browser(ComponentBase, ABC):
         # We keep persistent user_data_dir for session continuity, but we do not keep
         # browser instances alive across runs.
         available_file_paths = available_file_paths or []
+        if available_file_paths:
+            install_cdp_upload_event_dispatch_patch()
         agent_kwargs: dict[str, Any] = {
             "task": task_text,
             "llm": llm,
             "available_file_paths": available_file_paths,
             "use_vision": bool(getattr(self._param, "use_vision", False)),
         }
+        if upload_system_extension:
+            agent_kwargs["extend_system_message"] = upload_system_extension
         browser_obj = None
         previous_disable_extensions = os.environ.get("BROWSER_USE_DISABLE_EXTENSIONS")
         previous_browser_binary_path = os.environ.get("BROWSER_USE_BROWSER_BINARY_PATH")
@@ -690,27 +703,326 @@ class Browser(ComponentBase, ABC):
 
         return history
 
+    @staticmethod
+    def _looks_like_opaque_id(value: str) -> bool:
+        token = str(value or "").strip()
+        if not token:
+            return False
+        if re.fullmatch(r"[0-9a-f]{32}", token, flags=re.I):
+            return True
+        return bool(re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", token, flags=re.I))
+
+    def _resolve_original_filename(self, file: Any, file_id: str) -> str:
+        from api.db.services.document_service import DocumentService
+        from api.db.services.file2document_service import File2DocumentService
+
+        candidates: list[str] = []
+        name = str(getattr(file, "name", "") or "").strip()
+        location = str(getattr(file, "location", "") or "").strip()
+        if name and not self._looks_like_opaque_id(name):
+            candidates.append(name)
+        if location:
+            base = os.path.basename(location.replace("\\", "/"))
+            if base and not self._looks_like_opaque_id(base):
+                candidates.append(base)
+        for f2d in File2DocumentService.get_by_file_id(file_id) or []:
+            doc_id = str(getattr(f2d, "document_id", "") or "").strip()
+            if not doc_id:
+                continue
+            exists, doc = DocumentService.get_by_id(doc_id)
+            if exists:
+                doc_name = str(getattr(doc, "name", "") or "").strip()
+                if doc_name and not self._looks_like_opaque_id(doc_name):
+                    candidates.append(doc_name)
+        if name:
+            ext = str(getattr(file, "type", "") or "").strip().lower().lstrip(".")
+            if ext and ext not in {"folder", "virtual", "other"} and "." not in name:
+                candidates.append(f"{name}.{ext}")
+            candidates.append(name)
+        for candidate in candidates:
+            cleaned = os.path.basename(str(candidate).replace("\\", "/")).strip()
+            if cleaned:
+                return cleaned
+        return f"{file_id}.bin"
+
+    def _resolve_upload_source_items(self) -> list[dict[str, Any]]:
+        raw = getattr(self._param, "upload_sources", "")
+        input_value = self.get_input_value("upload_sources")
+        if input_value not in (None, ""):
+            raw = input_value
+        value = self._resolve_param_value(raw)
+        items: list[dict[str, Any]] = []
+
+        seen_keys: set[str] = set()
+
+        def append_item(item: dict[str, Any]):
+            key = json.dumps(item, sort_keys=True, ensure_ascii=False)
+            if key in seen_keys:
+                return
+            seen_keys.add(key)
+            items.append(item)
+
+        def collect(item: Any):
+            if item is None:
+                return
+            if isinstance(item, str):
+                token = item.strip()
+                if not token:
+                    return
+                if token.startswith("{") and token.endswith("}") and self._canvas.is_reff(token):
+                    resolved = self._canvas.get_variable_value(token)
+                    inner = token.strip("{} ").strip()
+                    if isinstance(resolved, str):
+                        resolved_id = resolved.strip()
+                        if self._looks_like_opaque_id(resolved_id) and inner.endswith(".id"):
+                            parent_ref = "{" + inner[:-3] + "}"
+                            display_name = ""
+                            created_by = str(self._canvas.get_tenant_id() or "").strip()
+                            if self._canvas.is_reff(parent_ref):
+                                parent = self._canvas.get_variable_value(parent_ref)
+                                if isinstance(parent, dict):
+                                    display_name = str(parent.get("name") or parent.get("filename") or "").strip()
+                                    created_by = str(
+                                        parent.get("created_by") or parent.get("tenant_id") or created_by
+                                    ).strip()
+                            if display_name:
+                                append_item(
+                                    {
+                                        "kind": "session_blob",
+                                        "file_id": resolved_id,
+                                        "name": display_name,
+                                        "created_by": created_by,
+                                    }
+                                )
+                            else:
+                                append_item({"kind": "file_id", "file_id": resolved_id})
+                            return
+                    collect(resolved)
+                    return
+                if token.startswith("[") and token.endswith("]"):
+                    try:
+                        parsed = json.loads(token)
+                        collect(parsed)
+                        return
+                    except Exception:
+                        pass
+                if self._is_http_url(token):
+                    append_item({"kind": "url", "url": token})
+                    return
+                if "," in token:
+                    for part in token.split(","):
+                        collect(part)
+                    return
+                append_item({"kind": "file_id", "file_id": token})
+                return
+            if isinstance(item, dict):
+                file_id = str(item.get("file_id") or item.get("id") or "").strip()
+                display_name = str(item.get("name") or item.get("filename") or "").strip()
+                created_by = str(
+                    item.get("created_by") or item.get("tenant_id") or self._canvas.get_tenant_id() or ""
+                ).strip()
+                if file_id and display_name:
+                    append_item(
+                        {
+                            "kind": "session_blob",
+                            "file_id": file_id,
+                            "name": display_name,
+                            "created_by": created_by,
+                        }
+                    )
+                    return
+                if file_id:
+                    append_item({"kind": "file_id", "file_id": file_id, "name": display_name})
+                    return
+                url = str(item.get("url") or item.get("value") or "").strip()
+                if self._is_http_url(url):
+                    append_item({"kind": "url", "url": url})
+                    return
+                for k in ("file_id", "id", "url", "value"):
+                    if k in item:
+                        collect(item[k])
+                        return
+                for v in item.values():
+                    collect(v)
+                return
+            if isinstance(item, (list, tuple, set)):
+                for v in item:
+                    collect(v)
+                return
+            token = str(item).strip()
+            if token:
+                collect(token)
+
+        collect(value)
+        return items
+
+    def _resolve_upload_source_refs(self) -> list[str]:
+        refs: list[str] = []
+        for item in self._resolve_upload_source_items():
+            if item.get("kind") == "url":
+                refs.append(str(item.get("url") or ""))
+            else:
+                refs.append(str(item.get("file_id") or ""))
+        return [ref for ref in refs if ref]
+
+    def _build_upload_task_appendix(self, uploaded_files: list[dict[str, Any]], *, remote_host: bool) -> str:
+        if not uploaded_files:
+            return ""
+        path_label = "remote_path" if remote_host else "local_path"
+        lines = [
+            f"- file_id={item.get('file_id', '')}, name={item.get('name', '')}, {path_label}={item.get('local_path', '')}"
+            for item in uploaded_files
+            if item.get("local_path")
+        ]
+        if not lines:
+            return ""
+        location_hint = (
+            "Preloaded upload files (from Browser node upload_sources, staged via HTTP to remote Chrome host). "
+            "Use upload_file with the exact remote_path values (CDP DOM.setFileInputFiles):\n"
+            if remote_host
+            else "Preloaded upload files (from Browser node upload_sources). "
+            "Use upload_file with these exact local paths (CDP DOM.setFileInputFiles):\n"
+        )
+        return "\n\n" + location_hint + "\n".join(lines) + self._build_upload_execution_hints(remote_host=remote_host)
+
+    @staticmethod
+    def _build_upload_system_extension(uploaded_files: list[dict[str, Any]], *, remote_host: bool) -> str:
+        if not uploaded_files:
+            return ""
+        names = ", ".join(str(item.get("name") or item.get("file_id") or "file") for item in uploaded_files)
+        host_note = (
+            "Files were pushed to the remote Chrome host via HTTP staging before this task started."
+            if remote_host
+            else "Files were prepared locally before this task started."
+        )
+        return (
+            "\n\n[RAGFlow Browser upload policy]\n"
+            f"- Upload sources (configured on this Browser node): {names}\n"
+            f"- {host_note}\n"
+            "- Follow the user task to navigate to the correct page and table row.\n"
+            + (
+                "- CRITICAL (remote CDP): NEVER click 上传 / 选择文件 / 浏览 / 一键上传 / any button that opens the OS file picker.\n"
+                "  That native Windows dialog CANNOT be controlled by CDP and will block the task.\n"
+                "- Find the hidden input[type=file] in the target row (selector map index) and call upload_file(index, remote_path) DIRECTLY without opening the file dialog.\n"
+                if remote_host
+                else "- Prefer upload_file on input[type=file] without opening the OS file picker when possible.\n"
+            )
+            + "- upload_file uses CDP DOM.setFileInputFiles; RAGFlow dispatches composed input/change events automatically.\n"
+            "- After upload_file, click only the confirm/submit control for that upload slot if the UI requires a separate confirm step.\n"
+            "- BEFORE uploading: use search_page (or DOM context from the user task) to locate the correct target slot/row/field. "
+            "If the user task's success criteria already appear satisfied (e.g. expected filename, attachment listed, success toast, or any completion signal described in the task), call done immediately — do NOT upload again.\n"
+            "- After ONE upload_file + optional confirm + short wait: re-check using the success criteria from the USER task. "
+            "If satisfied OR upload_file returned success, call done. Do NOT loop indefinitely."
+        )
+
+    def _build_agent_task_text(
+        self,
+        user_prompt: str,
+        uploaded_files: list[dict[str, Any]],
+        *,
+        remote_host: bool,
+    ) -> str:
+        return str(user_prompt or "") + self._build_upload_task_appendix(uploaded_files, remote_host=remote_host)
+
     def _prepare_upload_files(self, upload_dir: str) -> list[dict[str, Any]]:
-        upload_refs = self._extract_ids(self._param.upload_sources)
         prepared = []
-        for file_ref in upload_refs:
-            if self._is_http_url(file_ref):
-                prepared_url_file = self._prepare_upload_url_file(file_ref, upload_dir)
+        for item in self._resolve_upload_source_items():
+            kind = str(item.get("kind") or "").strip()
+            if kind == "url":
+                prepared_url_file = self._prepare_upload_url_file(str(item.get("url") or ""), upload_dir)
                 if prepared_url_file:
                     prepared.append(prepared_url_file)
                 continue
 
-            file_id = file_ref
+            if kind == "session_blob":
+                file_id = str(item.get("file_id") or "").strip()
+                original_name = str(item.get("name") or "").strip()
+                created_by = str(item.get("created_by") or self._canvas.get_tenant_id() or "").strip()
+                if not file_id or not original_name:
+                    logging.warning("Browser upload session file missing id/name: %s", item)
+                    continue
+                try:
+                    blob = FileService.get_blob(created_by, file_id)
+                    if not blob:
+                        logging.warning("Browser upload session blob not found: file_id=%s", file_id)
+                        continue
+                    local_name = os.path.basename(original_name.replace("\\", "/"))
+                    local_path = os.path.join(upload_dir, local_name)
+                    index = 1
+                    while os.path.exists(local_path):
+                        stem, ext = os.path.splitext(local_name)
+                        local_path = os.path.join(upload_dir, f"{stem}_{index}{ext}")
+                        index += 1
+                    with open(local_path, "wb") as f:
+                        f.write(blob)
+                except OSError as e:
+                    logging.warning("Browser failed to prepare session upload file. file_id=%s, error=%s", file_id, e)
+                    continue
+                except Exception as e:
+                    logging.warning("Browser failed to fetch session upload blob. file_id=%s, error=%s", file_id, e)
+                    continue
+                prepared.append(
+                    {
+                        "file_id": file_id,
+                        "name": original_name,
+                        "size": len(blob),
+                        "local_path": local_path,
+                    }
+                )
+                continue
+
+            file_id = str(item.get("file_id") or "").strip()
+            if not file_id:
+                continue
+            if self._is_http_url(file_id):
+                prepared_url_file = self._prepare_upload_url_file(file_id, upload_dir)
+                if prepared_url_file:
+                    prepared.append(prepared_url_file)
+                continue
+
             exists, file = FileService.get_by_id(file_id)
             if not exists:
-                logging.warning("Browser upload file_id not found: %s", file_id)
+                created_by = str(item.get("created_by") or self._canvas.get_tenant_id() or "").strip()
+                hint_name = str(item.get("name") or "").strip()
+                try:
+                    blob = FileService.get_blob(created_by, file_id) if created_by else None
+                except Exception as e:
+                    logging.warning("Browser failed to fetch session upload blob. file_id=%s, error=%s", file_id, e)
+                    continue
+                if not blob:
+                    logging.warning("Browser upload file_id not found: %s", file_id)
+                    continue
+                original_name = hint_name if hint_name and not self._looks_like_opaque_id(hint_name) else f"{file_id}.bin"
+                local_name = os.path.basename(original_name.replace("\\", "/"))
+                local_path = os.path.join(upload_dir, local_name)
+                index = 1
+                while os.path.exists(local_path):
+                    stem, ext = os.path.splitext(local_name)
+                    local_path = os.path.join(upload_dir, f"{stem}_{index}{ext}")
+                    index += 1
+                try:
+                    with open(local_path, "wb") as f:
+                        f.write(blob)
+                except OSError as e:
+                    logging.warning("Browser failed to prepare session upload file. file_id=%s, error=%s", file_id, e)
+                    continue
+                prepared.append(
+                    {
+                        "file_id": file_id,
+                        "name": original_name,
+                        "size": len(blob),
+                        "local_path": local_path,
+                    }
+                )
                 continue
             try:
                 blob = settings.STORAGE_IMPL.get(file.parent_id, file.location)
                 if not blob:
                     logging.warning("Browser upload blob not found: %s", file_id)
                     continue
-                local_name = os.path.basename(file.location) if file.location else (file.name or f"{file_id}.bin")
+                hint_name = str(item.get("name") or "").strip()
+                original_name = hint_name if hint_name and not self._looks_like_opaque_id(hint_name) else self._resolve_original_filename(file, file_id)
+                local_name = os.path.basename(original_name.replace("\\", "/"))
                 local_path = os.path.join(upload_dir, local_name)
                 index = 1
                 while os.path.exists(local_path):
@@ -728,7 +1040,7 @@ class Browser(ComponentBase, ABC):
             prepared.append(
                 {
                     "file_id": file.id,
-                    "name": file.name,
+                    "name": original_name,
                     "size": file.size,
                     "local_path": local_path,
                 }
@@ -741,10 +1053,26 @@ class Browser(ComponentBase, ABC):
             str(getattr(self._param, "remote_staging_token", "") or "").strip(),
         )
 
-    def _should_use_remote_staging(self) -> bool:
+    def _uses_remote_cdp(self) -> bool:
         cdp_url = str(getattr(self._param, "cdp_url", "") or "").strip()
-        use_cdp = bool(getattr(self._param, "use_cdp", False) and cdp_url)
-        return use_cdp and self._resolve_remote_staging_config() is not None
+        return bool(getattr(self._param, "use_cdp", False) and cdp_url)
+
+    def _resolve_remote_upload_mode(self) -> str:
+        return resolve_remote_upload_mode(str(getattr(self._param, "remote_upload_mode", "") or ""))
+
+    def _resolve_effective_remote_upload_mode(self) -> str:
+        mode = self._resolve_remote_upload_mode()
+        if mode != "auto":
+            return mode
+        if self._resolve_remote_staging_config() is not None:
+            return "staging"
+        return "blob_cdp"
+
+    def _should_stage_on_remote_host(self, uploaded_files: list[dict[str, Any]]) -> bool:
+        return bool(uploaded_files) and self._uses_remote_cdp()
+
+    def _should_use_remote_staging(self) -> bool:
+        return self._uses_remote_cdp() and self._resolve_effective_remote_upload_mode() == "staging"
 
     def _stage_upload_files_for_remote_browser(self, prepared_files: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not prepared_files:
@@ -764,6 +1092,39 @@ class Browser(ComponentBase, ABC):
                 f"Remote staging server is unreachable or unhealthy: {staging_config.base_url}/health"
             )
         return client.stage_prepared_files(prepared_files)
+
+    async def _stage_upload_files_on_remote_host(self, prepared_files: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not prepared_files:
+            return []
+
+        mode = self._resolve_effective_remote_upload_mode()
+        if mode == "staging":
+            return await asyncio.to_thread(self._stage_upload_files_for_remote_browser, prepared_files)
+
+        cdp_url = str(getattr(self._param, "cdp_url", "") or "").strip()
+        try:
+            return await stage_prepared_files_via_cdp_blob(cdp_url, prepared_files)
+        except CdpBlobStagingError:
+            raise
+        except Exception as e:
+            raise CdpBlobStagingError(f"CDP blob staging failed: {e}") from e
+
+    async def _run_invoke_async(
+        self,
+        task_text: str,
+        download_dir: str,
+        upload_local_paths: list[str],
+        profile_dir: str | None,
+        *,
+        upload_system_extension: str = "",
+    ):
+        return await self._run_browser_use_async(
+            task_text,
+            download_dir,
+            upload_local_paths,
+            profile_dir,
+            upload_system_extension=upload_system_extension,
+        )
 
     def _save_downloads(self, download_dir: str, parent_id: str) -> list[dict[str, Any]]:
         downloaded_files: list[dict[str, Any]] = []
@@ -860,20 +1221,41 @@ class Browser(ComponentBase, ABC):
         return pick_final_result(final_result_fn)
 
     @staticmethod
-    def _build_upload_execution_hints() -> str:
+    def _build_upload_execution_hints(*, remote_host: bool = False) -> str:
+        remote_rules = (
+            "3. REMOTE CDP: Do NOT click buttons that open the native OS file picker (e.g. Upload / Browse / Choose file / 上传 / 选择文件 / 浏览) — they WILL FAIL on remote Chrome.\n"
+            "4. Locate input[type=file] for the target slot described in the user task (often hidden in Shadow DOM) and call upload_file(index, remote_path) directly.\n"
+            "5. If multiple file inputs exist, pick the one that matches the user task context (same row/section/label), not unrelated inputs.\n"
+            "6. RAGFlow automatically dispatches composed input/change events after upload_file (CDP).\n"
+            "7. Only AFTER upload_file, click that slot's confirm/submit control if the UI requires it, then wait briefly.\n"
+        )
+        local_rules = (
+            "3. In the target slot/row/section from the user task, prefer upload_file on input[type=file] without opening the OS file picker.\n"
+            "4. Call upload_file on the file input index in that same context only.\n"
+            "5. RAGFlow automatically dispatches composed input/change events after upload_file (CDP).\n"
+            "6. Then click that slot's confirm control if needed and wait briefly.\n"
+        )
+        tail = (
+            "8. BEFORE upload_file: locate the target using labels/context from the USER task (search_page helps). "
+            "If success criteria from the user task already hold, call done immediately — do NOT upload again.\n"
+            "9. Perform upload_file (+ confirm if needed) at most TWICE for the same target. "
+            "After the second attempt, call done(success=true) if upload_file succeeded, even if the UI is hard to read.\n"
+            "10. Element indices change every snapshot — re-locate input[type=file] each time; never reuse stale indices from memory.\n"
+            "11. Use the USER task to define what counts as success; do not invent fixed status words not mentioned in the task.\n"
+            if remote_host
+            else
+            "7. BEFORE upload_file: confirm the target slot from the user task. "
+            "If success criteria already hold, call done immediately.\n"
+            "8. Perform upload_file at most TWICE for the same target, then call done if upload_file succeeded.\n"
+            "9. Element indices change every snapshot — re-locate the file input each time.\n"
+            "10. Use the USER task for success criteria; do not retry more than twice."
+        )
         return (
             "\n\nFile upload execution rules (critical for Shadow DOM / custom upload widgets):\n"
-            "1. navigate URLs must be exact http(s) URLs only. Never append Chinese instructions to URLs.\n"
-            "2. Verify project codes digit-by-digit before clicking 档案管理.\n"
-            "3. In the target document row (e.g. 项目建议书), click the visible upload/选择文件 control first if present.\n"
-            "4. Call upload_file on the file input index in that same row only.\n"
-            "5. Immediately after upload_file, call evaluate on the same input element to dispatch:\n"
-            "   input.dispatchEvent(new Event('input', {bubbles:true, composed:true}));\n"
-            "   input.dispatchEvent(new Event('change', {bubbles:true, composed:true}));\n"
-            "6. Then click that row's confirm 上传 button and wait 3-5 seconds.\n"
-            "7. Success means the row status changes from 待上传, or the filename appears. "
-            "If still 待上传, repeat steps 3-6 once before giving up.\n"
-            "8. Do not treat CDP upload_file success alone as business upload success."
+            "1. navigate URLs must be exact http(s) URLs only. Never append instructions to URLs.\n"
+            "2. Follow navigation and verification steps exactly as described in the USER task (labels, codes, filters, etc.).\n"
+            + (remote_rules if remote_host else local_rules)
+            + tail
         )
 
     @timeout(int(os.environ.get("COMPONENT_EXEC_TIMEOUT", 20 * 60)))
@@ -887,31 +1269,43 @@ class Browser(ComponentBase, ABC):
                 prefix="browser_use_download_"
             ) as download_dir:
                 uploaded_files = self._prepare_upload_files(upload_dir)
-                use_remote_staging = self._should_use_remote_staging()
-                if uploaded_files and bool(getattr(self._param, "use_cdp", False)) and not use_remote_staging:
-                    raise RemoteStagingError(
-                        "File uploads with remote CDP require remote staging. "
-                        "Set remote_staging_url on the Browser node or RAGFLOW_BROWSER_REMOTE_STAGING_URL in Docker."
-                    )
-                if use_remote_staging and uploaded_files:
-                    uploaded_files = self._stage_upload_files_for_remote_browser(uploaded_files)
-
-                path_label = "remote_path" if use_remote_staging else "local_path"
-                upload_lines = [
-                    f"- file_id={item['file_id']}, name={item['name']}, {path_label}={item['local_path']}"
-                    for item in uploaded_files
-                ]
-                task_text = user_prompt
-                if upload_lines:
-                    location_hint = (
-                        "These paths exist on the remote browser host. Use upload_file with the exact path values:\n"
-                        if use_remote_staging
-                        else "You can upload files from these local paths when operating web pages:\n"
-                    )
-                    task_text += "\n\n" + location_hint + "\n".join(upload_lines)
-                    task_text += self._build_upload_execution_hints()
+                stage_on_remote = self._should_stage_on_remote_host(uploaded_files)
+                remote_upload_mode = self._resolve_effective_remote_upload_mode() if stage_on_remote else ""
 
                 upload_local_paths = [item.get("local_path", "") for item in uploaded_files if item.get("local_path")]
+                if stage_on_remote:
+                    logging.info(
+                        "Browser remote upload mode=%s, cdp_url=%s, upload_sources=%s, files=%s",
+                        remote_upload_mode,
+                        getattr(self._param, "cdp_url", ""),
+                        self._resolve_upload_source_refs(),
+                        len(uploaded_files),
+                    )
+
+                async def _execute_browser_task():
+                    nonlocal uploaded_files, upload_local_paths
+                    if stage_on_remote and uploaded_files:
+                        uploaded_files = await self._stage_upload_files_on_remote_host(uploaded_files)
+                        upload_local_paths = [
+                            item.get("local_path", "") for item in uploaded_files if item.get("local_path")
+                        ]
+                    task_text = self._build_agent_task_text(
+                        user_prompt,
+                        uploaded_files,
+                        remote_host=stage_on_remote,
+                    )
+                    upload_system_extension = self._build_upload_system_extension(
+                        uploaded_files,
+                        remote_host=stage_on_remote,
+                    )
+                    return await self._run_invoke_async(
+                        task_text,
+                        download_dir,
+                        upload_local_paths,
+                        profile_dir,
+                        upload_system_extension=upload_system_extension,
+                    )
+
                 if persist_session:
                     profile_dir = self._resolve_persistent_profile_dir()
                     os.makedirs(profile_dir, exist_ok=True)
@@ -920,11 +1314,7 @@ class Browser(ComponentBase, ABC):
                         profile_dir = tempfile.mkdtemp(prefix="browser_use_profile_")
                     except OSError:
                         profile_dir = None
-                history = asyncio.run(
-                    self._run_browser_use_async(
-                        task_text, download_dir, upload_local_paths, profile_dir
-                    )
-                )
+                history = asyncio.run(_execute_browser_task())
                 target_dir_id = FileService.get_root_folder(self._canvas.get_tenant_id())["id"]
                 downloaded_files = self._save_downloads(download_dir, target_dir_id)
 

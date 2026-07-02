@@ -50,11 +50,16 @@ STAGING_TOKEN = str(os.getenv("BROWSER_STAGING_TOKEN", "") or "").strip()
 STAGING_MAX_BYTES = env_int("BROWSER_STAGING_MAX_BYTES", 100 * 1024 * 1024)
 
 
+_SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
+# Preserve Unicode filenames; only remove path/control characters unsafe on Windows/macOS/Linux.
+_UNSAFE_PATH_CHARS_RE = re.compile(r'[\\/:\x00-\x1f\x7f<>|?*"]')
+
+
 def safe_filename(name: str) -> str:
     base = os.path.basename(str(name or "").strip())
     if not base:
         return f"upload_{uuid.uuid4().hex[:8]}.bin"
-    cleaned = _SAFE_FILENAME_RE.sub("_", base).strip("._")
+    cleaned = _UNSAFE_PATH_CHARS_RE.sub("_", base).strip().strip(".")
     return cleaned or f"upload_{uuid.uuid4().hex[:8]}.bin"
 
 

@@ -15,6 +15,8 @@ services:
     environment:
       - node.name=es01
       - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      # Override auto heap sizing on memory-constrained hosts (e.g. Mac + amd64 emulation).
+      - ES_JAVA_OPTS=${ES_JAVA_OPTS:-}
       - bootstrap.memory_lock=false
       - discovery.type=single-node
       - xpack.security.enabled=true

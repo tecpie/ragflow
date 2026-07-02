@@ -37,6 +37,48 @@ def test_resolve_remote_staging_config_prefers_param_over_env(monkeypatch):
     assert config.token == "node-token"
 
 
+def test_safe_filename_preserves_unicode_display_name():
+    from agent.component.browser_remote_staging import _safe_filename
+
+    assert _safe_filename("项目建议书.docx") == "项目建议书.docx"
+    assert _safe_filename("docx.pdf") == "docx.pdf"
+    assert _safe_filename("../evil/docx.pdf") == "docx.pdf"
+
+
+def test_remote_staging_client_uploads_with_original_filename(monkeypatch, tmp_path):
+    local_file = tmp_path / "temp.bin"
+    local_file.write_bytes(b"pdf-content")
+    captured = {}
+
+    class _FakeResponse:
+        def read(self):
+            return json.dumps(
+                {
+                    "path": r"C:\ProgramData\ragflow\browser-uploads\s1\项目建议书.docx",
+                    "name": "项目建议书.docx",
+                    "size": 11,
+                    "session_id": "s1",
+                }
+            ).encode("utf-8")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            return False
+
+    def _fake_urlopen(req, timeout=0):
+        captured["url"] = req.full_url
+        return _FakeResponse()
+
+    monkeypatch.setattr(staging_module, "urlopen", _fake_urlopen)
+    client = RemoteStagingClient(RemoteStagingConfig(base_url="http://chrome-host:8765"))
+    result = client.upload_file(str(local_file), session_id="s1", filename="项目建议书.docx")
+
+    assert "filename=%E9%A1%B9%E7%9B%AE%E5%BB%BA%E8%AE%AE%E4%B9%A6.docx" in captured["url"]
+    assert result.name == "项目建议书.docx"
+
+
 def test_remote_staging_client_uploads_file(monkeypatch, tmp_path):
     local_file = tmp_path / "demo.pdf"
     local_file.write_bytes(b"pdf-content")

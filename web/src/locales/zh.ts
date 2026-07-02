@@ -1729,10 +1729,16 @@ NER：使用 spaCy NER 和基于规则的关键词提取来抽取实体和关系
         '支持 HTTP 和 WebSocket 两种 CDP 端点，例如 http://127.0.0.1:9222 或 ws://127.0.0.1:9222/devtools/browser/<id>。',
       remoteStagingUrl: '远程暂存地址',
       remoteStagingUrlTip:
-        'RAGFlow 在 Docker、Chrome 在远程机器时必填。若只能开放一个端口（常见于 Windows），在远程机器运行 tools/browser_remote_staging/gateway.py，并将 CDP 地址与本项都填为同一 URL，例如 http://windows-host:8443。',
+        'HTTP 暂存模式时使用。若只能开放一个端口（常见于 Windows），在远程机器运行 tools/browser_remote_staging/gateway.py，并将 CDP 地址与本项都填为同一 URL。未配置且上传模式为 auto 时，将自动使用 Blob+CDP 传文件，无需部署暂存服务。',
       remoteStagingToken: '远程暂存 Token',
       remoteStagingTokenTip:
         '与 Chrome 主机上 BROWSER_STAGING_TOKEN 保持一致，用于保护暂存接口。也可通过环境变量 RAGFLOW_BROWSER_REMOTE_STAGING_TOKEN 配置。',
+      remoteUploadMode: '远程上传模式',
+      remoteUploadModeAuto: '自动（有暂存地址用 HTTP，否则 Blob+CDP）',
+      remoteUploadModeStaging: 'HTTP 暂存',
+      remoteUploadModeBlobCdp: 'Blob+CDP（无需部署程序包）',
+      remoteUploadModeTip:
+        'RAGFlow 在 Docker、Chrome 在远程机器时，需先把文件写到 Chrome 主机。auto 模式：配置了远程暂存地址则用 HTTP staging，否则通过 CDP 注入 Blob 触发下载落盘。',
       useVision: '启用视觉输入',
       useVisionTip:
         '开启后会将浏览器截图发送给视觉模型。纯文本模型（如 Qwen3-14B）请关闭，否则模型接口可能拒绝请求。',

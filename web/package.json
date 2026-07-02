@@ -137,6 +137,8 @@
   },
   "devDependencies": {
     "@hookform/devtools": "^4.4.0",
+    "@react-dev-inspector/babel-plugin": "2.0.1",
+    "@react-dev-inspector/vite-plugin": "2.0.1",
     "@react-router/dev": "^7.10.1",
     "@redux-devtools/extension": "^3.3.0",
     "@storybook/addon-docs": "^9.1.4",
@@ -182,7 +184,7 @@
     "prettier": "^3.2.4",
     "prettier-plugin-organize-imports": "^3.2.4",
     "prettier-plugin-packagejson": "^2.4.9",
-    "react-dev-inspector": "^2.0.1",
+    "react-dev-inspector": "2.0.1",
     "remark-loader": "^6.0.0",
     "simple-icons": "^16.23.0",
     "storybook": "^9.1.4",
