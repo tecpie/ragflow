@@ -22,6 +22,8 @@ const FormSchema = z.object({
   headless: z.boolean(),
   use_cdp: z.boolean(),
   cdp_url: z.string().optional(),
+  remote_staging_url: z.string().optional(),
+  remote_staging_token: z.string().optional(),
   use_vision: z.boolean(),
   enable_default_extensions: z.boolean(),
   chromium_sandbox: z.boolean(),
@@ -77,18 +79,42 @@ function BrowserForm({ node }: INextOperatorForm) {
           )}
         </RAGFlowFormItem>
         {useCdp && (
-          <RAGFlowFormItem
-            label={t('flow.cdpUrl')}
-            tooltip={t('flow.cdpUrlTip')}
-            name="cdp_url"
-          >
-            {(field) => (
-              <Input
-                {...field}
-                placeholder="http://127.0.0.1:9222 or ws://127.0.0.1:9222/devtools/browser/<id>"
-              ></Input>
-            )}
-          </RAGFlowFormItem>
+          <>
+            <RAGFlowFormItem
+              label={t('flow.cdpUrl')}
+              tooltip={t('flow.cdpUrlTip')}
+              name="cdp_url"
+            >
+              {(field) => (
+                <Input
+                  {...field}
+                  placeholder="http://127.0.0.1:9222 or ws://127.0.0.1:9222/devtools/browser/<id>"
+                ></Input>
+              )}
+            </RAGFlowFormItem>
+            <RAGFlowFormItem
+              label={t('flow.remoteStagingUrl')}
+              tooltip={t('flow.remoteStagingUrlTip')}
+              name="remote_staging_url"
+            >
+              {(field) => (
+                <Input {...field} placeholder="http://chrome-host:8765"></Input>
+              )}
+            </RAGFlowFormItem>
+            <RAGFlowFormItem
+              label={t('flow.remoteStagingToken')}
+              tooltip={t('flow.remoteStagingTokenTip')}
+              name="remote_staging_token"
+            >
+              {(field) => (
+                <Input
+                  {...field}
+                  type="password"
+                  placeholder="staging token"
+                ></Input>
+              )}
+            </RAGFlowFormItem>
+          </>
         )}
         <RAGFlowFormItem
           label={t('flow.useVision')}

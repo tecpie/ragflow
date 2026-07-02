@@ -2037,6 +2037,12 @@ Best for: Documents with flowing, contextually connected content — such as boo
       cdpUrl: 'CDP URL',
       cdpUrlTip:
         'Supports both HTTP and WebSocket CDP endpoints, for example http://127.0.0.1:9222 or ws://127.0.0.1:9222/devtools/browser/<id>.',
+      remoteStagingUrl: 'Remote staging URL',
+      remoteStagingUrlTip:
+        'Required when RAGFlow runs in Docker and Chrome runs remotely. If only one external port is available (common on Windows), run tools/browser_remote_staging/gateway.py on the remote host and set both CDP URL and this field to the same URL, for example http://windows-host:8443.',
+      remoteStagingToken: 'Remote staging token',
+      remoteStagingTokenTip:
+        'Must match BROWSER_STAGING_TOKEN on the Chrome host. You can also configure RAGFLOW_BROWSER_REMOTE_STAGING_TOKEN in Docker.',
       useVision: 'Enable vision input',
       useVisionTip:
         'When enabled, browser screenshots are sent to the vision model. Disable this for text-only models such as Qwen3-14B, otherwise the model API may reject requests.',

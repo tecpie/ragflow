@@ -1727,6 +1727,12 @@ NER：使用 spaCy NER 和基于规则的关键词提取来抽取实体和关系
       cdpUrl: 'CDP 地址',
       cdpUrlTip:
         '支持 HTTP 和 WebSocket 两种 CDP 端点，例如 http://127.0.0.1:9222 或 ws://127.0.0.1:9222/devtools/browser/<id>。',
+      remoteStagingUrl: '远程暂存地址',
+      remoteStagingUrlTip:
+        'RAGFlow 在 Docker、Chrome 在远程机器时必填。若只能开放一个端口（常见于 Windows），在远程机器运行 tools/browser_remote_staging/gateway.py，并将 CDP 地址与本项都填为同一 URL，例如 http://windows-host:8443。',
+      remoteStagingToken: '远程暂存 Token',
+      remoteStagingTokenTip:
+        '与 Chrome 主机上 BROWSER_STAGING_TOKEN 保持一致，用于保护暂存接口。也可通过环境变量 RAGFLOW_BROWSER_REMOTE_STAGING_TOKEN 配置。',
       useVision: '启用视觉输入',
       useVisionTip:
         '开启后会将浏览器截图发送给视觉模型。纯文本模型（如 Qwen3-14B）请关闭，否则模型接口可能拒绝请求。',

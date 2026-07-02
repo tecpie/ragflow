@@ -1,0 +1,19 @@
+services:
+  browser-gateway:
+    build: .
+    image: ragflow-browser-gateway:latest
+    container_name: ragflow-browser-gateway
+    restart: unless-stopped
+    ports:
+      - "${BROWSER_GATEWAY_PORT:-8443}:8443"
+    environment:
+      BROWSER_GATEWAY_PORT: "8443"
+      BROWSER_STAGING_TOKEN: ${BROWSER_STAGING_TOKEN:-change-me}
+      BROWSER_CDP_UPSTREAM: ${BROWSER_CDP_UPSTREAM:-http://host.docker.internal:9222}
+      BROWSER_STAGING_DIR: /staging
+      BROWSER_GATEWAY_PUBLIC_ORIGIN: ${BROWSER_GATEWAY_PUBLIC_ORIGIN:-}
+    volumes:
+      # 必须挂载到 Windows 宿主机目录，Chrome 才能通过 CDP 读取上传文件
+      - ${BROWSER_STAGING_HOST_DIR:-C:/ProgramData/ragflow/browser-uploads}:/staging
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

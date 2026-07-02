@@ -33,6 +33,11 @@ from urllib.request import Request, urlopen
 import json_repair
 
 from agent.component.base import ComponentBase
+from agent.component.browser_remote_staging import (
+    RemoteStagingClient,
+    RemoteStagingError,
+    resolve_remote_staging_config,
+)
 from agent.component.llm import LLMParam
 from api.db import FileType
 from api.db.joint_services.tenant_model_service import get_model_config_from_provider_instance, get_model_type_by_name
@@ -111,6 +116,8 @@ class BrowserParam(LLMParam):
         self.persist_session = True
         self.enable_thinking = False
         self.upload_sources = []
+        self.remote_staging_url = ""
+        self.remote_staging_token = ""
         self.outputs = {
             "content": {"type": "string", "value": ""},
             "downloaded_files": {"type": "Array<Object>", "value": []},
@@ -135,6 +142,8 @@ class BrowserParam(LLMParam):
         return {
             "prompts": {"type": "text", "name": "Prompts"},
             "upload_sources": {"type": "line", "name": "Upload sources"},
+            "remote_staging_url": {"type": "line", "name": "Remote staging URL"},
+            "remote_staging_token": {"type": "line", "name": "Remote staging token"},
         }
 
 
@@ -726,6 +735,36 @@ class Browser(ComponentBase, ABC):
             )
         return prepared
 
+    def _resolve_remote_staging_config(self):
+        return resolve_remote_staging_config(
+            str(getattr(self._param, "remote_staging_url", "") or "").strip(),
+            str(getattr(self._param, "remote_staging_token", "") or "").strip(),
+        )
+
+    def _should_use_remote_staging(self) -> bool:
+        cdp_url = str(getattr(self._param, "cdp_url", "") or "").strip()
+        use_cdp = bool(getattr(self._param, "use_cdp", False) and cdp_url)
+        return use_cdp and self._resolve_remote_staging_config() is not None
+
+    def _stage_upload_files_for_remote_browser(self, prepared_files: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not prepared_files:
+            return []
+
+        staging_config = self._resolve_remote_staging_config()
+        if staging_config is None:
+            raise RemoteStagingError(
+                "Remote CDP browser requires remote staging for file uploads. "
+                "Configure Browser node remote_staging_url or env RAGFLOW_BROWSER_REMOTE_STAGING_URL, "
+                "and deploy tools/browser_remote_staging/server.py on the Chrome host."
+            )
+
+        client = RemoteStagingClient(staging_config)
+        if not client.health_check():
+            raise RemoteStagingError(
+                f"Remote staging server is unreachable or unhealthy: {staging_config.base_url}/health"
+            )
+        return client.stage_prepared_files(prepared_files)
+
     def _save_downloads(self, download_dir: str, parent_id: str) -> list[dict[str, Any]]:
         downloaded_files: list[dict[str, Any]] = []
         exists, folder = FileService.get_by_id(parent_id)
@@ -820,6 +859,23 @@ class Browser(ComponentBase, ABC):
                 return ""
         return pick_final_result(final_result_fn)
 
+    @staticmethod
+    def _build_upload_execution_hints() -> str:
+        return (
+            "\n\nFile upload execution rules (critical for Shadow DOM / custom upload widgets):\n"
+            "1. navigate URLs must be exact http(s) URLs only. Never append Chinese instructions to URLs.\n"
+            "2. Verify project codes digit-by-digit before clicking 档案管理.\n"
+            "3. In the target document row (e.g. 项目建议书), click the visible upload/选择文件 control first if present.\n"
+            "4. Call upload_file on the file input index in that same row only.\n"
+            "5. Immediately after upload_file, call evaluate on the same input element to dispatch:\n"
+            "   input.dispatchEvent(new Event('input', {bubbles:true, composed:true}));\n"
+            "   input.dispatchEvent(new Event('change', {bubbles:true, composed:true}));\n"
+            "6. Then click that row's confirm 上传 button and wait 3-5 seconds.\n"
+            "7. Success means the row status changes from 待上传, or the filename appears. "
+            "If still 待上传, repeat steps 3-6 once before giving up.\n"
+            "8. Do not treat CDP upload_file success alone as business upload success."
+        )
+
     @timeout(int(os.environ.get("COMPONENT_EXEC_TIMEOUT", 20 * 60)))
     def _invoke(self, **kwargs):
         profile_dir = None
@@ -831,17 +887,29 @@ class Browser(ComponentBase, ABC):
                 prefix="browser_use_download_"
             ) as download_dir:
                 uploaded_files = self._prepare_upload_files(upload_dir)
+                use_remote_staging = self._should_use_remote_staging()
+                if uploaded_files and bool(getattr(self._param, "use_cdp", False)) and not use_remote_staging:
+                    raise RemoteStagingError(
+                        "File uploads with remote CDP require remote staging. "
+                        "Set remote_staging_url on the Browser node or RAGFLOW_BROWSER_REMOTE_STAGING_URL in Docker."
+                    )
+                if use_remote_staging and uploaded_files:
+                    uploaded_files = self._stage_upload_files_for_remote_browser(uploaded_files)
 
+                path_label = "remote_path" if use_remote_staging else "local_path"
                 upload_lines = [
-                    f"- file_id={item['file_id']}, name={item['name']}, local_path={item['local_path']}"
+                    f"- file_id={item['file_id']}, name={item['name']}, {path_label}={item['local_path']}"
                     for item in uploaded_files
                 ]
                 task_text = user_prompt
                 if upload_lines:
-                    task_text += (
-                        "\n\nYou can upload files from these local paths when operating web pages:\n"
-                        + "\n".join(upload_lines)
+                    location_hint = (
+                        "These paths exist on the remote browser host. Use upload_file with the exact path values:\n"
+                        if use_remote_staging
+                        else "You can upload files from these local paths when operating web pages:\n"
                     )
+                    task_text += "\n\n" + location_hint + "\n".join(upload_lines)
+                    task_text += self._build_upload_execution_hints()
 
                 upload_local_paths = [item.get("local_path", "") for item in uploaded_files if item.get("local_path")]
                 if persist_session:

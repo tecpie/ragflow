@@ -994,6 +994,8 @@ export const initialBrowserValues = {
   headless: true,
   use_cdp: false,
   cdp_url: '',
+  remote_staging_url: '',
+  remote_staging_token: '',
   use_vision: false,
   enable_default_extensions: false,
   chromium_sandbox: false,
