@@ -51,11 +51,30 @@ class RemoteStagingError(RuntimeError):
     pass
 
 
+def staging_base_url_from_cdp(cdp_url: str) -> str:
+    """Map a Browser node CDP URL to the HTTP staging base URL (single-port gateway)."""
+    token = str(cdp_url or "").strip().rstrip("/")
+    if not token:
+        return ""
+    parsed = urlparse(token)
+    if parsed.scheme in {"http", "https"} and parsed.netloc:
+        return f"{parsed.scheme}://{parsed.netloc}"
+    if parsed.scheme in {"ws", "wss"} and parsed.netloc:
+        scheme = "https" if parsed.scheme == "wss" else "http"
+        return f"{scheme}://{parsed.netloc}"
+    return ""
+
+
 def resolve_remote_staging_config(
     param_url: str = "",
     param_token: str = "",
+    *,
+    cdp_url_fallback: str = "",
 ) -> RemoteStagingConfig | None:
-    base_url = str(param_url or os.getenv("RAGFLOW_BROWSER_REMOTE_STAGING_URL", "")).strip().rstrip("/")
+    explicit_url = str(param_url or "").strip().rstrip("/")
+    cdp_base = staging_base_url_from_cdp(cdp_url_fallback)
+    env_url = str(os.getenv("RAGFLOW_BROWSER_REMOTE_STAGING_URL", "") or "").strip().rstrip("/")
+    base_url = explicit_url or cdp_base or env_url
     if not base_url:
         return None
     token = str(param_token or os.getenv("RAGFLOW_BROWSER_REMOTE_STAGING_TOKEN", "")).strip()
@@ -81,10 +100,24 @@ def resolve_remote_staging_config(
 _SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
 # Only strip path/control characters; preserve Unicode display names (e.g. 项目建议书.pdf).
 _UNSAFE_PATH_CHARS_RE = re.compile(r'[\\/:\x00-\x1f\x7f<>|?*"]')
+_UUID_FILENAME_PREFIX_RE = re.compile(
+    r"^(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})_",
+    re.I,
+)
+
+
+def normalize_upload_filename(name: str) -> str:
+    base = os.path.basename(str(name or "").strip().replace("\\", "/"))
+    while base:
+        cleaned = _UUID_FILENAME_PREFIX_RE.sub("", base, count=1)
+        if cleaned == base:
+            break
+        base = cleaned
+    return base.strip()
 
 
 def _safe_filename(name: str) -> str:
-    base = os.path.basename(str(name or "").strip())
+    base = normalize_upload_filename(str(name or "").strip())
     if not base:
         return f"upload_{get_uuid()[:8]}.bin"
     cleaned = _UNSAFE_PATH_CHARS_RE.sub("_", base).strip().strip(".")
@@ -138,12 +171,18 @@ class RemoteStagingClient:
         return parsed
 
     def health_check(self) -> bool:
+        ok, _reason = self.health_check_detail()
+        return ok
+
+    def health_check_detail(self) -> tuple[bool, str]:
         url = urljoin(self._config.base_url + "/", "health")
         try:
             payload = self._request_json("GET", url, self._build_headers(session_id="health-check"))
-        except RemoteStagingError:
-            return False
-        return str(payload.get("status", "")).lower() == "ok"
+        except RemoteStagingError as e:
+            return False, str(e)
+        if str(payload.get("status", "")).lower() == "ok":
+            return True, "ok"
+        return False, f"unexpected health payload: {payload!r}"
 
     def upload_file(
         self,
@@ -202,7 +241,7 @@ class RemoteStagingClient:
             if not local_path:
                 logging.warning("Browser remote staging skipped item without local_path: %s", item)
                 continue
-            original_name = str(item.get("name") or os.path.basename(local_path)).strip()
+            original_name = normalize_upload_filename(str(item.get("name") or os.path.basename(local_path)))
             result = self.upload_file(local_path, session_id=session_id, filename=original_name)
             staged.append(
                 {

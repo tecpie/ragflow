@@ -16,6 +16,7 @@ import (
 )
 
 var safeNamePattern = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
+var uuidFilenamePrefix = regexp.MustCompile(`(?i)^(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})_`)
 
 type config struct {
 	host         string
@@ -69,8 +70,20 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
+func normalizeUploadFilename(name string) string {
+	base := filepath.Base(strings.TrimSpace(strings.ReplaceAll(name, `\`, `/`)))
+	for base != "" {
+		cleaned := uuidFilenamePrefix.ReplaceAllString(base, "")
+		if cleaned == base {
+			break
+		}
+		base = strings.TrimSpace(cleaned)
+	}
+	return base
+}
+
 func safeFilename(name string) string {
-	base := filepath.Base(strings.TrimSpace(name))
+	base := normalizeUploadFilename(name)
 	if base == "" || base == "." {
 		return fmt.Sprintf("upload_%d.bin", time.Now().UnixNano())
 	}
@@ -236,18 +249,17 @@ func handleStagingUpload(cfg config) http.HandlerFunc {
 			return
 		}
 
-		targetDir := filepath.Join(cfg.stagingDir, sessionID)
-		if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		if err := os.MkdirAll(cfg.stagingDir, 0o755); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
 
-		targetPath := filepath.Join(targetDir, filename)
+		targetPath := filepath.Join(cfg.stagingDir, filename)
 		for index := 1; ; index++ {
 			if _, err := os.Stat(targetPath); os.IsNotExist(err) {
 				break
 			}
-			targetPath = filepath.Join(targetDir, fmt.Sprintf("%s_%d%s", strings.TrimSuffix(filename, filepath.Ext(filename)), index, filepath.Ext(filename)))
+			targetPath = filepath.Join(cfg.stagingDir, fmt.Sprintf("%s_%d%s", strings.TrimSuffix(filename, filepath.Ext(filename)), index, filepath.Ext(filename)))
 		}
 
 		if err := os.WriteFile(targetPath, body, 0o644); err != nil {

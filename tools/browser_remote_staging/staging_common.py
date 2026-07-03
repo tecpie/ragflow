@@ -53,10 +53,25 @@ STAGING_MAX_BYTES = env_int("BROWSER_STAGING_MAX_BYTES", 100 * 1024 * 1024)
 _SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
 # Preserve Unicode filenames; only remove path/control characters unsafe on Windows/macOS/Linux.
 _UNSAFE_PATH_CHARS_RE = re.compile(r'[\\/:\x00-\x1f\x7f<>|?*"]')
+_UUID_FILENAME_PREFIX_RE = re.compile(
+    r"^(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})_",
+    re.I,
+)
+
+
+def normalize_upload_filename(name: str) -> str:
+    """Drop staging/session UUID prefixes so CDP uploads keep the original display name."""
+    base = os.path.basename(str(name or "").strip().replace("\\", "/"))
+    while base:
+        cleaned = _UUID_FILENAME_PREFIX_RE.sub("", base, count=1)
+        if cleaned == base:
+            break
+        base = cleaned
+    return base.strip()
 
 
 def safe_filename(name: str) -> str:
-    base = os.path.basename(str(name or "").strip())
+    base = normalize_upload_filename(str(name or "").strip())
     if not base:
         return f"upload_{uuid.uuid4().hex[:8]}.bin"
     cleaned = _UNSAFE_PATH_CHARS_RE.sub("_", base).strip().strip(".")
@@ -94,9 +109,8 @@ def save_staging_upload(body: bytes, filename: str, session_id: str) -> dict[str
 
     safe_name = safe_filename(filename)
     safe_session = safe_session_id(session_id)
-    target_dir = STAGING_DIR / safe_session
-    target_dir.mkdir(parents=True, exist_ok=True)
-    target_path = target_dir / safe_name
+    STAGING_DIR.mkdir(parents=True, exist_ok=True)
+    target_path = STAGING_DIR / safe_name
     index = 1
     while target_path.exists():
         target_path = target_dir / f"{target_path.stem}_{index}{target_path.suffix}"

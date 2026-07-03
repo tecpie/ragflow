@@ -712,6 +712,12 @@ class Browser(ComponentBase, ABC):
             return True
         return bool(re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", token, flags=re.I))
 
+    @staticmethod
+    def _normalize_upload_display_name(name: str) -> str:
+        from agent.component.browser_remote_staging import normalize_upload_filename
+
+        return normalize_upload_filename(name)
+
     def _resolve_original_filename(self, file: Any, file_id: str) -> str:
         from api.db.services.document_service import DocumentService
         from api.db.services.file2document_service import File2DocumentService
@@ -742,8 +748,8 @@ class Browser(ComponentBase, ABC):
         for candidate in candidates:
             cleaned = os.path.basename(str(candidate).replace("\\", "/")).strip()
             if cleaned:
-                return cleaned
-        return f"{file_id}.bin"
+                return self._normalize_upload_display_name(cleaned)
+        return self._normalize_upload_display_name(f"{file_id}.bin")
 
     def _resolve_upload_source_items(self) -> list[dict[str, Any]]:
         raw = getattr(self._param, "upload_sources", "")
@@ -781,7 +787,9 @@ class Browser(ComponentBase, ABC):
                             if self._canvas.is_reff(parent_ref):
                                 parent = self._canvas.get_variable_value(parent_ref)
                                 if isinstance(parent, dict):
-                                    display_name = str(parent.get("name") or parent.get("filename") or "").strip()
+                                    display_name = self._normalize_upload_display_name(
+                                        str(parent.get("name") or parent.get("filename") or "").strip()
+                                    )
                                     created_by = str(
                                         parent.get("created_by") or parent.get("tenant_id") or created_by
                                     ).strip()
@@ -817,7 +825,9 @@ class Browser(ComponentBase, ABC):
                 return
             if isinstance(item, dict):
                 file_id = str(item.get("file_id") or item.get("id") or "").strip()
-                display_name = str(item.get("name") or item.get("filename") or "").strip()
+                display_name = self._normalize_upload_display_name(
+                    str(item.get("name") or item.get("filename") or "").strip()
+                )
                 created_by = str(
                     item.get("created_by") or item.get("tenant_id") or self._canvas.get_tenant_id() or ""
                 ).strip()
@@ -936,7 +946,7 @@ class Browser(ComponentBase, ABC):
 
             if kind == "session_blob":
                 file_id = str(item.get("file_id") or "").strip()
-                original_name = str(item.get("name") or "").strip()
+                original_name = self._normalize_upload_display_name(str(item.get("name") or "").strip())
                 created_by = str(item.get("created_by") or self._canvas.get_tenant_id() or "").strip()
                 if not file_id or not original_name:
                     logging.warning("Browser upload session file missing id/name: %s", item)
@@ -983,7 +993,7 @@ class Browser(ComponentBase, ABC):
             exists, file = FileService.get_by_id(file_id)
             if not exists:
                 created_by = str(item.get("created_by") or self._canvas.get_tenant_id() or "").strip()
-                hint_name = str(item.get("name") or "").strip()
+                hint_name = self._normalize_upload_display_name(str(item.get("name") or "").strip())
                 try:
                     blob = FileService.get_blob(created_by, file_id) if created_by else None
                 except Exception as e:
@@ -1020,7 +1030,7 @@ class Browser(ComponentBase, ABC):
                 if not blob:
                     logging.warning("Browser upload blob not found: %s", file_id)
                     continue
-                hint_name = str(item.get("name") or "").strip()
+                hint_name = self._normalize_upload_display_name(str(item.get("name") or "").strip())
                 original_name = hint_name if hint_name and not self._looks_like_opaque_id(hint_name) else self._resolve_original_filename(file, file_id)
                 local_name = os.path.basename(original_name.replace("\\", "/"))
                 local_path = os.path.join(upload_dir, local_name)
@@ -1051,6 +1061,7 @@ class Browser(ComponentBase, ABC):
         return resolve_remote_staging_config(
             str(getattr(self._param, "remote_staging_url", "") or "").strip(),
             str(getattr(self._param, "remote_staging_token", "") or "").strip(),
+            cdp_url_fallback=str(getattr(self._param, "cdp_url", "") or "").strip(),
         )
 
     def _uses_remote_cdp(self) -> bool:
@@ -1087,9 +1098,13 @@ class Browser(ComponentBase, ABC):
             )
 
         client = RemoteStagingClient(staging_config)
-        if not client.health_check():
+        healthy, health_reason = client.health_check_detail()
+        if not healthy:
             raise RemoteStagingError(
-                f"Remote staging server is unreachable or unhealthy: {staging_config.base_url}/health"
+                f"Remote staging server is unreachable or unhealthy: {staging_config.base_url}/health "
+                f"({health_reason}). "
+                "On the Windows Chrome host, start ragflow-browser-gateway.exe (or gateway.py) and ensure "
+                f"port {urlparse(staging_config.base_url).port or 19080} is listening and allowed through the firewall."
             )
         return client.stage_prepared_files(prepared_files)
 

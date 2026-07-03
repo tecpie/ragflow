@@ -23,6 +23,7 @@ from agent.component.browser_remote_staging import (
     RemoteStagingClient,
     RemoteStagingConfig,
     resolve_remote_staging_config,
+    staging_base_url_from_cdp,
 )
 
 
@@ -35,6 +36,31 @@ def test_resolve_remote_staging_config_prefers_param_over_env(monkeypatch):
     assert config is not None
     assert config.base_url == "http://node-host:8765"
     assert config.token == "node-token"
+
+
+def test_resolve_remote_staging_config_uses_cdp_url_before_env(monkeypatch):
+    monkeypatch.setenv("RAGFLOW_BROWSER_REMOTE_STAGING_URL", "http://172.16.0.118:19080")
+
+    config = resolve_remote_staging_config("", "", cdp_url_fallback="http://172.20.10.2:19080")
+
+    assert config is not None
+    assert config.base_url == "http://172.20.10.2:19080"
+
+
+def test_staging_base_url_from_cdp_supports_ws_gateway():
+    assert staging_base_url_from_cdp("ws://172.20.10.2:19080/devtools/browser/abc") == "http://172.20.10.2:19080"
+    assert staging_base_url_from_cdp("http://172.20.10.2:19080") == "http://172.20.10.2:19080"
+
+
+def test_normalize_upload_filename_strips_uuid_prefix():
+    from agent.component.browser_remote_staging import normalize_upload_filename
+
+    opaque = "a53d5dc6761211f1918e69d7ac1cc180"
+    assert (
+        normalize_upload_filename(f"{opaque}_项目建议书.docx")
+        == "项目建议书.docx"
+    )
+    assert normalize_upload_filename("项目建议书.docx") == "项目建议书.docx"
 
 
 def test_safe_filename_preserves_unicode_display_name():
@@ -54,7 +80,7 @@ def test_remote_staging_client_uploads_with_original_filename(monkeypatch, tmp_p
         def read(self):
             return json.dumps(
                 {
-                    "path": r"C:\ProgramData\ragflow\browser-uploads\s1\项目建议书.docx",
+                    "path": r"C:\ProgramData\ragflow\browser-uploads\项目建议书.docx",
                     "name": "项目建议书.docx",
                     "size": 11,
                     "session_id": "s1",
@@ -104,7 +130,7 @@ def test_remote_staging_client_uploads_file(monkeypatch, tmp_path):
         captured["body"] = req.data
         payload = json.dumps(
             {
-                "path": "/data/browser-uploads/session/demo.pdf",
+                "path": "/data/browser-uploads/demo.pdf",
                 "name": "demo.pdf",
                 "size": len(req.data or b""),
                 "session_id": req.headers["X-staging-session"],
@@ -119,7 +145,7 @@ def test_remote_staging_client_uploads_file(monkeypatch, tmp_path):
     )
     result = client.upload_file(str(local_file), session_id="session-1")
 
-    assert result.path == "/data/browser-uploads/session/demo.pdf"
+    assert result.path == "/data/browser-uploads/demo.pdf"
     assert result.name == "demo.pdf"
     assert result.size == len(b"pdf-content")
     assert captured["method"] == "POST"
@@ -149,8 +175,8 @@ def test_stage_upload_files_for_remote_browser(monkeypatch, tmp_path):
             return [
                 {
                     **files[0],
-                    "local_path": "/data/browser-uploads/s1/report.txt",
-                    "remote_path": "/data/browser-uploads/s1/report.txt",
+                    "local_path": "/data/browser-uploads/report.txt",
+                    "remote_path": "/data/browser-uploads/report.txt",
                     "staging_session_id": "s1",
                 }
             ]
@@ -163,5 +189,5 @@ def test_stage_upload_files_for_remote_browser(monkeypatch, tmp_path):
 
     staged = component._stage_upload_files_for_remote_browser(prepared)
 
-    assert staged[0]["remote_path"] == "/data/browser-uploads/s1/report.txt"
-    assert staged[0]["local_path"] == "/data/browser-uploads/s1/report.txt"
+    assert staged[0]["remote_path"] == "/data/browser-uploads/report.txt"
+    assert staged[0]["local_path"] == "/data/browser-uploads/report.txt"
