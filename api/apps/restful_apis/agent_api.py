@@ -250,14 +250,16 @@ async def _run_workflow_session(
     async def persist_workflow_session():
         if not final_ans:
             return
-        workflow_conv["message"].append(
-            {
-                "role": "assistant",
-                "content": full_content,
-                "created_at": time.time(),
-                "id": turn_id,
-            }
-        )
+        assistant_msg = {
+            "role": "assistant",
+            "content": full_content,
+            "created_at": time.time(),
+            "id": turn_id,
+        }
+        attachment = canvas.get_attachment()
+        if attachment:
+            assistant_msg["attachment"] = attachment
+        workflow_conv["message"].append(assistant_msg)
         workflow_conv["reference"].append(_normalize_agent_reference_entry(reference))
         workflow_conv["dsl"] = json.loads(str(canvas))
         workflow_conv["source"] = workflow_conv.get("source") or "workflow"

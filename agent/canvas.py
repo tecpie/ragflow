@@ -831,6 +831,18 @@ class Canvas(Graph):
             return {"chunks": {}, "doc_aggs": {}}
         return self.retrieval[-1]
 
+    def get_attachment(self) -> dict | None:
+        """Return the last attachment produced by a Message component in this run."""
+        attachment = None
+        for cpn_id in self.path:
+            cpn_obj = self.get_component_obj(cpn_id)
+            if cpn_obj.component_name.lower() != "message":
+                continue
+            value = cpn_obj.output("attachment")
+            if isinstance(value, dict):
+                attachment = value
+        return attachment
+
     def _has_reference(self) -> bool:
         ref = self.get_reference()
         if not isinstance(ref, dict):

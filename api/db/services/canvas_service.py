@@ -375,8 +375,24 @@ async def completion(tenant_id, agent_id, session_id=None, **kwargs):
                 txt += "</think>"
         yield "data:" + json.dumps(ans, ensure_ascii=False) + "\n\n"
 
-    conv.message.append({"role": "assistant", "content": txt, "created_at": time.time(), "id": message_id})
-    conv.reference.append(filter_reference_by_answer_citations(txt, canvas.get_reference()))
+    assistant_msg = {
+        "role": "assistant",
+        "content": txt,
+        "created_at": time.time(),
+        "id": message_id,
+    }
+    attachment = canvas.get_attachment()
+    if attachment:
+        assistant_msg["attachment"] = attachment
+    conv.message.append(assistant_msg)
+    current_reference = canvas.get_reference()
+    if not isinstance(current_reference, dict):
+        current_reference = {}
+    if not conv.reference:
+        conv.reference = []
+    if isinstance(conv.reference, dict):
+        conv.reference = [conv.reference]
+    conv.reference.append(current_reference)
     conv.errors = canvas.error
     conv.dsl = str(canvas)
     conv = conv.to_dict()
