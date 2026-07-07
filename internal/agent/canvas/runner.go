@@ -52,13 +52,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	"go.uber.org/zap"
+
+	"ragflow/internal/agent/runtime"
+	"ragflow/internal/common"
 )
 
 // RunEvent is the unit the Runner pushes onto its output channel.
@@ -219,7 +222,8 @@ func (r *Runner) getInterruptID(canvasID, sessionID string) string {
 func (r *Runner) Run(
 	ctx context.Context,
 	run RunFunc,
-	canvasID, sessionID, userInput string,
+	canvasID, sessionID string,
+	userInput any,
 	root map[string]any,
 ) <-chan RunEvent {
 	out := make(chan RunEvent, 8)
@@ -280,7 +284,10 @@ func (r *Runner) Run(
 		// surfaces a clear root cause in the server log.
 		defer func() {
 			if rec := recover(); rec != nil {
-				log.Printf("canvas runner PANIC canvas=%q session=%q: %v\n%s", canvasID, sessionID, rec, debug.Stack())
+				common.Error("canvas runner PANIC", fmt.Errorf("%v", rec),
+					zap.String("canvas", canvasID),
+					zap.String("session", sessionID),
+					zap.String("stack", string(debug.Stack())))
 			}
 		}()
 
@@ -290,7 +297,7 @@ func (r *Runner) Run(
 		// invoking the workflow. The sentinel keys are deleted from
 		// root inside the RunFunc — see service/agent.go's
 		// buildRunFunc.
-		if userInput != "" {
+		if userInput != nil {
 			if id := r.getInterruptID(canvasID, sessionID); id != "" {
 				root["__resume_interrupt_id__"] = id
 				root["__resume_data__"] = userInput
@@ -309,7 +316,13 @@ func (r *Runner) Run(
 				// the prompt to the visible waiting node.
 				displayID := FirstInterruptID(ctxs)
 				resumeID := RootInterruptID(ctxs)
-				log.Printf("canvas runner interrupt canvas=%q session=%q task=%q contexts=%s display=%q resume=%q", canvasID, sessionID, taskID, formatInterruptContexts(ctxs), displayID, resumeID)
+				common.Info("canvas runner interrupt",
+					zap.String("canvas", canvasID),
+					zap.String("session", sessionID),
+					zap.String("task", taskID),
+					zap.String("contexts", formatInterruptContexts(ctxs)),
+					zap.String("display", displayID),
+					zap.String("resume", resumeID))
 				r.saveInterruptID(canvasID, sessionID, resumeID)
 				waiting := WaitingForUserEvent{CpnID: displayID}
 				if ctx := FirstUserFillUpInterrupt(ctxs); ctx != nil {
@@ -322,8 +335,7 @@ func (r *Runner) Run(
 						}
 					}
 				}
-				payload, _ := json.Marshal(waiting)
-				push(out, RunEvent{Type: "waiting_for_user", Data: string(payload), MessageID: messageID, CreatedAt: nowUnix(), TaskID: taskID, SessionID: sessionID})
+				push(out, RunEvent{Type: "waiting_for_user", Data: safeEventJSON(waiting), MessageID: messageID, CreatedAt: nowUnix(), TaskID: taskID, SessionID: sessionID})
 				// Always close a RunAgent call with the `done`
 				// terminator so the front-end can rely on a
 				// channel-end sentinel regardless of whether the run
@@ -337,8 +349,7 @@ func (r *Runner) Run(
 				// without a cpn id — the front-end falls back to
 				// the first paused session it knows about.
 				r.saveInterruptID(canvasID, sessionID, runErr.Error())
-				payload, _ := json.Marshal(WaitingForUserEvent{CpnID: runErr.Error()})
-				push(out, RunEvent{Type: "waiting_for_user", Data: string(payload), MessageID: messageID, CreatedAt: nowUnix(), TaskID: taskID, SessionID: sessionID})
+				push(out, RunEvent{Type: "waiting_for_user", Data: safeEventJSON(WaitingForUserEvent{CpnID: runErr.Error()}), MessageID: messageID, CreatedAt: nowUnix(), TaskID: taskID, SessionID: sessionID})
 				push(out, RunEvent{Type: "done", Data: "", MessageID: messageID, CreatedAt: nowUnix(), TaskID: taskID, SessionID: sessionID})
 				return
 			}
@@ -409,7 +420,8 @@ func safeInvoke(ctx context.Context, cancel chan struct{}, run RunFunc, root map
 		// runner emit a terminal `done` event.
 		defer func() {
 			if rec := recover(); rec != nil {
-				log.Printf("canvas runner PANIC: %v\n%s", rec, debug.Stack())
+				common.Error("canvas runner PANIC", fmt.Errorf("%v", rec),
+					zap.String("stack", string(debug.Stack())))
 				err = fmt.Errorf("canvas runner panic: %v", rec)
 			}
 			close(done)
@@ -444,8 +456,34 @@ func push(out chan<- RunEvent, ev RunEvent) {
 
 // pushErr serialises an ErrorEvent and pushes it on the channel.
 func pushErr(out chan<- RunEvent, msg string) {
-	payload, _ := json.Marshal(ErrorEvent{Message: msg})
+	payload, err := json.Marshal(ErrorEvent{Message: msg})
+	if err != nil {
+		common.Warn("runner: pushErr json.Marshal failed, falling back",
+			zap.Error(err))
+		// ErrorEvent only has a string field; this should never fail.
+		// Fall back to a hard-coded minimal JSON.
+		payload = []byte(`{"message":"event serialization failed"}`)
+	}
 	push(out, RunEvent{Type: "error", Data: string(payload)})
+}
+
+// safeEventJSON marshals v to a JSON string, falling back to
+// runtime.SafeJSONMarshal when the value contains non-serializable
+// types (funcs, channels). Mirrors the Python PR #14210
+// _canvas_json_default fallback for SSE event serialization.
+func safeEventJSON(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		common.Warn("runner: json.Marshal event payload failed, trying SafeJSONMarshal",
+			zap.Error(err))
+		b, err = runtime.SafeJSONMarshal(v)
+		if err != nil {
+			common.Error("runner: SafeJSONMarshal also failed, using fallback",
+				err)
+			b = []byte(`{"message":"event serialization failed"}`)
+		}
+	}
+	return string(b)
 }
 
 // nowUnix returns the current Unix timestamp in seconds.

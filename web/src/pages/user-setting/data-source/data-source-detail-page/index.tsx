@@ -13,10 +13,10 @@ import { t } from 'i18next';
 import { isEqual } from 'lodash';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FieldValues } from 'react-hook-form';
-import { useSearchParams } from 'react-router';
 import {
   DataSourceFormBaseFields,
   DataSourceFormDefaultValues,
+  DataSourceKey,
   getCommonExtraDefaultValues,
   getDataSourceFieldsWithExtras,
   mergeDataSourceFormValues,
@@ -32,8 +32,6 @@ import { DataSourceLogsTable } from './log-table';
 
 const SourceDetailPage = () => {
   const formRef = useRef<DynamicFormRef>(null);
-  const [searchParams] = useSearchParams();
-  const connectorId = searchParams.get('id')!;
 
   const { data: detail } = useFetchDataSourceDetail();
   const { updateStatus, loading: statusUpdateLoading } =
@@ -117,10 +115,7 @@ const SourceDetailPage = () => {
   }, []);
 
   const { addLoading, handleAddOk } = useAddDataSource({ isEdit: true });
-  const { loading: testLoading, handleTest } = useTestDataSource(
-    formRef,
-    connectorId,
-  );
+  const { loading: testLoading, handleTest } = useTestDataSource();
 
   const onSubmit = useCallback(() => {
     formRef?.current?.submit();
@@ -249,15 +244,18 @@ const SourceDetailPage = () => {
             />
           </div>
           <div className="max-w-[1200px] flex justify-end gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleTest}
-              disabled={testLoading}
-              loading={testLoading}
-            >
-              {t('setting.dataSourceTestConnection')}
-            </Button>
+            {(detail?.source === DataSourceKey.REST_API ||
+              detail?.source === DataSourceKey.BIGQUERY) && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleTest}
+                disabled={testLoading}
+                loading={testLoading}
+              >
+                {t('setting.restApiTestConnection')}
+              </Button>
+            )}
             <Button
               type="button"
               onClick={handlePrimaryAction}

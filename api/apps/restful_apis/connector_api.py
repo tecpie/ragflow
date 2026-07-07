@@ -29,12 +29,6 @@ from api.db.services.connector_service import ConnectorService, SyncLogsService
 from api.utils.api_utils import get_data_error_result, get_json_result, get_request_json, validate_request
 from api.utils.pagination_utils import validate_rest_api_page_size
 from common.constants import RetCode, TaskStatus
-from common.data_source.value_source_connector import (
-    DEFAULT_QUERY_LIMIT,
-    fetch_enum_options,
-    is_queryable_source,
-    query_connector_data,
-)
 from common.data_source.config import GOOGLE_DRIVE_WEB_OAUTH_REDIRECT_URI, GMAIL_WEB_OAUTH_REDIRECT_URI, BOX_WEB_OAUTH_REDIRECT_URI, DocumentSource
 from common.data_source.google_util.constant import WEB_OAUTH_POPUP_TEMPLATE, GOOGLE_SCOPES
 from common.misc_utils import get_uuid
@@ -186,120 +180,102 @@ def rm_connector(connector_id):
 
 @manager.route("/connectors/<connector_id>/test", methods=["POST"])  # noqa: F821
 @login_required
-@validate_request("source")
 async def test_connector(connector_id):
-    """Validate connector configuration from the request body without persisting."""
+    """Validate connector configuration without persisting changes or triggering sync.
+
+    For the REST API connector, this uses `RestAPIConnector.validate_config`
+    against the existing saved configuration. For BigQuery, it runs `SELECT 1`
+    plus a free dry-run of the configured base query under `maximum_bytes_billed`
+    so bad credentials, wrong location, or runaway scans surface before scheduled
+    syncs run (and incur cost).
+    """
     if not ConnectorService.accessible(connector_id, current_user.id):
         return _connector_auth_error(connector_id, current_user.id)
 
-    from common.data_source import build_connector_for_source
-    from common.data_source.exceptions import ConnectorMissingCredentialError, ConnectorValidationError
-
-    req = await get_request_json()
-    source = req["source"]
-    config = req.get("config") or {}
-    if not isinstance(config, dict):
-        return get_json_result(code=RetCode.ARGUMENT_ERROR, message="config must be an object.")
-
-    ok, conn = ConnectorService.get_by_id(connector_id)
-    if ok and conn.tenant_id != current_user.id:
-        return get_json_result(code=RetCode.PERMISSION_ERROR, message="You don't own this connector.")
-
-    def _validate() -> None:
-        connector = build_connector_for_source(source, config)
-        connector.validate_connector_settings()
-
-    try:
-        await asyncio.to_thread(_validate)
-    except (ConnectorValidationError, ConnectorMissingCredentialError) as exc:
-        return get_json_result(
-            code=RetCode.DATA_ERROR,
-            message=str(exc),
-            data=False,
-        )
-    except Exception as exc:
-        logging.exception("Connector validation failed for %s: %s", connector_id, exc)
-        return get_json_result(
-            code=RetCode.SERVER_ERROR,
-            message="Connector validation failed, please check logs.",
-            data=False,
-        )
-
-    return get_json_result(data=True)
-
-
-@manager.route("/connectors/<connector_id>/query", methods=["POST"])  # noqa: F821
-@login_required
-async def query_connector(connector_id):
-    """Query preview rows (RDBMS) or first-page items (REST API) from a saved connector."""
     from common.data_source.exceptions import ConnectorMissingCredentialError, ConnectorValidationError
 
     ok, conn = ConnectorService.get_by_id(connector_id)
     if not ok:
         return get_data_error_result(message="Can't find this Connector!")
 
-    if conn.tenant_id != current_user.id:
-        return get_json_result(
-            code=RetCode.PERMISSION_ERROR,
-            message="You are not allowed to access this connector.",
-        )
+    config = conn.config or {}
+    credentials = config.get("credentials") or {}
 
-    if not is_queryable_source(conn.source):
-        return get_json_result(
-            code=RetCode.ARGUMENT_ERROR,
-            message="Data query is only supported for MySQL, PostgreSQL, and REST API connectors.",
-        )
-
-    req = await get_request_json() or {}
-    record = {
-        "id": conn.id,
-        "source": conn.source,
-        "config": conn.config or {},
-    }
-
-    enum_value_field = (req.get("enum_value_field") or "").strip()
-    if enum_value_field:
-        vs = {
-            "enum_value_field": enum_value_field,
-            "enum_description_field": (req.get("enum_description_field") or "").strip(),
-        }
-
-        def _fetch_enum() -> dict:
-            return {"options": fetch_enum_options(record, vs)}
+    if conn.source == DocumentSource.REST_API:
+        from common.data_source.rest_api_connector import RestAPIConnector
 
         try:
-            data = await asyncio.to_thread(_fetch_enum)
-        except (ConnectorValidationError, ConnectorMissingCredentialError, ValueError) as exc:
-            return get_json_result(code=RetCode.DATA_ERROR, message=str(exc), data=False)
-        except Exception as exc:
-            logging.exception("Connector enum query failed for %s: %s", connector_id, exc)
+            await asyncio.to_thread(
+                RestAPIConnector.validate_config,
+                config=config,
+                credentials=credentials,
+            )
+        except (ConnectorValidationError, ConnectorMissingCredentialError) as exc:
             return get_json_result(
-                code=RetCode.SERVER_ERROR,
-                message="Connector query failed, please check logs.",
+                code=RetCode.DATA_ERROR,
+                message=str(exc),
                 data=False,
             )
-        return get_json_result(data=data)
+        except Exception as exc:
+            logging.exception("REST API connector validation failed: %s", exc)
+            return get_json_result(
+                code=RetCode.SERVER_ERROR,
+                message="REST API connector validation failed, please check logs.",
+                data=False,
+            )
 
-    limit = int(req.get("limit", DEFAULT_QUERY_LIMIT))
-    if limit <= 0:
-        return get_json_result(code=RetCode.ARGUMENT_ERROR, message="limit must be a positive integer.")
+        return get_json_result(data=True)
 
-    def _query() -> dict:
-        return query_connector_data(record, limit=limit)
+    if conn.source == DocumentSource.BIGQUERY:
+        from common.data_source.bigquery_connector import BigQueryConnector
 
-    try:
-        data = await asyncio.to_thread(_query)
-    except (ConnectorValidationError, ConnectorMissingCredentialError, ValueError) as exc:
-        return get_json_result(code=RetCode.DATA_ERROR, message=str(exc), data=False)
-    except Exception as exc:
-        logging.exception("Connector data query failed for %s: %s", connector_id, exc)
-        return get_json_result(
-            code=RetCode.SERVER_ERROR,
-            message="Connector query failed, please check logs.",
-            data=False,
-        )
+        def _validate_bigquery():
+            connector_kwargs = {
+                "project_id": config.get("project_id", ""),
+                "dataset_id": config.get("dataset_id") or None,
+                "table_id": config.get("table_id") or None,
+                "location": config.get("location") or None,
+                "query": config.get("query", ""),
+                "content_columns": config.get("content_columns", ""),
+                "metadata_columns": config.get("metadata_columns", ""),
+                "id_column": config.get("id_column") or None,
+                "timestamp_column": config.get("timestamp_column") or None,
+                "use_query_cache": config.get("use_query_cache", True),
+            }
+            if config.get("page_size") is not None:
+                connector_kwargs["page_size"] = int(config["page_size"])
+            if config.get("maximum_bytes_billed") is not None:
+                connector_kwargs["maximum_bytes_billed"] = int(config["maximum_bytes_billed"])
+            if config.get("job_timeout_ms") is not None:
+                connector_kwargs["job_timeout_ms"] = int(config["job_timeout_ms"])
 
-    return get_json_result(data=data)
+            connector = BigQueryConnector(**connector_kwargs)
+            connector.load_credentials(credentials)
+            connector.validate_connector_settings()
+
+        try:
+            await asyncio.to_thread(_validate_bigquery)
+        except (ConnectorValidationError, ConnectorMissingCredentialError) as exc:
+            return get_json_result(
+                code=RetCode.DATA_ERROR,
+                message=str(exc),
+                data=False,
+            )
+        except Exception as exc:
+            logging.exception("BigQuery connector validation failed: %s", exc)
+            return get_json_result(
+                code=RetCode.SERVER_ERROR,
+                message="BigQuery connector validation failed, please check logs.",
+                data=False,
+            )
+
+        return get_json_result(data=True)
+
+    return get_json_result(
+        code=RetCode.ARGUMENT_ERROR,
+        message="Test endpoint currently supports only REST API and BigQuery connectors.",
+        data=False,
+    )
 
 
 WEB_FLOW_TTL_SECS = 15 * 60
@@ -575,6 +551,7 @@ async def google_drive_web_oauth_callback():
 
     return await _render_web_oauth_popup(state_id, True, "Authorization completed successfully.", source)
 
+
 @manager.route("/connectors/google/oauth/web/result", methods=["POST"])  # noqa: F821
 @login_required
 @validate_request("flow_id")
@@ -595,13 +572,14 @@ async def poll_google_web_result():
     REDIS_CONN.delete(_web_result_cache_key(flow_id, source))
     return get_json_result(data={"credentials": result.get("credentials")})
 
+
 @manager.route("/connectors/box/oauth/web/start", methods=["POST"])  # noqa: F821
 @login_required
 async def start_box_web_oauth():
     req = await get_request_json()
 
     client_id = req.get("client_id")
-    client_secret = req.get("client_secret")    
+    client_secret = req.get("client_secret")
     redirect_uri = req.get("redirect_uri", BOX_WEB_OAUTH_REDIRECT_URI)
 
     if not client_id or not client_secret:
@@ -632,18 +610,20 @@ async def start_box_web_oauth():
     }
     REDIS_CONN.set_obj(_web_state_cache_key(flow_id, "box"), cache_payload, WEB_FLOW_TTL_SECS)
     return get_json_result(
-        data = {
+        data={
             "flow_id": flow_id,
             "authorization_url": auth_url,
-            "expires_in": WEB_FLOW_TTL_SECS,}
+            "expires_in": WEB_FLOW_TTL_SECS,
+        }
     )
+
 
 @manager.route("/connectors/box/oauth/web/callback", methods=["GET"])  # noqa: F821
 async def box_web_oauth_callback():
     flow_id = request.args.get("state")
     if not flow_id:
         return await _render_web_oauth_popup("", False, "Missing OAuth parameters.", "box")
-    
+
     code = request.args.get("code")
     if not code:
         return await _render_web_oauth_popup(flow_id, False, "Missing authorization code from Box.", "box")
@@ -657,7 +637,7 @@ async def box_web_oauth_callback():
     if error:
         REDIS_CONN.delete(_web_state_cache_key(flow_id, "box"))
         return await _render_web_oauth_popup(flow_id, False, error_description or "Authorization failed.", "box")
-    
+
     auth = BoxOAuth(
         OAuthConfig(
             client_id=cache_payload.get("client_id"),
@@ -680,6 +660,7 @@ async def box_web_oauth_callback():
 
     return await _render_web_oauth_popup(flow_id, True, "Authorization completed successfully.", "box")
 
+
 @manager.route("/connectors/box/oauth/web/result", methods=["POST"])  # noqa: F821
 @login_required
 @validate_request("flow_id")
@@ -694,7 +675,7 @@ async def poll_box_web_result():
     cache_raw = json.loads(cache_blob)
     if cache_raw.get("user_id") != current_user.id:
         return get_json_result(code=RetCode.PERMISSION_ERROR, message="You are not allowed to access this authorization result.")
-    
+
     REDIS_CONN.delete(_web_result_cache_key(flow_id, "box"))
 
     return get_json_result(data={"credentials": cache_raw})
