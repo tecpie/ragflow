@@ -75,7 +75,14 @@ class UserFillUp(ComponentBase):
                     files = file_value if isinstance(file_value, list) else [file_value]
                     v = FileService.get_files(files, layout_recognize=layout_recognize)
             else:
-                v = v.get("value")
+                raw = v.get("value")
+                if v.get("type") == "object" and isinstance(raw, str) and raw.strip():
+                    try:
+                        v = json.loads(raw)
+                    except Exception:
+                        v = raw
+                else:
+                    v = raw
             self.set_output(k, v)
 
     def thoughts(self) -> str:
