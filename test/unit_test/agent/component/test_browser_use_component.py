@@ -151,6 +151,94 @@ def test_extract_ids_does_not_split_http_url_by_comma():
     assert refs == ["https://example.com/download?name=a,b.txt"]
 
 
+def test_resolve_upload_source_items_preserves_session_file_object():
+    component = _build_component()
+    component._canvas = _FakeCanvas(
+        refs={
+            "{begin@file_obj}": {
+                "id": "abc123uuid456789012345678901234",
+                "name": "项目建议书.pdf",
+                "created_by": "user-1",
+            },
+        }
+    )
+    component._param.upload_sources = "{begin@file_obj}"
+
+    items = component._resolve_upload_source_items()
+
+    assert len(items) == 1
+    assert items[0]["kind"] == "session_blob"
+    assert items[0]["file_id"] == "abc123uuid456789012345678901234"
+    assert items[0]["name"] == "项目建议书.pdf"
+    assert items[0]["created_by"] == "user-1"
+
+
+def test_resolve_upload_source_items_resolves_id_ref_with_parent_name():
+    component = _build_component()
+    file_obj = {
+        "id": "abc123uuid456789012345678901234",
+        "name": "技改计划.docx",
+        "created_by": "user-1",
+    }
+    component._canvas = _FakeCanvas(
+        refs={
+            "{begin@files}": [file_obj],
+            "{begin@files.0.id}": file_obj["id"],
+            "{begin@files.0}": file_obj,
+        }
+    )
+    component._param.upload_sources = "{begin@files.0.id}"
+
+    items = component._resolve_upload_source_items()
+
+    assert len(items) == 1
+    assert items[0]["kind"] == "session_blob"
+    assert items[0]["name"] == "技改计划.docx"
+
+
+def test_prepare_upload_files_uses_session_blob_name(monkeypatch, tmp_path):
+    component = _build_component()
+    component._param.upload_sources = {
+        "id": "abc123uuid456789012345678901234",
+        "name": "项目建议书.pdf",
+        "created_by": "user-1",
+    }
+
+    monkeypatch.setattr(
+        browser_use_module.FileService,
+        "get_blob",
+        lambda user_id, location: b"pdf-bytes" if user_id == "user-1" else None,
+    )
+
+    prepared = component._prepare_upload_files(str(tmp_path))
+
+    assert len(prepared) == 1
+    assert prepared[0]["name"] == "项目建议书.pdf"
+    assert prepared[0]["local_path"].endswith("项目建议书.pdf")
+    assert Path(prepared[0]["local_path"]).read_bytes() == b"pdf-bytes"
+
+
+def test_resolve_original_filename_uses_document_name_when_file_name_is_uuid(monkeypatch):
+    from api.db.services.document_service import DocumentService
+    from api.db.services.file2document_service import File2DocumentService
+
+    component = _build_component()
+    opaque_id = "abc123uuid456789012345678901234"
+    file = SimpleNamespace(name=opaque_id, location=opaque_id, type="pdf")
+
+    class _FakeF2D:
+        document_id = "doc-1"
+
+    monkeypatch.setattr(File2DocumentService, "get_by_file_id", lambda _file_id: [_FakeF2D()])
+    monkeypatch.setattr(
+        DocumentService,
+        "get_by_id",
+        lambda _doc_id: (True, SimpleNamespace(name="真实文档.pdf")),
+    )
+
+    assert component._resolve_original_filename(file, opaque_id) == "真实文档.pdf"
+
+
 def test_prepare_upload_files_supports_http_url(monkeypatch, tmp_path):
     component = _build_component()
     component._param.upload_sources = "https://example.com/files/demo.txt"
