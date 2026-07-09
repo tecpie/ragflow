@@ -150,7 +150,7 @@ export const useSendMessage = (controller: AbortController) => {
       enableModelThinking,
       enableInternet,
     }: NextMessageInputOnPressEnterParameter) => {
-      if (trim(value) === '') return;
+      if (trim(value) === '' || !done) return;
 
       const data = await createConversationBeforeSendMessage(value);
 
@@ -203,10 +203,10 @@ export const useSendMessage = (controller: AbortController) => {
     },
     [
       value,
+      done,
       createConversationBeforeSendMessage,
       addNewestQuestion,
       files,
-      done,
       clearFiles,
       setValue,
       sendMessage,

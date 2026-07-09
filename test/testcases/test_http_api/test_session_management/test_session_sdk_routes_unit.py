@@ -455,7 +455,7 @@ def _load_session_module(monkeypatch):
             }
 
     def _get_model_config_by_id(
-        tenant_model_id: int,
+        tenant_model_id: str,
         allowed_tenant_ids=None,
         requester_tenant_id=None,
     ) -> dict:
@@ -2301,6 +2301,7 @@ def _load_chat_api_module(monkeypatch):
 
     kb_svc_mod = ModuleType("api.db.services.knowledgebase_service")
     kb_svc_mod.KnowledgebaseService = SimpleNamespace(query=lambda **_k: [], accessible=lambda **_k: True)
+    kb_svc_mod.validate_dataset_embedding_models = lambda _kbs: None
     monkeypatch.setitem(sys.modules, "api.db.services.knowledgebase_service", kb_svc_mod)
 
     class _FakeLLMBundle:

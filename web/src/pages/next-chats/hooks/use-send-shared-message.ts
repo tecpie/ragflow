@@ -142,7 +142,7 @@ export const useSendSharedMessage = () => {
       enableModelThinking,
       enableInternet,
     }: NextMessageInputOnPressEnterParameter) => {
-      if (trim(value) === '') return;
+      if (trim(value) === '' || !done) return;
       const id = uuid();
       if (done) {
         setValue('');
