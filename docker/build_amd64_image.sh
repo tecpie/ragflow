@@ -76,7 +76,7 @@ echo "========================================"
 
 echo
 echo ">>> Building image (platform=linux/amd64)..."
-docker build \
+DOCKER_BUILDKIT=1 docker build \
     --platform linux/amd64 \
     --build-arg "NEED_MIRROR=${NEED_MIRROR}" \
     ${NO_CACHE} \

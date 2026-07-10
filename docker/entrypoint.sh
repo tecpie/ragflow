@@ -68,6 +68,11 @@ fi
 
 HOST_ID="$DEFAULT_HOST_ID"
 
+# Default to python backend when unset (matches nginx default below).
+if [ -z "${API_PROXY_SCHEME}" ]; then
+  API_PROXY_SCHEME="python"
+fi
+
 # Parse arguments
 for arg in "$@"; do
   case $arg in

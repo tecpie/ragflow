@@ -116,3 +116,30 @@ def test_max_tokens_prefers_model_extra_over_factory(monkeypatch):
     config = tms.get_model_config_from_provider_instance("tenant-1", "chat", "gpt-test@default@OpenAI")
 
     assert config["max_tokens"] == 32000
+
+
+@pytest.mark.p1
+def test_get_model_type_by_name_accepts_single_tenant_model_record(monkeypatch):
+    provider = SimpleNamespace(id="provider-1", provider_name="OpenAI")
+    instance = SimpleNamespace(id="instance-1", extra="{}")
+    model = SimpleNamespace(
+        model_name="gpt-4o",
+        model_type=1,
+        status=ActiveStatusEnum.ACTIVE.value,
+    )
+
+    monkeypatch.setattr(
+        tms.TenantModelProviderService,
+        "get_by_tenant_id_and_provider_name",
+        lambda tenant_id, provider_name: provider,
+    )
+    monkeypatch.setattr(tms, "_resolve_instance_for_model", lambda *args: instance)
+    monkeypatch.setattr(
+        tms.TenantModelService,
+        "get_by_provider_id_and_instance_id_and_model_name",
+        lambda provider_id, instance_id, model_name: model,
+    )
+
+    types = tms.get_model_type_by_name("tenant-1", "gpt-4o@default@OpenAI")
+
+    assert types == ["chat"]

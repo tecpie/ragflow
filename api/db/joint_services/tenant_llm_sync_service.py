@@ -92,18 +92,17 @@ def _ensure_default_instance(provider_id: str, api_key: str, api_base: str = "")
 
 
 def _sync_model_enable_state(provider_id: str, instance_id: str, model_name: str, model_type: str, enabled: bool):
-    records = TenantModelService.get_by_provider_id_and_instance_id_and_model_name(
+    record = TenantModelService.get_by_provider_id_and_instance_id_and_model_name(
         provider_id, instance_id, model_name
     )
     if enabled:
-        for record in records:
-            if record.status == ActiveStatusEnum.INACTIVE.value:
-                TenantModelService.delete_by_id(record.id)
+        if record and record.status == ActiveStatusEnum.INACTIVE.value:
+            TenantModelService.delete_by_id(record.id)
         return
 
-    if records:
+    if record:
         TenantModelService.batch_update_model_status(
-            [record.id for record in records],
+            [record.id],
             ActiveStatusEnum.INACTIVE.value,
         )
         return
@@ -179,9 +178,10 @@ def _delete_synced_model_records(tenant_id: str, provider_name: str, model_name:
     if not instance:
         return
 
-    for model in TenantModelService.get_by_provider_id_and_instance_id_and_model_name(
+    model = TenantModelService.get_by_provider_id_and_instance_id_and_model_name(
         provider.id, instance.id, model_name
-    ):
+    )
+    if model:
         TenantModelService.delete_by_id(model.id)
 
 
