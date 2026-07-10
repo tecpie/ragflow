@@ -74,7 +74,7 @@ type nodeBodyFn = func(ctx context.Context, in map[string]any) (map[string]any, 
 // Outputs bucket. UserFillUpNodeBody tags its output itself so the
 // interrupt-driven branch still attributes the resume payload to the
 // right cpn.
-func buildNodeBody(cpnID, name string, params map[string]any) (nodeBodyFn, error) {
+func buildNodeBody(ctx context.Context, cpnID, name string, params map[string]any) (nodeBodyFn, error) {
 	if isLegacyNoOp(name) {
 		return legacyNoOpBody(cpnID), nil
 	}
@@ -89,7 +89,7 @@ func buildNodeBody(cpnID, name string, params map[string]any) (nodeBodyFn, error
 	if strings.EqualFold(name, "UserFillUp") {
 		return UserFillUpNodeBody(cpnID, params), nil
 	}
-	if factory := runtime.DefaultFactory(); factory != nil {
+	if factory := resolveComponentFactory(ctx); factory != nil {
 		comp, err := factory(name, params)
 		if err != nil {
 			return nil, fmt.Errorf("canvas: component %q (%s): factory: %w", cpnID, name, err)
@@ -118,6 +118,14 @@ func buildNodeBody(cpnID, name string, params map[string]any) (nodeBodyFn, error
 // components (legacyNoOpNames). It echoes the input and tags
 // __legacy_noop__ so downstream debuggers can tell the node fired but
 // did nothing.
+
+func resolveComponentFactory(ctx context.Context) runtime.ComponentFactory {
+	if factory := componentFactoryFromContext(ctx); factory != nil {
+		return factory
+	}
+	return runtime.DefaultFactory()
+}
+
 func legacyNoOpBody(cpnID string) nodeBodyFn {
 	return func(_ context.Context, in map[string]any) (map[string]any, error) {
 		out := make(map[string]any, len(in)+2)
@@ -150,12 +158,24 @@ func componentTimeout() time.Duration {
 // runtime.Component. The component is constructed once at build time
 // (in buildNodeBody) and re-invoked per iteration.
 //
-// Each invocation is wrapped in a context.WithTimeout derived from
-// resolveTimeout(comp.Name()) — the per-class resolver in timeout.go
-// (4-level: per-class env → per-class defaults table → uniform env
-// → 600s fallback). The lookup is per-invocation (not per-body) so
-// operators can tune COMPONENT_EXEC_TIMEOUT[_<CLASS>] at runtime
-// without rebuilding graphs.
+// This is the SINGLE chokepoint through which every component Invoke
+// passes — both the agent canvas and the ingestion pipeline
+// (internal/ingestion/pipeline compiles a canvas and runs its workflow)
+// reach components here. Cross-cutting concerns therefore belong here,
+// not inside each component's Invoke:
+//
+//   - per-class timeout: context.WithTimeout from resolveTimeout
+//     (4-level: per-class env → per-class defaults table → uniform env
+//     → 600s fallback). The lookup is per-invocation (not per-body) so
+//     operators can tune COMPONENT_EXEC_TIMEOUT[_<CLASS>] at runtime
+//     without rebuilding graphs.
+//   - progress: runtime.TrackProgress, with the callback pulled from
+//     ctx (nil ⇒ no observer). This makes progress a framework-level
+//     concern — components no longer wrap themselves.
+//   - elapsed-time accounting: runtime.TrackElapsed stamps
+//     _created_time / _elapsed_time into the output map so the
+//     dataflow-result UI can show per-node timing without each
+//     component repeating the bookkeeping.
 //
 // Timeout errors are surfaced as `timeout after Xs: <wrapped>`;
 // parent-context cancellation as `cancelled: <wrapped>`; all other
@@ -170,16 +190,24 @@ func realComponentBody(cpnID, componentClass string, comp runtime.Component) nod
 		timeout := resolveTimeoutFromContext(ctx, componentClass)
 		cctx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
-		out, err := comp.Invoke(cctx, in)
-		if err != nil {
+
+		var out map[string]any
+		invokeErr := runtime.TrackProgress(cpnID, runtime.ProgressCallbackFromContext(ctx), func() error {
+			var e error
+			out, e = runtime.TrackElapsed(componentClass, func() (map[string]any, error) {
+				return comp.Invoke(cctx, in)
+			})
+			return e
+		})
+		if invokeErr != nil {
 			switch {
-			case errors.Is(err, context.DeadlineExceeded):
+			case errors.Is(invokeErr, context.DeadlineExceeded):
 				return nil, fmt.Errorf("canvas: component %q invoke: timeout after %s: %w",
-					cpnID, timeout, err)
-			case errors.Is(err, context.Canceled):
-				return nil, fmt.Errorf("canvas: component %q invoke: cancelled: %w", cpnID, err)
+					cpnID, timeout, invokeErr)
+			case errors.Is(invokeErr, context.Canceled):
+				return nil, fmt.Errorf("canvas: component %q invoke: cancelled: %w", cpnID, invokeErr)
 			}
-			return nil, fmt.Errorf("canvas: component %q invoke: %w", cpnID, err)
+			return nil, fmt.Errorf("canvas: component %q invoke: %w", cpnID, invokeErr)
 		}
 		if out == nil {
 			out = make(map[string]any, 1)
