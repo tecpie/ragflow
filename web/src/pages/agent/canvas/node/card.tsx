@@ -19,7 +19,7 @@ import {
 } from '@/components/ui/select';
 import { useFetchAllAddedModels } from '@/hooks/use-llm-request';
 import { cn } from '@/lib/utils';
-import { parseModelValue } from '@/utils/llm-util';
+import { isValidModelRef } from '@/utils/llm-util';
 import { PropsWithChildren, useMemo } from 'react';
 
 export function CardWithForm() {
@@ -84,19 +84,7 @@ export function LLMLabelCard({ llmId }: { llmId?: string }) {
   const { data: allAddedModels } = useFetchAllAddedModels();
 
   const isValidLlm = useMemo(() => {
-    if (!llmId) return false;
-
-    const parsed = parseModelValue(llmId);
-    if (parsed) {
-      return allAddedModels.some(
-        (m) =>
-          m.name === parsed.model_name &&
-          m.instance_name === parsed.model_instance &&
-          m.provider_name === parsed.model_provider,
-      );
-    }
-
-    return false;
+    return isValidModelRef(llmId, allAddedModels);
   }, [allAddedModels, llmId]);
 
   return (

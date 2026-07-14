@@ -56,6 +56,59 @@ export function parseModelValue(val: string) {
   };
 }
 
+export type ModelRefDisplay = {
+  model_name: string;
+  model_instance: string;
+  model_provider: string;
+};
+
+type AddedModelLike = {
+  model_id: string;
+  name: string;
+  instance_name: string;
+  provider_name: string;
+};
+
+/** Resolve legacy "name@instance@provider" or tenant model_id to display fields. */
+export function resolveModelRef(
+  value: string | undefined,
+  allAddedModels?: AddedModelLike[],
+): ModelRefDisplay | null {
+  if (!value) return null;
+
+  const parsed = parseModelValue(value);
+  if (parsed) return parsed;
+
+  const model = allAddedModels?.find((m) => m.model_id === value);
+  if (!model) return null;
+
+  return {
+    model_name: getRealModelName(model.name),
+    model_instance: model.instance_name,
+    model_provider: model.provider_name,
+  };
+}
+
+/** Check whether a model ref exists in the tenant model catalog. */
+export function isValidModelRef(
+  value: string | undefined,
+  allAddedModels?: AddedModelLike[],
+): boolean {
+  if (!value || !allAddedModels?.length) return false;
+
+  const parsed = parseModelValue(value);
+  if (parsed) {
+    return allAddedModels.some(
+      (m) =>
+        getRealModelName(m.name) === parsed.model_name &&
+        m.instance_name === parsed.model_instance &&
+        m.provider_name === parsed.model_provider,
+    );
+  }
+
+  return allAddedModels.some((m) => m.model_id === value);
+}
+
 // Extract model name and factory ID from a model UUID
 // Supports both "model_name@factory_id" and "model_name@factory_id#instance_name"
 export function parseModelUuid(uuid: string): {

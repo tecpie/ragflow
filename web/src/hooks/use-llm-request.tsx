@@ -29,7 +29,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { parseModelValue } from '@/utils/llm-util';
+import { getRealModelName, parseModelValue } from '@/utils/llm-util';
 import { useWarnEmptyModel } from './use-warn-empty-model';
 
 export const enum LLMApiAction {
@@ -138,12 +138,12 @@ export function useFindLlmByUuid() {
     if (parsed) {
       return models.find(
         (m) =>
-          m.name === parsed.model_name &&
+          getRealModelName(m.name) === parsed.model_name &&
           m.instance_name === parsed.model_instance &&
           m.provider_name === parsed.model_provider,
       );
     }
-    return undefined;
+    return models.find((m) => m.model_id === uuid);
   };
 }
 
