@@ -51,11 +51,12 @@ export function VersionDialog({
   );
 
   const downloadFile = useCallback(() => {
-    const graph = agent?.dsl.graph;
-    if (graph) {
-      downloadJsonFile(graph, agent?.title);
+    // Must export full DSL; importDsl only accepts `graph.nodes`.
+    const dsl = agent?.dsl;
+    if (dsl?.graph) {
+      downloadJsonFile(dsl, agent?.title);
     }
-  }, [agent?.dsl.graph, agent?.title]);
+  }, [agent?.dsl, agent?.title]);
 
   useEffect(() => {
     if (data.length > 0) {
