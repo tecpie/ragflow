@@ -15,24 +15,16 @@ import {
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
-import { t } from 'i18next';
-import {
-  Atom,
-  Brain,
-  CircleStop,
-  Globe,
-  Paperclip,
-  Send,
-  Upload,
-  X,
-} from 'lucide-react';
+import { Brain, CircleStop, Globe, Paperclip, Send, Upload, X } from 'lucide-react';
 import * as React from 'react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
+import { SelectWithSearch } from '../originui/select-with-search';
 import { AudioButton } from '../ui/audio-button';
 
 export type NextMessageInputOnPressEnterParameter = {
-  enableThinking: boolean;
+  enableThinking: string;
   enableModelThinking: boolean;
   enableInternet: boolean;
 };
@@ -80,17 +72,28 @@ export function NextMessageInput({
   showModelThinking = false,
   showInternet = false,
 }: NextMessageInputProps) {
+  const { t } = useTranslation();
   const [files, setFiles] = React.useState<File[]>([]);
   const [audioInputValue, setAudioInputValue] = React.useState<string | null>(
     null,
   );
 
-  const [enableThinking, setEnableThinking] = useState(false);
+  const [enableThinking, setEnableThinking] = useState('0');
   const [enableModelThinking, setEnableModelThinking] = useState(false);
   const [enableInternet, setEnableInternet] = useState(false);
 
-  const handleThinkingToggle = useCallback(() => {
-    setEnableThinking((prev) => !prev);
+  const thinkingOptions = useMemo(
+    () => [
+      { label: t('chat.thinkingLevelUltra'), value: '3' },
+      { label: t('chat.thinkingLevelHigh'), value: '2' },
+      { label: t('chat.thinkingLevelMedium'), value: '1' },
+      { label: t('chat.thinkingLevelLow'), value: '0' },
+    ],
+    [t],
+  );
+
+  const handleThinkingChange = useCallback((value: string) => {
+    setEnableThinking(value);
   }, []);
 
   const handleModelThinkingToggle = useCallback(() => {
@@ -234,7 +237,6 @@ export function NextMessageInput({
           value={value}
           onChange={onInputChange}
           placeholder={t('chat.messagePlaceholder')}
-          style={{ resize }}
           className="
             min-h-10 max-h-40 w-full p-0 overflow-auto
             !outline-none !border-transparent !bg-transparent !shadow-none !ring-transparent !ring-offset-transparent
@@ -264,19 +266,13 @@ export function NextMessageInput({
             )}
 
             {showReasoning && (
-              <Button
-                type="button"
-                size="sm"
-                variant={'outline'}
-                className={cn('border-0 h-7 text-sm bg-bg-card', {
-                  'bg-text-primary text-bg-base': enableThinking,
-                })}
-                onClick={handleThinkingToggle}
-                data-testid="chat-detail-research-toggle"
-              >
-                <Atom />
-                <span>{t('chat.reasoning')}</span>
-              </Button>
+              <SelectWithSearch
+                value={enableThinking}
+                options={thinkingOptions}
+                onChange={handleThinkingChange}
+                triggerClassName="h-7 border-0 !bg-bg-card text-sm"
+                testId="chat-detail-thinking-toggle"
+              />
             )}
 
             {showModelThinking && (

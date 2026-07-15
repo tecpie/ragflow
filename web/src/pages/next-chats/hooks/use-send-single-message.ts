@@ -60,6 +60,7 @@ export function useSendSingleMessage({
       messages,
       enableInternet,
       enableThinking,
+      enableModelThinking,
       ...params
     }: {
       message: IMessage;
@@ -78,7 +79,7 @@ export function useSendSingleMessage({
               : (derivedMessages ?? [])),
             message,
           ],
-          reasoning: enableThinking,
+          reasoning: Number(enableThinking),
           enable_thinking: enableModelThinking,
           internet: enableInternet,
           ...params,
