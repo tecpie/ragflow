@@ -740,10 +740,21 @@ class Canvas(Graph):
                     for cpn_id in cpn_ids:
                         _append_path(cpn_id)
 
+                def _iteration_start_finished(parent):
+                    start_id = parent.get_start()
+                    if not start_id:
+                        return False
+                    start_obj = self.get_component_obj(start_id)
+                    if start_obj.component_name.lower() not in ("iterationitem", "loopitem"):
+                        return False
+                    return start_obj._idx < 0
+
                 if cpn_obj.component_name.lower() in ("iterationitem", "loopitem") and cpn_obj.end():
                     iter = cpn_obj.get_parent()
                     yield _node_finished(iter)
                     _extend_path(self.get_component(cpn["parent_id"])["downstream"])
+                elif cpn_obj.component_name.lower() in ("iterationitem", "loopitem") and cpn_obj._idx < 0:
+                    pass
                 elif cpn_obj.component_name.lower() in ["categorize", "switch"]:
                     _extend_path(cpn_obj.output("_next"))
                 elif cpn_obj.component_name.lower() in ("iteration", "loop"):
@@ -751,7 +762,11 @@ class Canvas(Graph):
                 elif cpn_obj.component_name.lower() == "exitloop" and cpn_obj.get_parent().component_name.lower() == "loop":
                     _extend_path(self.get_component(cpn["parent_id"])["downstream"])
                 elif not cpn["downstream"] and cpn_obj.get_parent():
-                    _append_path(cpn_obj.get_parent().get_start())
+                    parent = cpn_obj.get_parent()
+                    if parent.component_name.lower() in ("iteration", "loop") and _iteration_start_finished(parent):
+                        pass
+                    else:
+                        _append_path(parent.get_start())
                 else:
                     _extend_path(cpn["downstream"])
 

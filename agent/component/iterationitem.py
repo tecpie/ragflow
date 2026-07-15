@@ -33,6 +33,7 @@ class IterationItem(ComponentBase, ABC):
     def __init__(self, canvas, id, param: ComponentParamBase):
         super().__init__(canvas, id, param)
         self._idx = 0
+        self._emit_end = False
 
     def _invoke(self, **kwargs):
         if self.check_if_canceled("IterationItem processing"):
@@ -44,6 +45,9 @@ class IterationItem(ComponentBase, ABC):
             self._idx = -1
             raise Exception(parent._param.items_ref + " must be an array, but its type is " + str(type(arr)))
 
+        if self._idx < 0:
+            return
+
         if self._idx > 0:
             if self.check_if_canceled("IterationItem processing"):
                 return
@@ -51,6 +55,7 @@ class IterationItem(ComponentBase, ABC):
 
         if self._idx >= len(arr):
             self._idx = -1
+            self._emit_end = True
             return
 
         if self.check_if_canceled("IterationItem processing"):
@@ -95,7 +100,12 @@ class IterationItem(ComponentBase, ABC):
                 p.set_output(k, res)
 
     def end(self):
-        return self._idx == -1
+        # Emit end only once so the path walker does not repeatedly re-enter
+        # a finished IterationItem and hang the canvas.
+        if self._emit_end:
+            self._emit_end = False
+            return True
+        return False
 
     def thoughts(self) -> str:
         return "Next turn..."

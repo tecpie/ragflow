@@ -2896,6 +2896,9 @@ This process aggregates variables from multiple branches into a single variable 
         'The prompt words will change. Please confirm whether you want to discard the existing prompt words?',
       queryRequired: 'Query is required',
       queryTip: 'Select the variable you want to use',
+      documentIds: 'Document IDs',
+      documentIdsTip:
+        'Optional list of document IDs to restrict retrieval scope. Supports upstream variable references.',
       agent: 'Agent',
       addAgent: 'Add agent',
       agentDescription:
