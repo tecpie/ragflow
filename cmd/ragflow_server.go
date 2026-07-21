@@ -34,11 +34,13 @@ import (
 	"ragflow/internal/server/local"
 	"ragflow/internal/service"
 	"ragflow/internal/service/chunk"
+	dataset "ragflow/internal/service/dataset"
+	"ragflow/internal/service/document"
+	"ragflow/internal/service/file"
 	"ragflow/internal/service/nlp"
 	"ragflow/internal/storage"
 	"ragflow/internal/syncer"
 	"ragflow/internal/tokenizer"
-	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -359,7 +361,7 @@ func main() {
 	}
 	defer storage.CloseStorage()
 
-	if err = engine.InitMessageQueueEngine(config.TaskExecutor.MessageQueueType); err != nil {
+	if err = engine.InitMessageQueueEngine(config.Ingestor.MQType); err != nil {
 		common.Error("Failed to initialize message queue engine", err)
 	}
 
@@ -369,11 +371,12 @@ func main() {
 		common.Warn("Failed to initialize server variables from Redis, using defaults", zap.String("error", err.Error()))
 	}
 
-	if err = server.StartServer(); err != nil {
+	ctx, cancel := context.WithCancel(context.Background())
+	if err = server.StartServer(ctx, cancel, serverName); err != nil {
 		common.Error("Failed to start EE server", err)
 		os.Exit(1)
 	}
-	defer server.ShutdownServer()
+	defer server.ShutdownServer(ctx)
 
 	if arguments.name == nil {
 		arguments.name = &serverName
@@ -495,7 +498,7 @@ func runIngestor(args *serverArgs) error {
 	}
 	defer tokenizer.Close()
 
-	ingestor := ingestion.NewIngestor(*args.name, int32(runtime.NumCPU()), []string{"pdf", "docx", "txt"})
+	ingestor := ingestion.NewIngestor(*args.name, 2, []string{"pdf", "docx", "txt"})
 
 	go func() {
 		err := ingestor.Start()
@@ -681,8 +684,8 @@ func startServer(config *server.Config) {
 
 	// Initialize service layer
 	userService := service.NewUserService()
-	documentService := service.NewDocumentService()
-	datasetsService := service.NewDatasetService()
+	documentService := document.NewDocumentService()
+	datasetsService := dataset.NewDatasetService()
 	metadataService := service.NewMetadataService()
 	chunkService := chunk.NewChunkService()
 	llmService := service.NewLLMService()
@@ -693,10 +696,11 @@ func startServer(config *server.Config) {
 	chatSessionService := service.NewChatSessionService()
 	openaiChatService := service.NewOpenAIChatService()
 	systemService := service.NewSystemService()
+	statsService := service.NewStatsService()
 	connectorService := service.NewConnectorService()
 	searchService := service.NewSearchService()
 	searchService.SetTenantService(tenantService)
-	fileService := service.NewFileService()
+	fileService := file.NewFileService(service.CheckFileTeamPermission, documentService)
 	memoryService := service.NewMemoryService()
 	mcpService := service.NewMCPService()
 	modelProviderService := service.NewModelProviderService()
@@ -711,9 +715,10 @@ func startServer(config *server.Config) {
 	authHandler := handler.NewAuthHandler()
 	userHandler := handler.NewUserHandler(userService)
 	tenantHandler := handler.NewTenantHandler(tenantService, userService, datasetsService)
-	documentHandler := handler.NewDocumentHandler(documentService, datasetsService)
+	documentHandler := handler.NewDocumentHandler(documentService, datasetsService, fileService)
 	datasetsHandler := handler.NewDatasetsHandler(datasetsService, metadataService)
 	systemHandler := handler.NewSystemHandler(systemService)
+	statsHandler := handler.NewStatsHandler(statsService)
 	chunkHandler := handler.NewChunkHandler(chunkService, userService)
 	llmHandler := handler.NewLLMHandler(llmService, userService)
 	chatHandler := handler.NewChatHandler(chatService, userService)
@@ -741,7 +746,7 @@ func startServer(config *server.Config) {
 			return handler.MCPRetrieval(datasetsService, userID, req)
 		},
 	)
-	skillSearchHandler := handler.NewSkillSearchHandler(docEngine)
+	skillSearchHandler := handler.NewSkillSearchHandler(docEngine, documentService)
 	providerHandler := handler.NewProviderHandler(userService, modelProviderService)
 	// Install the agent service's Redis-backed run infrastructure
 	// (CheckPointStore / StateSerializer / RunTracker). When Redis
@@ -789,7 +794,7 @@ func startServer(config *server.Config) {
 	searchHandler.SetCompletionDependencies(modelProviderService, askService)
 	pluginHandler := handler.NewPluginHandler(service.NewPluginService())
 	modelHandler := handler.NewModelHandler(service.NewModelProviderService())
-	fileCommitHandler := handler.NewFileCommitHandler(service.NewFileCommitService())
+	fileCommitHandler := handler.NewFileCommitHandler(file.NewFileCommitService())
 
 	// Dify retrieval handler
 	docDAO := documentDAO
@@ -813,6 +818,7 @@ func startServer(config *server.Config) {
 		documentHandler,
 		datasetsHandler,
 		systemHandler,
+		statsHandler,
 		chunkHandler,
 		llmHandler,
 		chatHandler,

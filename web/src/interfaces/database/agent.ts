@@ -200,6 +200,7 @@ export type BaseNodeData<TForm = any> = {
   name: string; // operator name
   color?: string;
   form?: TForm;
+  operatorId?: string;
 };
 
 export type BaseNode<T = any> = Node<BaseNodeData<T>>;
@@ -300,6 +301,18 @@ export interface IPipeLineListRequest {
   desc?: boolean;
   canvas_category?: AgentCategory;
   ext?: string;
+}
+
+export interface IBuiltinPipeline {
+  id: string;
+  title: string;
+  description?: string;
+  filename?: string;
+}
+
+export interface IBuiltinPipelineListResponse {
+  canvas: IBuiltinPipeline[];
+  total: number;
 }
 
 export interface GlobalVariableType {

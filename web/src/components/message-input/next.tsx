@@ -24,9 +24,9 @@ import { SelectWithSearch } from '../originui/select-with-search';
 import { AudioButton } from '../ui/audio-button';
 
 export type NextMessageInputOnPressEnterParameter = {
-  enableThinking: string;
-  enableModelThinking: boolean;
-  enableInternet: boolean;
+  enableThinking?: string;
+  enableModelThinking?: boolean;
+  enableInternet?: boolean;
 };
 
 interface NextMessageInputProps {
