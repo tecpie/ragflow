@@ -35,10 +35,15 @@ from ._common import (
     tokenize_for_search as _tokenize_for_search,
     union_ordered as _union_ordered,
     run_chunked_pipeline as _run_chunked_pipeline,
+    knowledge_compile_gen_conf as _knowledge_compile_gen_conf,
 )
 
 
 _STRUCT_TYPES = ("list", "set", "hypergraph")
+_STRUCT_TYPE_ALIASES = {
+    "graph": "hypergraph",
+    "knowledge_graph": "hypergraph",
+}
 
 _ES_DEDUP_KNN_CONCURRENCY = 8
 _ES_DEDUP_LLM_CONCURRENCY = 16
@@ -50,18 +55,29 @@ _ES_DEDUP_INSERT_BATCH_SIZE = 256
 class LLMCallPool:
     """Task-scoped priority scheduler for actual chat-model calls."""
 
-    def __init__(self, max_concurrency: int = 10):
+    def __init__(self, max_concurrency: int = 10, max_pending: int | None = None):
         self.max_concurrency = max(1, int(max_concurrency))
+        self.max_pending = max(self.max_concurrency, int(max_pending or self.max_concurrency))
         self._active = 0
         self._ticket = 0
         self._waiting: list[tuple[int, int]] = []
         self._condition = asyncio.Condition()
+
+    @property
+    def active_count(self) -> int:
+        return self._active
+
+    @property
+    def pending_count(self) -> int:
+        return self._active + len(self._waiting)
 
     def wrap(self, chat_mdl, *, priority: int, label: str, context: str | None = None):
         return PooledChatModel(self, chat_mdl, priority=priority, label=label, context=context)
 
     async def call(self, fn, *, priority: int, label: str, context: str | None = None):
         async with self._condition:
+            while self.pending_count >= self.max_pending:
+                await self._condition.wait()
             ticket = (int(priority), self._ticket)
             self._ticket += 1
             heapq.heappush(self._waiting, ticket)
@@ -99,6 +115,7 @@ class PooledChatModel:
         return getattr(self._chat_mdl, name)
 
     async def async_chat(self, system, history, gen_conf=None, **kwargs):
+        gen_conf = _knowledge_compile_gen_conf(self._chat_mdl, gen_conf)
         return await self._pool.call(
             lambda: self._chat_mdl.async_chat(system, history, gen_conf=gen_conf, **kwargs),
             priority=self._priority,
@@ -110,10 +127,7 @@ class PooledChatModel:
 def _struct_normalize_kind(kind) -> str:
     if not isinstance(kind, str):
         return ""
-    normalized = kind.strip().lower().replace("-", "_")
-    if normalized in {"pageindex", "page_index", "knowledge_graph"}:
-        return "timeline"
-    return normalized
+    return kind.strip().lower().replace("-", "_")
 
 
 def _struct_localize(value, language: str = "en") -> str:
@@ -152,10 +166,12 @@ def _struct_get(cfg: dict, *keys, default=None):
 def _struct_infer_type(parser_config: dict) -> str:
     explicit = _struct_get(parser_config, "compile_type")
     normalized_explicit = _struct_normalize_kind(explicit)
+    normalized_explicit = _STRUCT_TYPE_ALIASES.get(normalized_explicit, normalized_explicit)
     if normalized_explicit in _STRUCT_TYPES:
         return normalized_explicit
     kind = _struct_get(parser_config, "kind")
     normalized_kind = _struct_normalize_kind(kind)
+    normalized_kind = _STRUCT_TYPE_ALIASES.get(normalized_kind, normalized_kind)
     if normalized_kind:
         return normalized_kind
     output = _struct_get(parser_config, "output", default={}) or {}
@@ -168,7 +184,9 @@ def _struct_supported_type(parser_config: dict, autotype: str) -> bool:
     if autotype in _STRUCT_TYPES:
         return True
     kind = _struct_get(parser_config, "kind")
-    return _struct_normalize_kind(kind) == autotype
+    normalized_kind = _struct_normalize_kind(kind)
+    normalized_kind = _STRUCT_TYPE_ALIASES.get(normalized_kind, normalized_kind)
+    return normalized_kind == autotype
 
 
 def _struct_render_fields(fields: list, language: str) -> Tuple[str, str]:
@@ -336,7 +354,7 @@ async def _struct_extract_hypergraph(text: str, parser_config: dict, chat_mdl, l
     node_prompt, edge_prompt_template = _struct_hypergraph_prompts(parser_config, language)
 
     user_prompt = f"## Source Text:\n{text}\n\n## Output (JSON only):"
-    node_res = await gen_json(node_prompt, user_prompt, chat_mdl, gen_conf={"temperature": 0.1})
+    node_res = await gen_json(node_prompt, user_prompt, chat_mdl, gen_conf=_knowledge_compile_gen_conf(chat_mdl, {"temperature": 0.1}))
     nodes = _struct_unwrap_items(node_res)
 
     id_field = _struct_entity_id_field(parser_config)
@@ -354,7 +372,7 @@ async def _struct_extract_hypergraph(text: str, parser_config: dict, chat_mdl, l
         return nodes, []
 
     edge_prompt = edge_prompt_template.replace("{known_nodes}", known_str)
-    edge_res = await gen_json(edge_prompt, user_prompt, chat_mdl, gen_conf={"temperature": 0.1})
+    edge_res = await gen_json(edge_prompt, user_prompt, chat_mdl, gen_conf=_knowledge_compile_gen_conf(chat_mdl, {"temperature": 0.1}))
     edges = _struct_unwrap_items(edge_res)
 
     return nodes, edges
@@ -726,6 +744,7 @@ async def compile_structure_from_text(
         chunks,
         chat_mdl,
         prompt_overhead_tokens=prompt_overhead,
+        batch_size_cap=1 if str(template_kind).strip().lower().replace("-", "_") in {"page_index", "pageindex"} else None,
     )
     if not packed_batches:
         return []
@@ -921,7 +940,7 @@ async def _struct_merge_pair(existing: dict, incoming: dict, chat_mdl) -> dict |
         item_incoming=json.dumps(incoming_payload, ensure_ascii=False),
     )
     system_prompt = MERGE_SYSTEM_PROMPT + "\n\n" + MERGE_DECISION_INSTRUCTION
-    res = await gen_json(system_prompt, user_prompt, chat_mdl, gen_conf={"temperature": 0.0})
+    res = await gen_json(system_prompt, user_prompt, chat_mdl, gen_conf=_knowledge_compile_gen_conf(chat_mdl, {"temperature": 0.0}))
     if not isinstance(res, dict):
         return None
     if not res.get("duplicated"):
@@ -1162,7 +1181,7 @@ async def _struct_judge_es_group_batch(group_specs: list[dict], chat_mdl) -> dic
 
     user_prompt = ES_GROUP_DECISION_BATCH_PROMPT.format(groups=json.dumps(prompt_groups, ensure_ascii=False))
     system_prompt = MERGE_SYSTEM_PROMPT + "\n\n" + ES_GROUP_DECISION_BATCH_PROMPT.split("Groups:", 1)[0]
-    res = await gen_json(system_prompt, user_prompt, chat_mdl, gen_conf={"temperature": 0.0})
+    res = await gen_json(system_prompt, user_prompt, chat_mdl, gen_conf=_knowledge_compile_gen_conf(chat_mdl, {"temperature": 0.0}))
     raw_groups = res.get("groups") if isinstance(res, dict) else None
     if not isinstance(raw_groups, list):
         return {spec["request_group_id"]: set() for spec in group_specs}
@@ -1213,7 +1232,7 @@ async def _struct_merge_es_group_batch(group_specs: list[dict], chat_mdl) -> dic
 
     user_prompt = ES_GROUP_BATCH_MERGE_PROMPT.format(groups=json.dumps(prompt_groups, ensure_ascii=False))
     system_prompt = MERGE_SYSTEM_PROMPT + "\n\n" + ES_GROUP_BATCH_MERGE_PROMPT.split("Groups:", 1)[0]
-    res = await gen_json(system_prompt, user_prompt, chat_mdl, gen_conf={"temperature": 0.0})
+    res = await gen_json(system_prompt, user_prompt, chat_mdl, gen_conf=_knowledge_compile_gen_conf(chat_mdl, {"temperature": 0.0}))
     raw_groups = res.get("groups") if isinstance(res, dict) else None
     if not isinstance(raw_groups, list):
         return {spec["old_id"]: (list(spec["incoming_docs"]), None) for spec in group_specs}
@@ -1269,7 +1288,7 @@ async def _struct_merge_es_group(old_doc: dict, incoming_docs: list[dict], chat_
             ensure_ascii=False,
         ),
     )
-    res = await gen_json(system_prompt, user_prompt, chat_mdl, gen_conf={"temperature": 0.0})
+    res = await gen_json(system_prompt, user_prompt, chat_mdl, gen_conf=_knowledge_compile_gen_conf(chat_mdl, {"temperature": 0.0}))
     if not isinstance(res, dict):
         return list(incoming_docs), None
     indices = res.get("duplicate_indices")
@@ -1869,6 +1888,7 @@ async def _struct_rebuild_graph_json(
         [kb_id],
     )
     rows = settings.docStoreConn.get_fields(res, fields)
+
     entities: list[dict] = []
     relations: list[dict] = []
     for row in rows.values():
@@ -1886,6 +1906,86 @@ async def _struct_rebuild_graph_json(
         "entities": _struct_merge_graph_entities(entities),
         "relations": relations,
     }
+
+
+async def cleanup_timeline_isolated_entities(
+    tenant_id: str,
+    kb_id: str,
+    doc_id: str,
+    compilation_template_id: str | None = None,
+) -> int:
+    """Remove timeline entity rows that are not used by any relation.
+
+    This runs after all structure flushes for the document have completed;
+    otherwise an entity can look isolated in one flush and be referenced by a
+    relation from a later flush. The cleanup is intentionally limited to the
+    ``timeline`` compile kind.
+    """
+    from common import settings
+    from common.doc_store.doc_store_base import OrderByExpr
+    from rag.nlp import search as _rag_search
+
+    index = _rag_search.index_name(tenant_id)
+    fields = [
+        "content_with_weight",
+        "knowledge_graph_kwd",
+        "from_entity_kwd",
+        "to_entity_kwd",
+    ]
+    condition: dict = {
+        "doc_id": [doc_id],
+        "compile_kwd": ["timeline"],
+        "knowledge_graph_kwd": ["entity", "relation"],
+    }
+    if compilation_template_id:
+        condition["compilation_template_ids"] = [compilation_template_id]
+
+    res = await thread_pool_exec(
+        settings.docStoreConn.search,
+        fields,
+        [],
+        condition,
+        [],
+        OrderByExpr(),
+        0,
+        10000,
+        index,
+        [kb_id],
+    )
+    rows = settings.docStoreConn.get_fields(res, fields) or {}
+    connected_names: set[str] = set()
+    for row in rows.values():
+        if row.get("knowledge_graph_kwd") != "relation":
+            continue
+        edge = _chain_extract_edge(row)
+        if edge is not None:
+            connected_names.update(name.casefold() for name in edge if name)
+
+    orphan_ids = [row_id for row_id, row in rows.items() if row.get("knowledge_graph_kwd") == "entity" and _struct_entity_name(row).casefold() not in connected_names]
+    if orphan_ids:
+        await thread_pool_exec(
+            settings.docStoreConn.delete,
+            {"id": orphan_ids},
+            index,
+            kb_id,
+        )
+        logging.info(
+            "structure graph: removed %d isolated timeline entity row(s) for doc=%s template=%s",
+            len(orphan_ids),
+            doc_id,
+            compilation_template_id or "legacy",
+        )
+
+    # Refresh the compact graph after source-row cleanup. This also handles
+    # the no-relation case, where every timeline entity is isolated.
+    await rebuild_structure_graph_json(
+        tenant_id,
+        kb_id,
+        doc_id,
+        "timeline",
+        compilation_template_id,
+    )
+    return len(orphan_ids)
 
 
 async def _struct_upsert_graph_json(
@@ -2218,7 +2318,7 @@ async def validate_and_correct_chain(
                     "You correct extracted graph relations to satisfy a strict-chain constraint.",
                     prompt,
                     chat_mdl,
-                    gen_conf={"temperature": 0.0},
+                    gen_conf=_knowledge_compile_gen_conf(chat_mdl, {"temperature": 0.0}),
                 )
             keep_raw = res.get("keep") if isinstance(res, dict) else None
             if isinstance(keep_raw, list):
@@ -2423,5 +2523,6 @@ async def merge_compiled_structures(
 __all__ = [
     "compile_structure_from_text",
     "merge_compiled_structures",
+    "cleanup_timeline_isolated_entities",
     "rebuild_structure_graph_json",
 ]

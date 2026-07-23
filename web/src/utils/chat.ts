@@ -87,14 +87,17 @@ export function stripEmptyThinkBlocks(text: string = '') {
   );
 }
 
-export function replaceThinkToSection(text: string = '') {
+export function replaceThinkToSection(
+  text: string = '',
+  summary: string = 'Thinking...',
+) {
   const withoutEmptyBlocks = stripEmptyThinkBlocks(text);
 
   return withoutEmptyBlocks.replace(
     THINK_BLOCK_PATTERN,
     (_match, _tag, content: string) =>
       content.trim()
-        ? `<details class="think"><summary>Thinking...</summary>${content}</details>`
+        ? `<details class="think"><summary>${summary}</summary>${content}</details>`
         : '',
   );
 }

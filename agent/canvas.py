@@ -1013,6 +1013,9 @@ class Canvas(Graph):
             message_end["status"] = cpn_obj.get_param("status")
         if isinstance(cpn_obj.output("attachment"), dict):
             message_end["attachment"] = cpn_obj.output("attachment")
+        downloads = cpn_obj.output("downloads")
+        if isinstance(downloads, list) and downloads:
+            message_end["downloads"] = downloads
         if self._has_reference():
             content = cpn_obj.output("content")
             answer_text = content if isinstance(content, str) else ("" if content is None else str(content))
