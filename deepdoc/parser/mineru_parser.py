@@ -292,12 +292,11 @@ class MinerUParser(RAGFlowPdfParser):
 
         data = {
             "output_dir": "./output",
-            "lang_list": options.lang,
-            "backend": options.backend,
-            "parse_method": options.method,
+            "lang_list": options.lang.value if isinstance(options.lang, MinerULanguage) else options.lang,
+            "backend": options.backend.value if isinstance(options.backend, MinerUBackend) else options.backend,
+            "parse_method": options.method.value if isinstance(options.method, MinerUParseMethod) else options.method,
             "formula_enable": options.formula_enable,
             "table_enable": options.table_enable,
-            "server_url": None,
             "return_md": True,
             "return_middle_json": True,
             "return_model_output": True,
@@ -319,7 +318,7 @@ class MinerUParser(RAGFlowPdfParser):
 
         headers = {"Accept": "application/json"}
         try:
-            self.logger.info(f"[MinerU] invoke api: {self.mineru_api}/file_parse backend={options.backend} server_url={data.get('server_url')}")
+            self.logger.info(f"[MinerU] invoke api: {self.mineru_api}/file_parse backend={data['backend']} server_url={data.get('server_url')}")
             if callback:
                 callback(0.20, f"[MinerU] invoke api: {self.mineru_api}/file_parse")
             with open(pdf_file_path, "rb") as pdf_file:
@@ -332,7 +331,9 @@ class MinerUParser(RAGFlowPdfParser):
                     timeout=1800,
                     stream=True,
                 ) as response:
-                    response.raise_for_status()
+                    if not response.ok:
+                        body = (response.text or "")[:2000]
+                        raise RuntimeError(f"[MinerU] api failed status={response.status_code} body={body}")
                     content_type = response.headers.get("Content-Type", "")
                     if not content_type.startswith("application/zip"):
                         raise RuntimeError(f"[MinerU] not zip returned from api: {content_type}")
@@ -349,7 +350,14 @@ class MinerUParser(RAGFlowPdfParser):
             self.logger.info("[MinerU] Api completed successfully.")
             return Path(output_path)
         except requests.RequestException as e:
-            raise RuntimeError(f"[MinerU] api failed with exception {e}")
+            detail = ""
+            resp = getattr(e, "response", None)
+            if resp is not None:
+                try:
+                    detail = f" body={(resp.text or '')[:2000]}"
+                except Exception:
+                    pass
+            raise RuntimeError(f"[MinerU] api failed with exception {e}{detail}") from e
 
     def __images__(self, fnm, zoomin: int = 1, page_from=0, page_to=MAXIMUM_PAGE_NUMBER, callback=None):
         self.page_from = page_from
@@ -841,9 +849,9 @@ class MinerUParser(RAGFlowPdfParser):
                         section = "FAILED TO PARSE TABLE"
                 case MinerUContentType.IMAGE:
                     section = "".join(output.get("image_caption", [])) + "\n" + "".join(output.get("image_footnote", []))
-                    # If a vision model enriched this image with a semantic
-                    # description (see _enhance_images_with_vlm), embed it in
-                    # the chunk so it becomes searchable / retrievable.
+                    content = (output.get("content") or "").strip()
+                    if content:
+                        section = (section.strip("\n") + "\n" + content).strip("\n") if section.strip() else content
                     vlm_description = (output.get("vlm_description") or "").strip()
                     if vlm_description:
                         section = (section.strip("\n") + "\n" + vlm_description).strip("\n") if section.strip() else vlm_description
@@ -887,7 +895,13 @@ class MinerUParser(RAGFlowPdfParser):
         from rag.app.picture import vision_llm_chunk
         from rag.prompts.generator import vision_llm_figure_describe_prompt
 
-        image_jobs = [(idx, item) for idx, item in enumerate(outputs) if item.get("type") == MinerUContentType.IMAGE and item.get("img_path") and os.path.exists(item["img_path"])]
+        image_jobs = [
+            (idx, item)
+            for idx, item in enumerate(outputs)
+            if item.get("type") == MinerUContentType.IMAGE
+            and item.get("img_path")
+            and os.path.exists(item["img_path"])
+        ]
         if not image_jobs:
             return
 
@@ -912,6 +926,40 @@ class MinerUParser(RAGFlowPdfParser):
                 idx, desc = fut.result()
                 if desc:
                     outputs[idx]["vlm_description"] = desc
+
+    def _ocr_empty_images(self, outputs: list[dict[str, Any]], callback: Optional[Callable] = None):
+        """Fill empty image blocks with local deepdoc OCR when no VLM is attached."""
+        from deepdoc.vision import OCR
+
+        image_jobs = [
+            (idx, item)
+            for idx, item in enumerate(outputs)
+            if item.get("type") == MinerUContentType.IMAGE
+            and not (item.get("content") or "").strip()
+            and not (item.get("text") or "").strip()
+            and item.get("img_path")
+            and os.path.exists(item["img_path"])
+        ]
+        if not image_jobs:
+            return
+
+        if callback:
+            callback(0.78, f"[MinerU] OCR {len(image_jobs)} images without text...")
+
+        if getattr(self, "_image_ocr", None) is None:
+            self._image_ocr = OCR()
+        ocr = self._image_ocr
+
+        for idx, item in image_jobs:
+            try:
+                with Image.open(item["img_path"]) as img:
+                    bxs = ocr(np.array(img.convert("RGB")))
+                txt = "\n".join(t[0] for _, t in (bxs or []) if t and t[0]).strip()
+                if txt:
+                    outputs[idx]["content"] = txt
+                    self.logger.info("[MinerU] image OCR #%s len=%s preview=%r", idx, len(txt), txt[:80])
+            except Exception as e:
+                logging.warning("[MinerU] image OCR failed for #%s: %s", idx, e)
 
     def parse_pdf(
         self,
@@ -1001,6 +1049,11 @@ class MinerUParser(RAGFlowPdfParser):
                     self._enhance_images_with_vlm(outputs, vision_model, callback=callback)
                 except Exception as e:
                     self.logger.warning(f"[MinerU] VLM image enhancement failed: {e}. Continuing without descriptions.")
+            else:
+                try:
+                    self._ocr_empty_images(outputs, callback=callback)
+                except Exception as e:
+                    self.logger.warning(f"[MinerU] image OCR enhancement failed: {e}. Continuing without image text.")
 
             return self._transfer_to_sections(outputs, parse_method, enable_table), self._transfer_to_tables(outputs)
         finally:

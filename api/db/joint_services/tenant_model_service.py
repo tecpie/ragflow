@@ -37,8 +37,16 @@ from api.db.services.tenant_model_provider_service import TenantModelProviderSer
 from api.db.services.tenant_model_instance_service import TenantModelInstanceService
 from api.db.services.tenant_model_service import TenantModelService
 from api.utils.model_utils import calculate_model_type, get_model_type_human
+from common.parser_config_utils import is_tenant_model_id, normalize_layout_recognizer
 
 logger = logging.getLogger(__name__)
+
+_OCR_PARSER_BY_PROVIDER = {
+    "MinerU": "MinerU",
+    "PaddleOCR": "PaddleOCR",
+    "OpenDataLoader": "OpenDataLoader",
+    "SoMark": "SoMark",
+}
 
 
 def _factory_model_types(llm: dict) -> list[str]:
@@ -286,7 +294,38 @@ def _resolve_instance_for_model(provider_obj, instance_name: str, model_name: st
     raise LookupError(f"Instance {instance_name} not found for model {model_name}.")
 
 
+def resolve_layout_recognizer(layout_recognizer_raw):
+    layout_recognizer, parser_model_name = normalize_layout_recognizer(layout_recognizer_raw)
+    if not isinstance(layout_recognizer_raw, str):
+        return layout_recognizer, parser_model_name
+
+    raw = layout_recognizer_raw.strip()
+    if not is_tenant_model_id(raw):
+        return layout_recognizer, parser_model_name
+
+    exist, model_obj = TenantModelService.get_by_id(raw)
+    if not exist:
+        raise LookupError(
+            f"TenantModel id={raw} not found. The PDF parser model was removed; "
+            "re-select MinerU (or another parser) in the document settings and parse again."
+        )
+
+    ok, provider_obj = TenantModelProviderService.get_by_id(model_obj.provider_id)
+    if not ok:
+        raise LookupError(f"Provider id={model_obj.provider_id} not found for model id={raw}.")
+
+    parser_kind = _OCR_PARSER_BY_PROVIDER.get(provider_obj.provider_name)
+    if parser_kind:
+        return parser_kind, raw
+
+    # Vision / image2text models keep model_id for by_plaintext.
+    return raw, raw
+
+
 def resolve_model_config(tenant_id, model_type: str | enum.Enum, model_ref: str):
+    ref = (model_ref or "").strip()
+    if is_tenant_model_id(ref):
+        return get_model_config_by_id(tenant_id, model_type, ref)
     try:
         return get_model_config_by_id(tenant_id, model_type, model_ref)
     except LookupError:

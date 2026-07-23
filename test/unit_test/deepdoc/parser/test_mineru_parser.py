@@ -79,9 +79,9 @@ def test_transfer_to_sections_skips_page_chrome_without_duplicating_text(monkeyp
     sections = parser._transfer_to_sections(outputs, parse_method="raw")
     texts = [section[0] for section in sections]
 
-    assert texts == ["打开和关闭", "车辆装备", "车辆钥匙", "概述", "安全提示"]
-    assert texts.count("打开和关闭") == 1
-    assert texts.count("概述") == 1
+    assert texts == ["?????", "????", "????", "??", "????"]
+    assert texts.count("?????") == 1
+    assert texts.count("??") == 1
     assert "77" not in texts
     assert "Online Edition for Part no." not in " ".join(texts)
 
@@ -471,3 +471,46 @@ def test_read_output_keeps_original_tag_when_middle_json_has_single_table_positi
     assert module.MinerUParser.extract_positions(line_tag) == [
         ([0], 20.0, 170.0, 40.0, 340.0),
     ]
+
+def test_ocr_empty_images_fills_content(monkeypatch, tmp_path):
+    module = _load_mineru_parser(monkeypatch)
+    parser = module.MinerUParser()
+
+    img_path = tmp_path / "stamp.png"
+    from PIL import Image as PILImage
+
+    PILImage.new("RGB", (32, 32), color=(255, 0, 0)).save(img_path)
+
+    class _FakeOCR:
+        def __call__(self, _img):
+            return [([[0, 0], [1, 0], [1, 1], [0, 1]], ("ocr-text", 0.99))]
+
+    vision_mod = ModuleType("deepdoc.vision")
+    vision_mod.OCR = _FakeOCR
+    monkeypatch.setitem(sys.modules, "deepdoc.vision", vision_mod)
+
+    outputs = [
+        {
+            "type": module.MinerUContentType.IMAGE,
+            "img_path": str(img_path),
+            "image_caption": [],
+            "image_footnote": [],
+            "page_idx": 0,
+            "bbox": (0, 0, 1, 1),
+        },
+        {
+            "type": module.MinerUContentType.IMAGE,
+            "content": "already has text",
+            "img_path": str(img_path),
+            "page_idx": 0,
+            "bbox": (0, 0, 1, 1),
+        },
+    ]
+
+    parser._ocr_empty_images(outputs)
+
+    assert outputs[0]["content"] == "ocr-text"
+    assert outputs[1]["content"] == "already has text"
+
+    sections = parser._transfer_to_sections(outputs, parse_method="raw")
+    assert sections[0][0] == "ocr-text"
