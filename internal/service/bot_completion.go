@@ -38,6 +38,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"ragflow/internal/dao"
 	"ragflow/internal/utility"
 	"strings"
 	"time"
@@ -180,8 +181,8 @@ func WriteDoneFrame(w http.ResponseWriter) error {
 // WriteChatbotRunEvent translates one canvas.RunEvent into the flat
 // Python agent-canvas SSE envelope:
 //
-//	data: {"event":"message","message_id":"...","task_id":"...",
-//	  "session_id":"...","created_at":123,"data":{"content":"..."}}\n\n
+//	data: {"event":"message","message_id":"...","task_id":"session-id",
+//	  "session_id":"session-id","created_at":123,"data":{"content":"..."}}\n\n
 //
 // This is intentionally different from WriteChatbotFrame's legacy
 // chatbot `{code,data:{answer:"..."}}` shape. The agent React page's
@@ -227,6 +228,13 @@ func WriteChatbotRunEvent(w http.ResponseWriter, ev canvas.RunEvent) error {
 			"message": msg,
 			"data":    false,
 		}
+		// Keep the error envelope wire-compatible while still correlating the
+		// failed run. task_id is only the legacy alias; both values are the
+		// same session identity used by the Go runtime and cancel endpoint.
+		if ev.SessionID != "" {
+			payload["task_id"] = ev.SessionID
+			payload["session_id"] = ev.SessionID
+		}
 		return writeSSEJSON(w, payload)
 	}
 
@@ -240,10 +248,11 @@ func WriteChatbotRunEvent(w http.ResponseWriter, ev canvas.RunEvent) error {
 	if ev.MessageID != "" {
 		payload["message_id"] = ev.MessageID
 	}
-	if ev.TaskID != "" {
-		payload["task_id"] = ev.TaskID
-	}
 	if ev.SessionID != "" {
+		// task_id is retained only as a wire-compatible alias for existing Go
+		// Agent clients. It carries session_id and has no independent runtime,
+		// Redis, or cancellation identity.
+		payload["task_id"] = ev.SessionID
 		payload["session_id"] = ev.SessionID
 	}
 	return writeSSEJSON(w, payload)
@@ -269,18 +278,6 @@ func writeSSEJSON(w http.ResponseWriter, payload map[string]any) error {
 	return nil
 }
 
-// AgentbotSSEFrame mirrors ChatbotSSEFrame for the agentbot
-// completion path. The envelope shape is the same; the only
-// difference is that the LLM call goes through the canvas runner
-// (AgentService.RunAgent) instead of the legacy dialog async_chat.
-type AgentbotSSEFrame = ChatbotSSEFrame
-
-// WriteAgentbotFrame is an alias for WriteChatbotFrame — both bot
-// completion paths emit the same python wire shape.
-func WriteAgentbotFrame(w http.ResponseWriter, f ChatbotSSEFrame) error {
-	return WriteChatbotFrame(w, f)
-}
-
 // ChatbotCompletion streams an SSE response for
 // /api/v1/chatbots/<dialog_id>/completions.
 //
@@ -302,7 +299,7 @@ func (s *BotService) ChatbotCompletion(
 	// ChatSessionDAO.GetDialogByID already filters by status = "1"
 	// so a returned row is valid; we still nil-check defensively
 	// before dereferencing for symmetry with the session path.
-	dialog, err := s.chatDAO.GetDialogByID(ctx, dialogID)
+	dialog, err := s.chatDAO.GetDialogByID(ctx, dao.DB, dialogID)
 	if err != nil || dialog == nil ||
 		dialog.TenantID != tenantID ||
 		dialog.Status == nil || *dialog.Status != common.StatusDialogValid {
@@ -351,7 +348,7 @@ func (s *BotService) ChatbotCompletion(
 			UserID:   tenantID,
 			Message:  seedMsg,
 		}
-		if err = s.api4ConversationDAO.Create(ctx, session); err != nil {
+		if err = s.api4ConversationDAO.Create(ctx, dao.DB, session); err != nil {
 			return nil, common.CodeServerError, err
 		}
 
@@ -375,7 +372,7 @@ func (s *BotService) ChatbotCompletion(
 		return out, common.CodeSuccess, nil
 	}
 
-	session, err := s.api4ConversationDAO.GetBySessionID(ctx, req.SessionID, dialogID)
+	session, err := s.api4ConversationDAO.GetBySessionID(ctx, dao.DB, req.SessionID, dialogID)
 	if err != nil {
 		return nil, common.CodeServerError, err
 	}
@@ -580,7 +577,7 @@ func (s *BotService) persistChatbotTurn(
 	lock := s.persistLock(session.ID)
 	lock.Lock()
 	defer lock.Unlock()
-	fresh, err := s.api4ConversationDAO.GetBySessionID(ctx, session.ID, session.DialogID)
+	fresh, err := s.api4ConversationDAO.GetBySessionID(ctx, dao.DB, session.ID, session.DialogID)
 	if err != nil {
 		return err
 	}
@@ -632,7 +629,7 @@ func (s *BotService) persistChatbotTurn(
 	}
 	session.Reference = rawRef
 
-	return s.api4ConversationDAO.Update(ctx, session)
+	return s.api4ConversationDAO.Update(ctx, dao.DB, session)
 }
 
 // normalizeBotBoolFlag coerces the JSON-encoded reasoning / internet

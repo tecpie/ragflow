@@ -75,7 +75,8 @@ func (h *TenantHandler) setDefaultModels(c *gin.Context, wrapModels bool) {
 		return
 	}
 
-	err := h.tenantService.SetTenantDefaultModels(user.ID, req.ModelProvider, req.ModelInstance, req.ModelName, req.ModelType, req.ModelID)
+	ctx := c.Request.Context()
+	err := h.tenantService.SetTenantDefaultModels(ctx, user.ID, req.ModelProvider, req.ModelInstance, req.ModelName, req.ModelType, req.ModelID)
 	if err != nil {
 		common.ResponseWithCodeData(c, common.CodeExceptionError, false, err.Error())
 		return
@@ -100,8 +101,9 @@ func (h *TenantHandler) GetDefaultModels(c *gin.Context) {
 		common.ErrorWithCode(c, errorCode, errorMessage)
 		return
 	}
+	ctx := c.Request.Context()
 
-	defaultModels, err := h.tenantService.ListTenantDefaultModels(user.ID)
+	defaultModels, err := h.tenantService.ListTenantDefaultModels(ctx, user.ID)
 	if err != nil {
 		common.ResponseWithCodeData(c, common.CodeExceptionError, false, err.Error())
 		return
@@ -132,8 +134,9 @@ func (h *TenantHandler) TenantInfo(c *gin.Context) {
 		common.ErrorWithCode(c, errorCode, errorMessage)
 		return
 	}
+	ctx := c.Request.Context()
 
-	tenantInfo, err := h.tenantService.GetTenantInfo(user.ID)
+	tenantInfo, err := h.tenantService.GetTenantInfo(ctx, user.ID)
 	if err != nil {
 		common.ResponseWithCodeData(c, common.CodeExceptionError, false, err.Error())
 		return
@@ -257,8 +260,9 @@ func (h *TenantHandler) CreateChunkStore(c *gin.Context) {
 		return
 	}
 
+	ctx := c.Request.Context()
 	// Check authorization - user must have access to this kb
-	if !h.datasetService.Accessible(req.KBID, user.ID) {
+	if !h.datasetService.Accessible(ctx, req.KBID, user.ID) {
 		common.ResponseWithCodeData(c, common.CodeAuthenticationError, nil, "No authorization.")
 		return
 	}
@@ -267,7 +271,7 @@ func (h *TenantHandler) CreateChunkStore(c *gin.Context) {
 		KBID:       req.KBID,
 		VectorSize: req.VectorSize,
 	}
-	result, code, err := h.tenantService.CreateChunkStore(serviceReq)
+	result, code, err := h.tenantService.CreateChunkStore(ctx, serviceReq)
 	if err != nil {
 		common.ErrorWithCode(c, code, err.Error())
 		return
@@ -298,6 +302,7 @@ func (h *TenantHandler) DeleteChunkStore(c *gin.Context) {
 		return
 	}
 
+	ctx := c.Request.Context()
 	var req DeleteChunkTableRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ResponseWithCodeData(c, common.CodeDataError, nil, err.Error())
@@ -305,12 +310,12 @@ func (h *TenantHandler) DeleteChunkStore(c *gin.Context) {
 	}
 
 	// Check authorization
-	if !h.datasetService.Accessible(req.KBID, user.ID) {
+	if !h.datasetService.Accessible(ctx, req.KBID, user.ID) {
 		common.ResponseWithCodeData(c, common.CodeAuthenticationError, nil, "No authorization.")
 		return
 	}
 
-	code, err := h.tenantService.DeleteChunkStore(req.KBID)
+	code, err := h.tenantService.DeleteChunkStore(ctx, req.KBID)
 	if err != nil {
 		common.ErrorWithCode(c, code, err.Error())
 		return

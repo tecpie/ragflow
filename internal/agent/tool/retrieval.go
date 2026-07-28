@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"ragflow/internal/dao"
 	"strings"
 
 	"github.com/cloudwego/eino/components/tool"
@@ -203,7 +204,7 @@ func (r *RetrievalTool) InvokableRun(ctx context.Context, argumentsInJSON string
 	// via SetRetrievalService (or SetSimpleRetrievalService for
 	// dev), the chunks flow through normally.
 	svc := GetRetrievalService()
-	chunks, err := svc.Search(ctx, RetrievalRequest{
+	chunks, err := svc.Search(ctx, dao.DB, RetrievalRequest{
 		Query:                    args.Query,
 		DatasetIDs:               args.DatasetIDs,
 		DocumentIDs:              args.DocumentIDs,

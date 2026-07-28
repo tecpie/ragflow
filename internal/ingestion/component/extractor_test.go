@@ -19,6 +19,7 @@ package component
 import (
 	"context"
 	"errors"
+	"ragflow/internal/dao"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -127,7 +128,7 @@ func TestExtractorComponent_Invoke_HappyPath(t *testing.T) {
 		LLMID:     "gpt-4o-mini",
 		Prompt:    "Summarize:",
 	}}
-	out, err := c.Invoke(context.Background(), map[string]any{
+	out, err := c.Invoke(t.Context(), nil, map[string]any{
 		"chunks": []map[string]any{
 			{"text": "first text"},
 			{"text": "second text"},
@@ -167,7 +168,7 @@ func TestExtractorComponent_Invoke_LLMError(t *testing.T) {
 		FieldName: "summary",
 		LLMID:     "gpt-4o-mini",
 	}}
-	_, err := c.Invoke(context.Background(), map[string]any{
+	_, err := c.Invoke(t.Context(), nil, map[string]any{
 		"chunks": []map[string]any{{"text": "x"}},
 	})
 	if err == nil {
@@ -247,7 +248,7 @@ func TestExtractorComponent_Invoke_ParsesJSON(t *testing.T) {
 		FieldName: "extraction",
 		Prompt:    "extract:",
 	}}
-	out, err := c.Invoke(context.Background(), map[string]any{
+	out, err := c.Invoke(t.Context(), nil, map[string]any{
 		"chunks": []map[string]any{{"text": "doc"}}},
 	)
 	if err != nil {
@@ -279,7 +280,7 @@ func TestExtractorComponent_Invoke_ParsesJSONInFence(t *testing.T) {
 	c := &ExtractorComponent{Param: schema.ExtractorParam{
 		FieldName: "out",
 	}}
-	out, err := c.Invoke(context.Background(), map[string]any{
+	out, err := c.Invoke(t.Context(), nil, map[string]any{
 		"chunks": []map[string]any{{"text": "x"}}},
 	)
 	if err != nil {
@@ -307,7 +308,7 @@ func TestExtractorComponent_Invoke_HandlesMalformedJSON(t *testing.T) {
 	c := &ExtractorComponent{Param: schema.ExtractorParam{
 		FieldName: "raw",
 	}}
-	out, err := c.Invoke(context.Background(), map[string]any{
+	out, err := c.Invoke(t.Context(), nil, map[string]any{
 		"chunks": []map[string]any{{"text": "x"}}},
 	)
 	if err != nil {
@@ -327,7 +328,7 @@ func TestExtractorComponent_Invoke_TOCNotPorted(t *testing.T) {
 	c := &ExtractorComponent{Param: schema.ExtractorParam{
 		FieldName: "toc",
 	}}
-	_, err := c.Invoke(context.Background(), map[string]any{
+	_, err := c.Invoke(t.Context(), nil, map[string]any{
 		"chunks": []map[string]any{{"text": "x"}}},
 	)
 	if err == nil {
@@ -352,7 +353,7 @@ func TestExtractorComponent_Invoke_NoChunksFastPath(t *testing.T) {
 	c := &ExtractorComponent{Param: schema.ExtractorParam{
 		FieldName: "answer",
 	}}
-	out, err := c.Invoke(context.Background(), map[string]any{})
+	out, err := c.Invoke(t.Context(), nil, map[string]any{})
 	if err != nil {
 		t.Fatalf("Invoke: %v", err)
 	}
@@ -376,7 +377,7 @@ func TestExtractorComponent_Invoke_JSONListInput(t *testing.T) {
 	c := &ExtractorComponent{Param: schema.ExtractorParam{
 		FieldName: "answer",
 	}}
-	out, err := c.Invoke(context.Background(), map[string]any{
+	out, err := c.Invoke(t.Context(), nil, map[string]any{
 		"json": []map[string]any{{"text": "json payload chunk"}},
 	})
 	if err != nil {
@@ -404,7 +405,7 @@ func TestExtractorComponent_Invoke_PerCallLLMIDOverride(t *testing.T) {
 		FieldName: "out",
 		LLMID:     "static-llm",
 	}}
-	_, err := c.Invoke(context.Background(), map[string]any{
+	_, err := c.Invoke(t.Context(), nil, map[string]any{
 		"llm_id": "override-llm",
 	})
 	if err != nil {
@@ -430,7 +431,7 @@ func TestExtractorComponent_Invoke_CompositeLLMID(t *testing.T) {
 		FieldName: "out",
 		LLMID:     "gpt-4o-mini@openai",
 	}}
-	if _, err := c.Invoke(context.Background(), map[string]any{}); err != nil {
+	if _, err := c.Invoke(t.Context(), nil, map[string]any{}); err != nil {
 		t.Fatalf("Invoke: %v", err)
 	}
 	stub.mu.Lock()
@@ -455,7 +456,7 @@ func TestExtractorComponent_Invoke_ChunkIndexInError(t *testing.T) {
 	c := &ExtractorComponent{Param: schema.ExtractorParam{
 		FieldName: "out",
 	}}
-	_, err := c.Invoke(context.Background(), map[string]any{
+	_, err := c.Invoke(t.Context(), nil, map[string]any{
 		"chunks": []map[string]any{
 			{"text": "first"},
 			{"text": "second"},
@@ -499,7 +500,7 @@ func TestExtractorComponent_NewExtractorComponent_Happy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewExtractorComponent: %v", err)
 	}
-	if _, err := c.Invoke(context.Background(), map[string]any{
+	if _, err = c.Invoke(t.Context(), nil, map[string]any{
 		"chunks": []map[string]any{{"text": "x"}}},
 	); err != nil {
 		t.Fatalf("Invoke: %v", err)
@@ -560,6 +561,48 @@ func TestNewExtractorComponent_PromptsArray_PromptWins(t *testing.T) {
 				"role":    "user",
 			},
 		},
+	})
+	if err != nil {
+		t.Fatalf("NewExtractorComponent: %v", err)
+	}
+	ec := comp.(*ExtractorComponent)
+	if ec.Param.Prompt != "Direct prompt wins." {
+		t.Errorf("Prompt = %q, want %q", ec.Param.Prompt, "Direct prompt wins.")
+	}
+}
+
+// TestNewExtractorComponent_PromptsString verifies that a bare-string
+// "prompts" (the shape emitted by the front-end graph.nodes form and
+// the dsl/testdata templates) is normalized into Param.Prompt, mirroring
+// Python agent/component/llm.py:119-120 which coerces a string prompts
+// into [{"role":"user","content":prompts}]. Without this normalization
+// the string form is silently dropped (the .([]any) assertion fails).
+func TestNewExtractorComponent_PromptsString(t *testing.T) {
+	withStubChatInvoker(t, stubResponse{Content: "ok"})
+	comp, err := NewExtractorComponent(map[string]any{
+		"field_name": "out",
+		"prompts":    "Content: {TitleChunker:FlatMiceFix@chunks}",
+	})
+	if err != nil {
+		t.Fatalf("NewExtractorComponent: %v", err)
+	}
+	ec := comp.(*ExtractorComponent)
+	want := "Content: {TitleChunker:FlatMiceFix@chunks}"
+	if ec.Param.Prompt != want {
+		t.Errorf("Prompt = %q, want %q (string prompts should be normalized)", ec.Param.Prompt, want)
+	}
+}
+
+// TestNewExtractorComponent_PromptsString_PromptWins verifies that
+// "prompt" (string) still takes priority over a string-form "prompts"
+// when both are present, matching the prompt>prompts precedence of
+// the list-form path (TestNewExtractorComponent_PromptsArray_PromptWins).
+func TestNewExtractorComponent_PromptsString_PromptWins(t *testing.T) {
+	withStubChatInvoker(t, stubResponse{Content: "ok"})
+	comp, err := NewExtractorComponent(map[string]any{
+		"field_name": "out",
+		"prompt":     "Direct prompt wins.",
+		"prompts":    "Should be ignored.",
 	})
 	if err != nil {
 		t.Fatalf("NewExtractorComponent: %v", err)
@@ -695,11 +738,10 @@ func TestExtractorComponent_ConcurrentInvoke(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make(chan error, len(chunks))
 	for _, ck := range chunks {
-		ck := ck
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, err := c.Invoke(context.Background(), map[string]any{
+			_, err := c.Invoke(t.Context(), nil, map[string]any{
 				"chunks": []map[string]any{ck},
 			})
 			if err != nil {
@@ -745,8 +787,9 @@ func TestIsBareTenantModelID(t *testing.T) {
 // TestResolveExtractorChatTarget_AtSplitFallback verifies the @ split
 // fallback path works without canvas state (unit test compatibility).
 func TestResolveExtractorChatTarget_AtSplitFallback(t *testing.T) {
+	ctx := t.Context()
 	driver, modelName, apiKey, baseURL, err := resolveExtractorChatTarget(
-		context.Background(), "gpt-4o-mini@openai")
+		ctx, dao.DB, "gpt-4o-mini@openai")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -764,8 +807,9 @@ func TestResolveExtractorChatTarget_AtSplitFallback(t *testing.T) {
 // TestResolveExtractorChatTarget_NoDriver verifies a non-@ plain string
 // without canvas state returns no driver (passes through to Chat()).
 func TestResolveExtractorChatTarget_NoDriver(t *testing.T) {
+	ctx := t.Context()
 	driver, modelName, _, _, err := resolveExtractorChatTarget(
-		context.Background(), "plain-name")
+		ctx, dao.DB, "plain-name")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

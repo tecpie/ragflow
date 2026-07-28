@@ -50,6 +50,37 @@ func (b *BaiduModel) Name() string {
 	return "BaiduYiyan"
 }
 
+type BaiduChatResponse struct {
+	ID      string `json:"id"`
+	Object  string `json:"object"`
+	Created int64  `json:"created"`
+	Model   string `json:"model"`
+	Choices []struct {
+		Index   int `json:"index"`
+		Message struct {
+			Role             string           `json:"role"`
+			Content          *string          `json:"content"`
+			ToolCalls        []map[string]any `json:"tool_calls"`
+			ReasoningContent *string          `json:"reasoning_content"`
+		} `json:"message"`
+		FinishReason string `json:"finish_reason"`
+	} `json:"choices"`
+	Usage struct {
+		PromptTokens        int `json:"prompt_tokens"`
+		PromptTokensDetails struct {
+			SearchTokens int `json:"search_tokens"`
+			CachedTokens int `json:"cached_tokens"`
+		} `json:"prompt_tokens_details"`
+		CompletionTokens int `json:"completion_tokens"`
+		TotalTokens      int `json:"total_tokens"`
+	} `json:"usage"`
+	SearchResult struct {
+		Index int    `json:"index"`
+		URL   string `json:"url"`
+		Title string `json:"title"`
+	} `json:"search_result"`
+}
+
 func (b *BaiduModel) ChatWithMessages(ctx context.Context, modelName string, messages []Message, apiConfig *APIConfig, chatModelConfig *ChatConfig, modelUsage *common.ModelUsage) (*ChatResponse, error) {
 	if err := b.baseModel.APIConfigCheck(apiConfig); err != nil {
 		return nil, err
@@ -65,33 +96,9 @@ func (b *BaiduModel) ChatWithMessages(ctx context.Context, modelName string, mes
 	url := fmt.Sprintf("%s/%s", resolvedBaseURL, b.baseModel.URLSuffix.Chat)
 
 	// Build request body
-	reqBody := map[string]interface{}{
-		"model":       modelName,
-		"messages":    buildChatMessages(messages),
-		"stream":      false,
-		"temperature": 1,
-	}
+	reqBody := buildRequestBody(chatModelConfig, modelName, messages, false)
 
 	if chatModelConfig != nil {
-		if chatModelConfig.Stream != nil {
-			reqBody["stream"] = *chatModelConfig.Stream
-		}
-
-		if chatModelConfig.MaxTokens != nil {
-			reqBody["max_tokens"] = *chatModelConfig.MaxTokens
-		}
-
-		if chatModelConfig.Temperature != nil {
-			reqBody["temperature"] = *chatModelConfig.Temperature
-		}
-
-		if chatModelConfig.TopP != nil {
-			reqBody["top_p"] = *chatModelConfig.TopP
-		}
-
-		if chatModelConfig.Stop != nil {
-			reqBody["stop"] = *chatModelConfig.Stop
-		}
 
 		if chatModelConfig.Thinking != nil {
 			lowerModelName := strings.ToLower(modelName)
@@ -133,12 +140,6 @@ func (b *BaiduModel) ChatWithMessages(ctx context.Context, modelName string, mes
 				}
 			}
 		}
-		if chatModelConfig.Tools != nil {
-			reqBody["tools"] = chatModelConfig.Tools
-		}
-		if chatModelConfig.ToolChoice != nil {
-			reqBody["tool_choice"] = *chatModelConfig.ToolChoice
-		}
 	}
 
 	jsonData, err := json.Marshal(reqBody)
@@ -172,65 +173,51 @@ func (b *BaiduModel) ChatWithMessages(ctx context.Context, modelName string, mes
 		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Parse response
-	var result map[string]interface{}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
+	return parseChatCompletionResponse(body, chatModelConfig, modelUsage, func(body []byte, chatConfig *ChatConfig) (chatResponseParts, error) {
+		var result BaiduChatResponse
+		if err := json.Unmarshal(body, &result); err != nil {
+			return chatResponseParts{}, fmt.Errorf("failed to parse response: %w", err)
+		}
+		if len(result.Choices) == 0 {
+			return chatResponseParts{}, fmt.Errorf("no choices in response")
+		}
 
-	choices, ok := result["choices"].([]interface{})
-	if !ok || len(choices) == 0 {
-		return nil, fmt.Errorf("no choices in response")
-	}
-
-	firstChoice, ok := choices[0].(map[string]interface{})
-	if !ok {
-		return nil, fmt.Errorf("invalid choice format")
-	}
-
-	messageMap, ok := firstChoice["message"].(map[string]interface{})
-	if !ok {
-		return nil, fmt.Errorf("invalid message format")
-	}
-
-	content, ok := messageMap["content"].(string)
-	if !ok {
-		return nil, fmt.Errorf("invalid content format")
-	}
-
-	var toolCalls []map[string]any
-	if tcs, ok := messageMap["tool_calls"].([]any); ok {
-		for _, tc := range tcs {
-			if toolCall, ok := tc.(map[string]any); ok {
-				toolCalls = append(toolCalls, toolCall)
+		choice := &result.Choices[0]
+		content := ""
+		if choice.Message.Content != nil {
+			content = *choice.Message.Content
+		}
+		reasonContent := ""
+		if chatConfig != nil && chatConfig.Thinking != nil && *chatConfig.Thinking {
+			if choice.Message.ReasoningContent != nil {
+				reasonContent = *choice.Message.ReasoningContent
+			}
+			if reasonContent != "" && reasonContent[0] == '\n' {
+				reasonContent = reasonContent[1:]
 			}
 		}
-	}
 
-	var reasonContent string
-	if chatModelConfig != nil && chatModelConfig.Thinking != nil && *chatModelConfig.Thinking {
-		reasonContent, ok = messageMap["reasoning_content"].(string)
-		if !ok {
-			return nil, fmt.Errorf("invalid reasoning content format")
+		totalTokens := result.Usage.TotalTokens
+		if totalTokens == 0 {
+			totalTokens = result.Usage.PromptTokens + result.Usage.CompletionTokens
 		}
-		// if first char of reasonContent is \n remove the '\n'
-		if reasonContent != "" && reasonContent[0] == '\n' {
-			reasonContent = reasonContent[1:]
+		var usage *TokenUsage
+		if totalTokens > 0 {
+			usage = &TokenUsage{
+				PromptTokens:     result.Usage.PromptTokens,
+				CompletionTokens: result.Usage.CompletionTokens,
+				TotalTokens:      totalTokens,
+			}
 		}
-	}
 
-	chatResponse := &ChatResponse{
-		Answer:        &content,
-		ReasonContent: &reasonContent,
-		ToolCalls:     toolCalls,
-	}
-	if pt, ct, tt := extractUsageFromMap(result); tt > 0 {
-		chatResponse.Usage = &TokenUsage{
-			PromptTokens: pt, CompletionTokens: ct, TotalTokens: tt,
-		}
-	}
-
-	return chatResponse, nil
+		return chatResponseParts{
+			RequestID:     result.ID,
+			Content:       &content,
+			ReasonContent: &reasonContent,
+			ToolCalls:     choice.Message.ToolCalls,
+			Usage:         usage,
+		}, nil
+	})
 }
 
 func (b *BaiduModel) ChatStreamlyWithSender(ctx context.Context, modelName string, messages []Message, apiConfig *APIConfig, modelConfig *ChatConfig, modelUsage *common.ModelUsage, sender func(*string, *string) error) error {
@@ -249,83 +236,45 @@ func (b *BaiduModel) ChatStreamlyWithSender(ctx context.Context, modelName strin
 	url := fmt.Sprintf("%s/%s", strings.TrimSuffix(resolvedBaseURL, "/"), b.baseModel.URLSuffix.Chat)
 
 	// Build request body with streaming enabled
-	reqBody := map[string]interface{}{
-		"model":    modelName,
-		"messages": buildChatMessages(messages),
-		"stream":   true,
-	}
+	reqBody := buildRequestBody(modelConfig, modelName, messages, true)
+	if modelConfig != nil && modelConfig.Thinking != nil {
+		lowerModelName := strings.ToLower(modelName)
 
-	if modelConfig != nil {
-		if modelConfig.Stream != nil {
-			reqBody["stream"] = *modelConfig.Stream
-		}
+		// `enable_think` for qwen and erine
+		if strings.HasPrefix(lowerModelName, "qwen") || strings.HasPrefix(lowerModelName, "ernie") {
+			reqBody["enable_thinking"] = *modelConfig.Thinking
+		} else {
+			if *modelConfig.Thinking {
+				thinkingFlag := "enabled"
 
-		if modelConfig.MaxTokens != nil {
-			reqBody["max_tokens"] = *modelConfig.MaxTokens
-		}
-
-		if modelConfig.Temperature != nil {
-			reqBody["temperature"] = *modelConfig.Temperature
-		}
-
-		if modelConfig.DoSample != nil {
-			reqBody["do_sample"] = *modelConfig.DoSample
-		}
-
-		if modelConfig.TopP != nil {
-			reqBody["top_p"] = *modelConfig.TopP
-		}
-
-		if modelConfig.Stop != nil {
-			reqBody["stop"] = *modelConfig.Stop
-		}
-
-		if modelConfig.Thinking != nil {
-			lowerModelName := strings.ToLower(modelName)
-
-			// `enable_think` for qwen and erine
-			if strings.HasPrefix(lowerModelName, "qwen") || strings.HasPrefix(lowerModelName, "ernie") {
-				reqBody["enable_thinking"] = *modelConfig.Thinking
-			} else {
-				if *modelConfig.Thinking {
-					thinkingFlag := "enabled"
-
-					if strings.Contains(lowerModelName, "deepseek-v4") {
-						effort := "high"
-						if modelConfig.Effort != nil {
-							effort = *modelConfig.Effort
-						}
-						switch effort {
-						case "none", "low", "medium":
-							thinkingFlag = "disabled"
-						case "high", "default":
-							thinkingFlag = "enabled"
-							reqBody["reasoning_effort"] = "high"
-						case "max":
-							thinkingFlag = "enabled"
-							reqBody["reasoning_effort"] = "max"
-						default:
-							thinkingFlag = "enabled"
-							reqBody["reasoning_effort"] = effort
-						}
+				if strings.Contains(lowerModelName, "deepseek-v4") {
+					effort := "high"
+					if modelConfig.Effort != nil {
+						effort = *modelConfig.Effort
 					}
-
-					reqBody["thinking"] = map[string]interface{}{
-						"type": thinkingFlag,
-					}
-				} else {
-					reqBody["thinking"] = map[string]interface{}{
-						"type": "disabled",
+					switch effort {
+					case "none", "low", "medium":
+						thinkingFlag = "disabled"
+					case "high", "default":
+						thinkingFlag = "enabled"
+						reqBody["reasoning_effort"] = "high"
+					case "max":
+						thinkingFlag = "enabled"
+						reqBody["reasoning_effort"] = "max"
+					default:
+						thinkingFlag = "enabled"
+						reqBody["reasoning_effort"] = effort
 					}
 				}
-			}
-		}
 
-		if modelConfig.Tools != nil {
-			reqBody["tools"] = modelConfig.Tools
-		}
-		if modelConfig.ToolChoice != nil {
-			reqBody["tool_choice"] = *modelConfig.ToolChoice
+				reqBody["thinking"] = map[string]interface{}{
+					"type": thinkingFlag,
+				}
+			} else {
+				reqBody["thinking"] = map[string]interface{}{
+					"type": "disabled",
+				}
+			}
 		}
 	}
 
@@ -361,6 +310,14 @@ func (b *BaiduModel) ChatStreamlyWithSender(ctx context.Context, modelName strin
 	accumulatedToolCalls := make(map[int]map[string]interface{})
 	done, err := ParseSSEStream[map[string]interface{}](resp.Body, func(event map[string]interface{}) error {
 		common.Info(fmt.Sprintf("%v", event))
+
+		tokenUsage, found, usageErr := decodeOpenAICompatibleStreamUsage(event)
+		if usageErr != nil {
+			return usageErr
+		}
+		if found {
+			applyStreamUsage(modelConfig, modelUsage, tokenUsage)
+		}
 
 		choices, ok := event["choices"].([]interface{})
 		if !ok || len(choices) == 0 {
