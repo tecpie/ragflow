@@ -815,88 +815,6 @@ def list_docs(dataset_id, tenant_id):
             doc_item["parser_config"]["metadata"] = turn2jsonschema(doc_item["parser_config"]["metadata"])
     return get_json_result(data={"total": total, "docs": renamed_doc_list})
 
-@manager.route("/datasets/documents", methods=["GET"])  # noqa: F821
-@login_required
-@add_tenant_id_to_kwargs
-def list_docs_in_multiple_datasets(tenant_id):
-    """
-    List documents across multiple datasets.
-    ---
-    tags:
-      - Documents
-    security:
-      - ApiKeyAuth: []
-    parameters:
-      - in: query
-        name: dataset_ids
-        type: array
-        items:
-          type: string
-        required: true
-        description: Dataset IDs. Supports repeated query params and comma-separated values.
-      - in: query
-        name: page
-        type: integer
-        required: false
-        default: 1
-      - in: query
-        name: page_size
-        type: integer
-        required: false
-        default: 30
-      - in: query
-        name: orderby
-        type: string
-        required: false
-        default: "create_time"
-      - in: query
-        name: desc
-        type: boolean
-        required: false
-        default: true
-      - in: header
-        name: Authorization
-        type: string
-        required: true
-        description: Bearer token for authentication.
-    responses:
-      200:
-        description: List of documents.
-    """
-    dataset_ids = _parse_dataset_ids(request.args)
-    if not dataset_ids:
-        return get_error_argument_result('`dataset_ids` is required.')
-
-    unauthorized_dataset_ids = [kb_id for kb_id in dataset_ids if not KnowledgebaseService.accessible(kb_id=kb_id, user_id=tenant_id)]
-    if unauthorized_dataset_ids:
-        msg = f"You don't own these datasets: {', '.join(unauthorized_dataset_ids)}."
-        logging.error(msg)
-        return get_error_data_result(message=msg)
-
-    all_docs = []
-    total = 0
-    for kb_id in dataset_ids:
-        err_code, err_msg, docs, kb_total = _get_docs_with_request(request, kb_id)
-        if err_code != RetCode.SUCCESS:
-            return get_data_error_result(code=err_code, message=err_msg)
-        all_docs.extend(docs)
-        total += kb_total
-
-    orderby = request.args.get("orderby", "create_time")
-    desc = str(request.args.get("desc", "true")).strip().lower() != "false"
-    all_docs = sorted(all_docs, key=lambda d: d.get(orderby) or 0, reverse=desc)
-
-    page = int(request.args.get("page", 1))
-    page_size = int(request.args.get("page_size", 30))
-    start = max((page - 1) * page_size, 0)
-    end = start + page_size
-    docs_page = all_docs[start:end]
-
-    if request.args.get("type") == "filter":
-        docs_filter = _aggregate_filters(all_docs)
-        return get_json_result(data={"total": total, "filter": docs_filter})
-    return get_json_result(data={"total": total, "docs": _format_docs_for_response(docs_page)})
-
 def _get_docs_with_request(req, dataset_id: str):
     """Get documents with request parameters from a dataset.
 
@@ -1032,28 +950,6 @@ def _parse_run_status_filter(req_args):
     converted = [status_text_to_numeric.get(status.upper(), status) for status in raw_statuses]
     invalid_statuses = {status for status in converted if status not in valid_statuses}
     return converted, invalid_statuses
-
-
-def _parse_dataset_ids(query_args):
-    dataset_ids = []
-    for raw in query_args.getlist("dataset_ids"):
-        if raw is None:
-            continue
-        dataset_ids.extend([kb_id.strip() for kb_id in raw.split(",") if kb_id.strip()])
-    return list(dict.fromkeys(dataset_ids))
-
-
-def _format_docs_for_response(docs, default_dataset_id=None):
-    renamed_doc_list = [map_doc_keys(doc) for doc in docs]
-    for doc_item in renamed_doc_list:
-        dataset_id = doc_item.get("dataset_id") or default_dataset_id
-        if doc_item["thumbnail"] and not doc_item["thumbnail"].startswith(IMG_BASE64_PREFIX) and dataset_id:
-            doc_item["thumbnail"] = f"/api/v1/documents/images/{dataset_id}-{doc_item['thumbnail']}"
-        if doc_item.get("source_type"):
-            doc_item["source_type"] = doc_item["source_type"].split("/")[0]
-        if doc_item["parser_config"].get("metadata"):
-            doc_item["parser_config"]["metadata"] = turn2jsonschema(doc_item["parser_config"]["metadata"])
-    return renamed_doc_list
 
 
 def _parse_doc_id_filter_with_metadata(req, kb_id):
