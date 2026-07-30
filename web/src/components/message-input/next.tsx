@@ -20,6 +20,7 @@ import * as React from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
+import storage from '@/utils/authorization-util';
 import { SelectWithSearch } from '../originui/select-with-search';
 import { AudioButton } from '../ui/audio-button';
 
@@ -27,6 +28,7 @@ export type NextMessageInputOnPressEnterParameter = {
   enableThinking?: string;
   enableModelThinking?: boolean;
   enableInternet?: boolean;
+  store_history_messages?: boolean;
 };
 
 interface NextMessageInputProps {
@@ -78,7 +80,9 @@ export function NextMessageInput({
     null,
   );
 
-  const [enableThinking, setEnableThinking] = useState('0');
+  const [enableThinking, setEnableThinking] = useState(
+    () => storage.getThinkingLevel(),
+  );
   const [enableModelThinking, setEnableModelThinking] = useState(false);
   const [enableInternet, setEnableInternet] = useState(false);
 
@@ -111,6 +115,7 @@ export function NextMessageInput({
 
   const handleThinkingChange = useCallback((value: string) => {
     setEnableThinking(value);
+    storage.setThinkingLevel(value);
   }, []);
 
   const handleModelThinkingToggle = useCallback(() => {

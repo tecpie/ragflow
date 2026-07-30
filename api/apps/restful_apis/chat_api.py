@@ -499,7 +499,7 @@ async def get_chat(chat_id):
         else:
             return get_json_result(
                 data=False,
-                message="No authorization.",
+                message="no authorization",
                 code=RetCode.AUTHENTICATION_ERROR,
             )
 
@@ -515,7 +515,7 @@ async def get_chat(chat_id):
 @login_required
 async def update_chat(chat_id):
     if not await _ensure_owned_chat(chat_id):
-        return get_json_result(data=False, message="No authorization.", code=RetCode.AUTHENTICATION_ERROR)
+        return get_json_result(data=False, message="no authorization", code=RetCode.AUTHENTICATION_ERROR)
 
     try:
         req = await get_request_json()
@@ -597,7 +597,7 @@ async def update_chat(chat_id):
 @login_required
 async def patch_chat(chat_id):
     if not await _ensure_owned_chat(chat_id):
-        return get_json_result(data=False, message="No authorization.", code=RetCode.AUTHENTICATION_ERROR)
+        return get_json_result(data=False, message="no authorization", code=RetCode.AUTHENTICATION_ERROR)
 
     try:
         req = await get_request_json()
@@ -685,7 +685,7 @@ async def patch_chat(chat_id):
 @login_required
 async def delete_chat(chat_id):
     if not await _ensure_owned_chat(chat_id):
-        return get_json_result(data=False, message="No authorization.", code=RetCode.AUTHENTICATION_ERROR)
+        return get_json_result(data=False, message="no authorization", code=RetCode.AUTHENTICATION_ERROR)
 
     try:
         if not DialogService.update_by_id(chat_id, {"status": StatusEnum.INVALID.value}):
@@ -747,7 +747,7 @@ async def bulk_delete_chats():
 async def create_session(chat_id):
     """Create a new conversation session for the given chat, owned by the authenticated user."""
     if not await _ensure_owned_chat(chat_id):
-        return get_json_result(data=False, message="No authorization.", code=RetCode.AUTHENTICATION_ERROR)
+        return get_json_result(data=False, message="no authorization", code=RetCode.AUTHENTICATION_ERROR)
     try:
         req = await get_request_json()
         ok, dia = DialogService.get_by_id(chat_id)
@@ -755,7 +755,7 @@ async def create_session(chat_id):
             return get_data_error_result(message="Chat not found!")
         name = req.get("name", "New session")
         if not isinstance(name, str) or not name.strip():
-            return get_data_error_result(message="`name` can not be empty.")
+            return get_data_error_result(message="`name` can not be empty")
         name = name.strip()[:255]
         conv = {
             "id": get_uuid(),
@@ -781,7 +781,7 @@ async def list_sessions(chat_id):
         if not await _ensure_owned_chat(chat_id):
             return get_json_result(
                 data=False,
-                message="No authorization.",
+                message="no authorization",
                 code=RetCode.AUTHENTICATION_ERROR,
             )
         page_number = int(request.args.get("page", 1))
@@ -803,7 +803,7 @@ async def list_sessions(chat_id):
 @login_required
 async def get_session(chat_id, session_id):
     if not await _ensure_owned_chat(chat_id):
-        return get_json_result(data=False, message="No authorization.", code=RetCode.AUTHENTICATION_ERROR)
+        return get_json_result(data=False, message="no authorization", code=RetCode.AUTHENTICATION_ERROR)
     try:
         ok, conv = await thread_pool_exec(ConversationService.get_by_id, session_id)
         if not ok:
@@ -827,19 +827,19 @@ async def get_session(chat_id, session_id):
 @login_required
 async def update_session(chat_id, session_id):
     if not await _ensure_owned_chat(chat_id):
-        return get_json_result(data=False, message="No authorization.", code=RetCode.AUTHENTICATION_ERROR)
+        return get_json_result(data=False, message="no authorization", code=RetCode.AUTHENTICATION_ERROR)
     try:
         req = await get_request_json()
         if not ConversationService.query(id=session_id, dialog_id=chat_id):
             return get_data_error_result(message="Session not found!")
         if "message" in req or "messages" in req:
-            return get_data_error_result(message="`messages` cannot be changed.")
+            return get_data_error_result(message="`messages` cannot be changed")
         if "reference" in req:
-            return get_data_error_result(message="`reference` cannot be changed.")
+            return get_data_error_result(message="`reference` cannot be changed")
         name = req.get("name")
         if name is not None:
             if not isinstance(name, str) or not name.strip():
-                return get_data_error_result(message="`name` can not be empty.")
+                return get_data_error_result(message="`name` can not be empty")
             req["name"] = name.strip()[:255]
         update_fields = {k: v for k, v in req.items() if k not in {"id", "dialog_id", "chat_id", "user_id"}}
         if not ConversationService.update_by_id(session_id, update_fields):
@@ -856,7 +856,7 @@ async def update_session(chat_id, session_id):
 @login_required
 async def delete_sessions(chat_id):
     if not await _ensure_owned_chat(chat_id):
-        return get_json_result(data=False, message="No authorization.", code=RetCode.AUTHENTICATION_ERROR)
+        return get_json_result(data=False, message="no authorization", code=RetCode.AUTHENTICATION_ERROR)
     try:
         req = await get_request_json()
         if not req:
@@ -907,7 +907,7 @@ async def delete_sessions(chat_id):
 @login_required
 async def delete_session_message(chat_id, session_id, msg_id):
     if not await _ensure_owned_chat(chat_id):
-        return get_json_result(data=False, message="No authorization.", code=RetCode.AUTHENTICATION_ERROR)
+        return get_json_result(data=False, message="no authorization", code=RetCode.AUTHENTICATION_ERROR)
     try:
         ok, conv = ConversationService.get_by_id(session_id)
         if not ok or conv.dialog_id != chat_id:
@@ -933,7 +933,7 @@ async def delete_session_message(chat_id, session_id, msg_id):
 async def update_message_feedback(chat_id, session_id, msg_id):
     owned = await _ensure_owned_chat(chat_id)
     if not owned:
-        return get_json_result(data=False, message="No authorization.", code=RetCode.AUTHENTICATION_ERROR)
+        return get_json_result(data=False, message="no authorization", code=RetCode.AUTHENTICATION_ERROR)
     try:
         req = await get_request_json()
         ok, conv = ConversationService.get_by_id(session_id)
@@ -1151,6 +1151,9 @@ async def session_completion(chat_id_in_arg=""):
         return error
     request_messages, request_msg = normalized
     pass_all_history_messages = get_bool_request_flag(req, "pass_all_history_messages", "pass_all_history", default=False)
+    store_history_messages = get_bool_request_flag(req, "store_history_messages", "store_history", default=True)
+    if not store_history_messages and not pass_all_history_messages:
+        return get_data_error_result(message="`pass_all_history_messages` must be true when `store_history_messages` is false.")
     if "enable_thinking" in req:
         req["enable_thinking"] = get_bool_request_flag(req, "enable_thinking")
     msg = request_msg
@@ -1171,7 +1174,7 @@ async def session_completion(chat_id_in_arg=""):
             if not await _ensure_owned_chat(chat_id):
                 return get_json_result(
                     data=False,
-                    message="No authorization.",
+                    message="no authorization",
                     code=RetCode.AUTHENTICATION_ERROR,
                 )
             e, dia = await thread_pool_exec(DialogService.get_by_id, chat_id)
@@ -1226,7 +1229,7 @@ async def session_completion(chat_id_in_arg=""):
             dia.llm_id = tenant_info.llm_id
             merge_generation_config(dia, chat_model_config)
 
-        legacy = _get_bool_request_flag(
+        legacy = get_bool_request_flag(
             req,
             "legacy",
             default=False,
@@ -1291,7 +1294,7 @@ async def session_completion(chat_id_in_arg=""):
                         ans = _format_answer(ans)
                         payload = _sanitize_json_floats({"code": 0, "message": "", "data": ans})
                         yield "data:" + json.dumps(payload, ensure_ascii=False) + "\n\n"
-                if conv is not None:
+                if conv is not None and store_history_messages:
                     await thread_pool_exec(ConversationService.update_by_id, conv.id, conv.to_dict())
             except Exception as ex:
                 logging.exception(ex)
@@ -1309,7 +1312,7 @@ async def session_completion(chat_id_in_arg=""):
         answer = None
         async for ans in rag_agent(dia, msg, False, session_id=session_id, **req):
             answer = _format_answer(ans)
-            if conv is not None:
+            if conv is not None and store_history_messages:
                 await thread_pool_exec(ConversationService.update_by_id, conv.id, conv.to_dict())
             break
         return get_json_result(data=_sanitize_json_floats(answer))
