@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -88,6 +89,32 @@ func TestMarkdownParser_ParseWithResult_NoImage(t *testing.T) {
 	}
 }
 
+func TestMarkdownParser_ParseWithResult_RendersTableInline(t *testing.T) {
+	ctx := t.Context()
+	p, _ := NewMarkdownParser(GoMarkdown)
+	md := "[M03] Health check package comparison:\n\n| Check item | Basic 699 CNY | Advanced 1299 CNY |\n| --- | --- | --- |\n| Blood routine / Urine routine | Yes | Yes |\n\nNote: All packages require fasting.\n"
+	res := p.ParseWithResult(ctx, "test.md", []byte(md))
+	if res.Err != nil {
+		t.Fatalf("ParseWithResult: %v", res.Err)
+	}
+	if len(res.JSON) != 1 {
+		t.Fatalf("len(JSON) = %d, want 1", len(res.JSON))
+	}
+	text, _ := res.JSON[0]["text"].(string)
+	if got, _ := res.JSON[0]["doc_type_kwd"].(string); got != "text" {
+		t.Fatalf("doc_type_kwd = %q, want text", got)
+	}
+	if !strings.Contains(text, "<table>") || !strings.Contains(text, "<th>Check item</th>") {
+		t.Fatalf("table was not rendered inline: %q", text)
+	}
+	if strings.Contains(text, "| Check item |") {
+		t.Fatalf("raw markdown table leaked into text: %q", text)
+	}
+	if gap := text[strings.Index(text, "</table>"):strings.Index(text, "Note:")]; gap != "</table>\n" {
+		t.Fatalf("gap after table = %q, want %q", gap, "</table>\n")
+	}
+}
+
 func TestMarkdownParser_ConfigureFromSetup(t *testing.T) {
 	p, _ := NewMarkdownParser(GoMarkdown)
 	p.ConfigureFromSetup(map[string]any{
@@ -115,6 +142,44 @@ func TestMarkdownParser_ConfigureFromSetup_NilSafe(t *testing.T) {
 	p.ConfigureFromSetup(nil) // should not panic
 	if p.ParseMethod != "" {
 		t.Fatalf("ParseMethod should be empty after nil setup, got %q", p.ParseMethod)
+	}
+}
+
+// TestMarkdownParser_FlattenMediaToText verifies that when
+// flatten_media_to_text is true, image items are emitted with
+// doc_type_kwd="text" (mirroring Python parser.py:1034). When false,
+// image items keep doc_type_kwd="image".
+func TestMarkdownParser_FlattenMediaToText(t *testing.T) {
+	ctx := t.Context()
+	pixelB64 := base64.StdEncoding.EncodeToString([]byte("fake-png-data"))
+	md := "Some text with an image\n![test](data:image/png;base64," + pixelB64 + ")\n"
+
+	cases := []struct {
+		name        string
+		flatten     bool
+		wantDocType string
+	}{
+		{"flatten=false keeps image", false, "image"},
+		{"flatten=true forces text", true, "text"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p, _ := NewMarkdownParser(GoMarkdown)
+			p.ConfigureFromSetup(map[string]any{"flatten_media_to_text": tc.flatten})
+			if p.FlattenMediaToText != tc.flatten {
+				t.Fatalf("FlattenMediaToText field = %v, want %v", p.FlattenMediaToText, tc.flatten)
+			}
+			res := p.ParseWithResult(ctx, "test.md", []byte(md))
+			if res.Err != nil {
+				t.Fatalf("ParseWithResult: %v", res.Err)
+			}
+			for _, item := range res.JSON {
+				if kd, _ := item["doc_type_kwd"].(string); kd != tc.wantDocType {
+					t.Errorf("doc_type_kwd = %q, want %q (item text=%q)",
+						kd, tc.wantDocType, item["text"])
+				}
+			}
+		})
 	}
 }
 

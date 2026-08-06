@@ -29,7 +29,12 @@ import kbService, {
 } from '@/services/knowledge-service';
 import { restAPIv1 } from '@/utils/api';
 import { buildChunkHighlights } from '@/utils/document-util';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import { useDebounce } from 'ahooks';
 import { get } from 'lodash';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -74,12 +79,25 @@ const DocumentKeys = {
     [DocumentApiAction.FetchDocumentList, 'byIds', ids] as const,
 };
 
+const documentIngestInFlight = new Map<string, Promise<unknown>>();
+
 export const DocumentStructureKeys = {
   graph: (datasetId: string, documentId: string) =>
     [
       DocumentStructureApiAction.FetchDocumentStructureGraph,
       datasetId,
       documentId,
+    ] as const,
+  graphWithKeywords: (
+    datasetId: string,
+    documentId: string,
+    keywords: string,
+  ) =>
+    [
+      DocumentStructureApiAction.FetchDocumentStructureGraph,
+      datasetId,
+      documentId,
+      keywords,
     ] as const,
 };
 
@@ -238,15 +256,20 @@ export const useFetchDocumentList = (loop = true) => {
   };
 };
 
-export const useFetchDocumentsByIds = (ids: string[]) => {
+export const useFetchDocumentsByIds = (
+  ids: string[],
+  options?: { enabled?: boolean; refetchInterval?: number | false },
+) => {
   const { id: datasetId } = useParams();
+  const { enabled, refetchInterval } = options ?? {};
 
   const { data, isFetching: loading } = useQuery<{
     docs: IDocumentInfo[];
     total: number;
   }>({
     queryKey: DocumentKeys.byIds(ids),
-    enabled: ids.length > 0 && !!datasetId,
+    enabled: (enabled ?? true) && ids.length > 0 && !!datasetId,
+    refetchInterval,
     initialData: { docs: [], total: 0 },
     queryFn: async () => {
       const ret = await listDocument(
@@ -389,7 +412,36 @@ export const useRunDocument = () => {
     },
   });
 
-  return { runDocumentByIds: mutateAsync, loading, data };
+  const runDocumentByIds = useCallback(
+    (params: {
+      documentIds: string[];
+      run: number;
+      option?: { delete: boolean; apply_kb: boolean };
+    }) => {
+      const key = JSON.stringify({
+        documentIds: [...params.documentIds].sort(),
+        run: params.run,
+        option: params.option || null,
+      });
+      const existingRequest = documentIngestInFlight.get(key);
+      if (existingRequest) {
+        return existingRequest;
+      }
+
+      const request = mutateAsync(params);
+      documentIngestInFlight.set(key, request);
+      const clearRequest = () => {
+        if (documentIngestInFlight.get(key) === request) {
+          documentIngestInFlight.delete(key);
+        }
+      };
+      void request.then(clearRequest, clearRequest);
+      return request;
+    },
+    [mutateAsync],
+  );
+
+  return { runDocumentByIds, loading, data };
 };
 
 export const useRemoveDocument = () => {
@@ -524,12 +576,14 @@ export const useSetDocumentPipelineParser = () => {
     mutationFn: async ({
       parserId,
       pipelineId,
+      parseType,
       documentId,
       datasetId,
       parserConfig,
     }: {
       parserId: string;
       pipelineId: string;
+      parseType?: number;
       documentId: string;
       datasetId: string;
       parserConfig?: IChangeParserConfigRequestBody;
@@ -538,6 +592,10 @@ export const useSetDocumentPipelineParser = () => {
         parser_id: parserId,
         pipeline_id: pipelineId,
       };
+
+      if (parseType !== undefined) {
+        updateData.parse_type = parseType;
+      }
 
       if (parserConfig) {
         updateData.parser_config = isPipelineParserConfig(parserConfig)
@@ -681,21 +739,30 @@ export const useFetchDocumentThumbnailsByIds = () => {
   return { data, setDocumentIds };
 };
 
-export function useFetchDocumentStructureGraph() {
+export function useFetchDocumentStructureGraph(keywords?: string) {
   const { knowledgeId: datasetId, documentId } = useGetKnowledgeSearchParams();
   const enabled = !!datasetId && !!documentId;
+  const trimmedKeywords = keywords?.trim();
 
   const { data, isFetching: loading } =
     useQuery<IStructureGraphResponse | null>({
-      queryKey: DocumentStructureKeys.graph(datasetId, documentId),
+      queryKey: trimmedKeywords
+        ? DocumentStructureKeys.graphWithKeywords(
+            datasetId,
+            documentId,
+            trimmedKeywords,
+          )
+        : DocumentStructureKeys.graph(datasetId, documentId),
       enabled,
       initialData: null,
       gcTime: 0,
+      placeholderData: keepPreviousData,
       queryFn: async () => {
         const { data } =
           await documentStructureService.getDocumentStructureGraph(
             datasetId,
             documentId,
+            trimmedKeywords,
           );
         return data?.data ?? null;
       },

@@ -215,7 +215,7 @@ async def update_document(tenant_id, dataset_id, document_id):
 
     # Verify ownership and existence of dataset and document
     if not KnowledgebaseService.query(id=dataset_id, tenant_id=tenant_id):
-        return get_error_data_result(message="You don't own the dataset.")
+        return get_error_data_result(message="you don't own the dataset")
     e, kb = KnowledgebaseService.get_by_id(dataset_id)
     if not e:
         return get_error_data_result(message="Can't find this dataset!")
@@ -223,7 +223,7 @@ async def update_document(tenant_id, dataset_id, document_id):
     # Prepare data for validation
     docs = DocumentService.query(kb_id=dataset_id, id=document_id)
     if not docs:
-        return get_error_data_result(message="The dataset doesn't own the document.")
+        return get_error_data_result(message="the dataset doesn't own the document")
 
     # Validate document update request parameters
     try:
@@ -484,8 +484,8 @@ async def upload_document(dataset_id, tenant_id):
         return get_error_data_result(message=f"Can't find the dataset with ID {dataset_id}!", code=RetCode.DATA_ERROR)
 
     if not check_kb_team_permission(kb, tenant_id):
-        logging.error("No authorization.")
-        return get_error_data_result(message="No authorization.", code=RetCode.AUTHENTICATION_ERROR)
+        logging.error("no authorization")
+        return get_error_data_result(message="no authorization", code=RetCode.AUTHENTICATION_ERROR)
 
     if upload_type == "web":
         return await _upload_web_document(dataset_id, kb, tenant_id)
@@ -519,7 +519,11 @@ async def _upload_web_document(dataset_id, kb, tenant_id):
     if not is_valid_url(url):
         return get_error_data_result(message="The URL format is invalid", code=RetCode.ARGUMENT_ERROR)
 
-    blob = html2pdf(url)
+    try:
+        blob = await thread_pool_exec(html2pdf, url)
+    except Exception as e:
+        logging.warning("html2pdf failed for %s, %s", dataset_id, str(e))
+        return get_error_data_result(message=str(e), code=RetCode.SERVER_ERROR)
     if not blob:
         return server_error_response(ValueError("Download failure."))
 
@@ -815,88 +819,6 @@ def list_docs(dataset_id, tenant_id):
             doc_item["parser_config"]["metadata"] = turn2jsonschema(doc_item["parser_config"]["metadata"])
     return get_json_result(data={"total": total, "docs": renamed_doc_list})
 
-@manager.route("/datasets/documents", methods=["GET"])  # noqa: F821
-@login_required
-@add_tenant_id_to_kwargs
-def list_docs_in_multiple_datasets(tenant_id):
-    """
-    List documents across multiple datasets.
-    ---
-    tags:
-      - Documents
-    security:
-      - ApiKeyAuth: []
-    parameters:
-      - in: query
-        name: dataset_ids
-        type: array
-        items:
-          type: string
-        required: true
-        description: Dataset IDs. Supports repeated query params and comma-separated values.
-      - in: query
-        name: page
-        type: integer
-        required: false
-        default: 1
-      - in: query
-        name: page_size
-        type: integer
-        required: false
-        default: 30
-      - in: query
-        name: orderby
-        type: string
-        required: false
-        default: "create_time"
-      - in: query
-        name: desc
-        type: boolean
-        required: false
-        default: true
-      - in: header
-        name: Authorization
-        type: string
-        required: true
-        description: Bearer token for authentication.
-    responses:
-      200:
-        description: List of documents.
-    """
-    dataset_ids = _parse_dataset_ids(request.args)
-    if not dataset_ids:
-        return get_error_argument_result('`dataset_ids` is required.')
-
-    unauthorized_dataset_ids = [kb_id for kb_id in dataset_ids if not KnowledgebaseService.accessible(kb_id=kb_id, user_id=tenant_id)]
-    if unauthorized_dataset_ids:
-        msg = f"You don't own these datasets: {', '.join(unauthorized_dataset_ids)}."
-        logging.error(msg)
-        return get_error_data_result(message=msg)
-
-    all_docs = []
-    total = 0
-    for kb_id in dataset_ids:
-        err_code, err_msg, docs, kb_total = _get_docs_with_request(request, kb_id)
-        if err_code != RetCode.SUCCESS:
-            return get_data_error_result(code=err_code, message=err_msg)
-        all_docs.extend(docs)
-        total += kb_total
-
-    orderby = request.args.get("orderby", "create_time")
-    desc = str(request.args.get("desc", "true")).strip().lower() != "false"
-    all_docs = sorted(all_docs, key=lambda d: d.get(orderby) or 0, reverse=desc)
-
-    page = int(request.args.get("page", 1))
-    page_size = int(request.args.get("page_size", 30))
-    start = max((page - 1) * page_size, 0)
-    end = start + page_size
-    docs_page = all_docs[start:end]
-
-    if request.args.get("type") == "filter":
-        docs_filter = _aggregate_filters(all_docs)
-        return get_json_result(data={"total": total, "filter": docs_filter})
-    return get_json_result(data={"total": total, "docs": _format_docs_for_response(docs_page)})
-
 def _get_docs_with_request(req, dataset_id: str):
     """Get documents with request parameters from a dataset.
 
@@ -963,10 +885,10 @@ def _get_docs_with_request(req, dataset_id: str):
     doc_id = q.get("id")
     if doc_id:
         if not DocumentService.query(id=doc_id, kb_id=dataset_id):
-            return RetCode.DATA_ERROR, f"You don't own the document {doc_id}.", [], 0
+            return RetCode.DATA_ERROR, f"you don't own the document {doc_id}", [], 0
         doc_ids_filter = [doc_id]  # id provided, ignore other filters
     if doc_name and not DocumentService.query(name=doc_name, kb_id=dataset_id):
-        return RetCode.DATA_ERROR, f"You don't own the document {doc_name}.", [], 0
+        return RetCode.DATA_ERROR, f"you don't own the document {doc_name}", [], 0
 
     doc_ids = q.getlist("ids")
     if doc_id and len(doc_ids) > 0:
@@ -1032,28 +954,6 @@ def _parse_run_status_filter(req_args):
     converted = [status_text_to_numeric.get(status.upper(), status) for status in raw_statuses]
     invalid_statuses = {status for status in converted if status not in valid_statuses}
     return converted, invalid_statuses
-
-
-def _parse_dataset_ids(query_args):
-    dataset_ids = []
-    for raw in query_args.getlist("dataset_ids"):
-        if raw is None:
-            continue
-        dataset_ids.extend([kb_id.strip() for kb_id in raw.split(",") if kb_id.strip()])
-    return list(dict.fromkeys(dataset_ids))
-
-
-def _format_docs_for_response(docs, default_dataset_id=None):
-    renamed_doc_list = [map_doc_keys(doc) for doc in docs]
-    for doc_item in renamed_doc_list:
-        dataset_id = doc_item.get("dataset_id") or default_dataset_id
-        if doc_item["thumbnail"] and not doc_item["thumbnail"].startswith(IMG_BASE64_PREFIX) and dataset_id:
-            doc_item["thumbnail"] = f"/api/v1/documents/images/{dataset_id}-{doc_item['thumbnail']}"
-        if doc_item.get("source_type"):
-            doc_item["source_type"] = doc_item["source_type"].split("/")[0]
-        if doc_item["parser_config"].get("metadata"):
-            doc_item["parser_config"]["metadata"] = turn2jsonschema(doc_item["parser_config"]["metadata"])
-    return renamed_doc_list
 
 
 def _parse_doc_id_filter_with_metadata(req, kb_id):
@@ -1319,12 +1219,12 @@ async def update_metadata_config(tenant_id, dataset_id, document_id):
     """
     # Verify ownership and existence of dataset
     if not KnowledgebaseService.query(id=dataset_id, tenant_id=tenant_id):
-        return get_error_data_result(message="You don't own the dataset.")
+        return get_error_data_result(message="you don't own the dataset")
 
     # Verify document exists in the dataset
     doc = DocumentService.query(id=document_id, kb_id=dataset_id)
     if not doc:
-        msg = f"Document {document_id} not found in dataset {dataset_id}"
+        msg = f"document {document_id} not found in dataset {dataset_id}"
         return get_error_data_result(message=msg)
     doc = doc[0]
 
@@ -1537,7 +1437,7 @@ async def ingest(tenant_id):
 def _run_sync(user_id: str, req):
     for doc_id in req["doc_ids"]:
         if not DocumentService.accessible(doc_id, user_id):
-            return RetCode.AUTHENTICATION_ERROR, "No authorization."
+            return RetCode.AUTHENTICATION_ERROR, "no authorization"
 
     kb_table_num_map = {}
     for doc_id in req["doc_ids"]:
@@ -1573,6 +1473,9 @@ def _run_sync(user_id: str, req):
         DocumentService.update_by_id(doc_id, info)
         if req.get("delete", False):
             TaskService.filter_delete([Task.doc_id == doc_id])
+            from rag.advanced_rag.knowlege_compile.dataset_nav import remove_dataset_nav_doc_sync
+
+            remove_dataset_nav_doc_sync(doc_tenant_id, doc.kb_id, doc.id)
             if settings.docStoreConn.index_exist(search.index_name(doc_tenant_id), doc.kb_id):
                 settings.docStoreConn.delete({"doc_id": doc_id}, search.index_name(doc_tenant_id), doc.kb_id)
 
@@ -1683,6 +1586,9 @@ async def parse_documents(tenant_id, dataset_id):
 
                 DocumentService.update_by_id(doc_id, info)
                 TaskService.filter_delete([Task.doc_id == doc_id])
+                from rag.advanced_rag.knowlege_compile.dataset_nav import remove_dataset_nav_doc_sync
+
+                remove_dataset_nav_doc_sync(tenant_id, doc.kb_id, doc.id)
                 if settings.docStoreConn.index_exist(search.index_name(tenant_id), doc.kb_id):
                     settings.docStoreConn.delete({"doc_id": doc_id}, search.index_name(tenant_id), doc.kb_id)
 
@@ -2066,7 +1972,7 @@ async def batch_update_document_status(tenant_id, dataset_id):
 
     # Verify dataset ownership
     if not KnowledgebaseService.query(id=dataset_id, tenant_id=tenant_id):
-        return get_error_data_result(message="You don't own the dataset.")
+        return get_error_data_result(message="you don't own the dataset")
 
     e, kb = KnowledgebaseService.get_by_id(dataset_id)
     if not e:

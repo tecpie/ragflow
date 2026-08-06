@@ -83,7 +83,7 @@ func NewBotService(agentSvc *AgentService, llmSvc *LLMService) *BotService {
 func (s *BotService) ChatbotInfo(ctx context.Context, tenantID, dialogID string) (
 	title, avatar, prologue, llmID string, hasTavilyKey bool, ec common.ErrorCode, err error,
 ) {
-	dialog, err := s.chatDAO.GetDialogByID(ctx, dialogID)
+	dialog, err := s.chatDAO.GetDialogByID(ctx, dao.DB, dialogID)
 	if err != nil {
 		return "", "", "", "", false, common.CodeDataError, err
 	}
@@ -238,11 +238,11 @@ func (s *BotService) loadCanvas(ctx context.Context, tenantID, agentID string) (
 		return nil, dao.ErrUserCanvasNotFound
 	}
 	userTenantDAO := dao.NewUserTenantDAO()
-	tenants, err := userTenantDAO.GetTenantIDsByUserID(tenantID)
+	tenants, err := userTenantDAO.GetTenantIDsByUserID(ctx, dao.DB, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("bot: tenants for user %s: %w", tenantID, err)
 	}
-	return s.canvasDAO.GetByIDForUser(agentID, tenantID, tenants)
+	return s.canvasDAO.GetByIDForUser(ctx, dao.DB, agentID, tenantID, tenants)
 }
 
 // canvasDSLMap projects a UserCanvas.DSL JSONMap into a

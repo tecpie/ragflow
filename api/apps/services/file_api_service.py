@@ -188,7 +188,7 @@ def get_parent_folder(file_id: str, user_id: str = None):
 
     # Permission check
     if user_id and not check_file_team_permission(file, user_id):
-        return False, "No authorization."
+        return False, "no authorization"
 
     parent_folder = FileService.get_parent_folder(file_id)
     return True, {"parent_folder": parent_folder.to_json()}
@@ -210,7 +210,7 @@ def get_all_parent_folders(file_id: str, user_id: str = None):
 
     # Permission check
     if user_id and not check_file_team_permission(file, user_id):
-        return False, "No authorization."
+        return False, "no authorization"
 
     parent_folders = FileService.get_all_parent_folders(file_id)
     return True, {"parent_folders": [pf.to_json() for pf in parent_folders]}
@@ -479,7 +479,7 @@ async def move_files(uid: str, src_file_ids: list, dest_file_id: str = None, new
         if not file.tenant_id:
             return False, "Tenant not found!"
         if not check_file_team_permission(file, uid):
-            return False, "No authorization."
+            return False, "no authorization"
 
     dest_folder = None
     if dest_file_id:
@@ -603,75 +603,8 @@ def get_file_content(uid: str, file_id: str):
     if not e:
         return False, "Document not found!"
     if not check_file_team_permission(file, uid):
-        return False, "No authorization."
+        return False, "no authorization"
     return True, file
-
-
-async def share_files(uid: str, file_ids: list[str], kb_ids: list[str]):
-    """
-    Share files to target knowledge bases without removing source mappings.
-
-    Existing file-document mappings in target KB are skipped.
-    """
-    files = FileService.get_by_ids(file_ids)
-    if not files:
-        return False, "Source files not found!"
-    files_dict = {f.id: f for f in files}
-
-    def _share_sync():
-        file2documents = []
-        for file_id in file_ids:
-            file = files_dict.get(file_id)
-            if not file:
-                return False, "File not found!"
-            if not check_file_team_permission(file, uid):
-                return False, "No authorization."
-
-            target_file_ids = [file_id]
-            if file.type == FileType.FOLDER.value:
-                target_file_ids = FileService.get_all_innermost_file_ids(file_id, [])
-
-            for target_file_id in target_file_ids:
-                ok, target_file = FileService.get_by_id(target_file_id)
-                if not ok or not target_file:
-                    return False, "Can't find this file!"
-
-                existing_kb_ids = set()
-                for inform in File2DocumentService.get_by_file_id(target_file_id):
-                    exists, doc = DocumentService.get_by_id(inform.document_id)
-                    if exists and doc:
-                        existing_kb_ids.add(doc.kb_id)
-
-                for kb_id in kb_ids:
-                    if kb_id in existing_kb_ids:
-                        continue
-
-                    exists, kb = KnowledgebaseService.get_by_id(kb_id)
-                    if not exists or not kb:
-                        return False, "Can't find this dataset!"
-
-                    doc = DocumentService.insert({
-                        "id": get_uuid(),
-                        "kb_id": kb.id,
-                        "parser_id": FileService.get_parser(target_file.type, target_file.name, kb.parser_id),
-                        "parser_config": kb.parser_config,
-                        "created_by": uid,
-                        "type": target_file.type,
-                        "name": target_file.name,
-                        "suffix": Path(target_file.name).suffix.lstrip("."),
-                        "location": target_file.location,
-                        "size": target_file.size,
-                    })
-                    file2document = File2DocumentService.insert({
-                        "id": get_uuid(),
-                        "file_id": target_file_id,
-                        "document_id": doc.id,
-                    })
-                    file2documents.append(file2document.to_json())
-        return True, file2documents
-
-    return await thread_pool_exec(_share_sync)
-
 
 
 def _convert_files_sync(file_ids: list[str], kb_ids: list[str], uid: str):

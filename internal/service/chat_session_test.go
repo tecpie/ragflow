@@ -47,7 +47,7 @@ func newFakeSessionStore() *fakeSessionStore {
 	}
 }
 
-func (f *fakeSessionStore) GetByID(ctx context.Context, id string) (*entity.ChatSession, error) {
+func (f *fakeSessionStore) GetByID(ctx context.Context, db *gorm.DB, id string) (*entity.ChatSession, error) {
 	if f.getByIDErr != nil {
 		return nil, f.getByIDErr
 	}
@@ -58,8 +58,8 @@ func (f *fakeSessionStore) GetByID(ctx context.Context, id string) (*entity.Chat
 	return s, nil
 }
 
-func (f *fakeSessionStore) GetBySessionIDAndChatID(ctx context.Context, sessionID, chatID string) (*entity.ChatSession, error) {
-	s, err := f.GetByID(ctx, sessionID)
+func (f *fakeSessionStore) GetBySessionIDAndChatID(ctx context.Context, db *gorm.DB, sessionID, chatID string) (*entity.ChatSession, error) {
+	s, err := f.GetByID(ctx, db, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +69,7 @@ func (f *fakeSessionStore) GetBySessionIDAndChatID(ctx context.Context, sessionI
 	return s, nil
 }
 
-func (f *fakeSessionStore) Create(ctx context.Context, conv *entity.ChatSession) error {
+func (f *fakeSessionStore) Create(ctx context.Context, db *gorm.DB, conv *entity.ChatSession) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.createErr != nil {
@@ -80,7 +80,7 @@ func (f *fakeSessionStore) Create(ctx context.Context, conv *entity.ChatSession)
 	return nil
 }
 
-func (f *fakeSessionStore) UpdateByID(ctx context.Context, id string, updates map[string]interface{}) error {
+func (f *fakeSessionStore) UpdateByID(ctx context.Context, db *gorm.DB, id string, updates map[string]interface{}) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.updateByIDErr != nil {
@@ -113,12 +113,12 @@ func (f *fakeSessionStore) UpdateByID(ctx context.Context, id string, updates ma
 	return nil
 }
 
-func (f *fakeSessionStore) DeleteByID(ctx context.Context, id string) error {
+func (f *fakeSessionStore) DeleteByID(ctx context.Context, db *gorm.DB, id string) error {
 	delete(f.sessions, id)
 	return nil
 }
 
-func (f *fakeSessionStore) ListByChatID(ctx context.Context, chatID string) ([]*entity.ChatSession, error) {
+func (f *fakeSessionStore) ListByChatID(ctx context.Context, db *gorm.DB, chatID string) ([]*entity.ChatSession, error) {
 	var result []*entity.ChatSession
 	for _, s := range f.sessions {
 		if s.DialogID == chatID {
@@ -128,7 +128,7 @@ func (f *fakeSessionStore) ListByChatID(ctx context.Context, chatID string) ([]*
 	return result, nil
 }
 
-func (f *fakeSessionStore) GetDialogByID(ctx context.Context, chatID string) (*entity.Chat, error) {
+func (f *fakeSessionStore) GetDialogByID(ctx context.Context, db *gorm.DB, chatID string) (*entity.Chat, error) {
 	if f.getDialogErr != nil {
 		return nil, f.getDialogErr
 	}
@@ -139,7 +139,7 @@ func (f *fakeSessionStore) GetDialogByID(ctx context.Context, chatID string) (*e
 	return d, nil
 }
 
-func (f *fakeSessionStore) CheckDialogExists(ctx context.Context, tenantID, chatID string) (bool, error) {
+func (f *fakeSessionStore) CheckDialogExists(ctx context.Context, db *gorm.DB, tenantID, chatID string) (bool, error) {
 	key := tenantID + "|" + chatID
 	return f.dialogExists[key], nil
 }
@@ -151,7 +151,7 @@ type fakeTenantStore struct {
 	err       error
 }
 
-func (f *fakeTenantStore) GetTenantIDsByUserID(userID string) ([]string, error) {
+func (f *fakeTenantStore) GetTenantIDsByUserID(ctx context.Context, db *gorm.DB, userID string) ([]string, error) {
 	return f.tenantIDs, f.err
 }
 
@@ -183,7 +183,7 @@ type fakeChatModelConfigResolver struct {
 	err      error
 }
 
-func (f *fakeChatModelConfigResolver) GetChatModelConfig(tenantID, llmID string) (modelModule.ModelDriver, string, *modelModule.APIConfig, int, error) {
+func (f *fakeChatModelConfigResolver) GetChatModelConfig(ctx context.Context, tenantID, llmID string) (modelModule.ModelDriver, string, *modelModule.APIConfig, int, error) {
 	f.tenantID = tenantID
 	f.llmID = llmID
 	if f.err != nil {
@@ -388,7 +388,7 @@ func TestGetSession_NotOwner(t *testing.T) {
 
 	ctx := t.Context()
 	_, code, err := svc.GetSession(ctx, "user-1", "chat-1", "session-1")
-	if err == nil || err.Error() != "No authorization." {
+	if err == nil || err.Error() != "no authorization" {
 		t.Fatalf("err=%v", err)
 	}
 	if code != common.CodeAuthenticationError {
@@ -409,7 +409,7 @@ func TestGetSession_WrongChat(t *testing.T) {
 
 	ctx := t.Context()
 	_, code, err := svc.GetSession(ctx, "user-1", "chat-1", "session-1")
-	if err == nil || err.Error() != "Session does not belong to this chat!" {
+	if err == nil || err.Error() != "session does not belong to this chat" {
 		t.Fatalf("err=%v", err)
 	}
 	if code != common.CodeDataError {
@@ -480,11 +480,11 @@ func TestUpdateSession_ValidationErrors(t *testing.T) {
 		message string
 		code    common.ErrorCode
 	}{
-		{name: "empty body", req: map[string]interface{}{}, message: "Request body cannot be empty", code: common.CodeArgumentError},
-		{name: "message", req: map[string]interface{}{"message": []interface{}{}}, message: "`messages` cannot be changed.", code: common.CodeDataError},
-		{name: "messages", req: map[string]interface{}{"messages": []interface{}{}}, message: "`messages` cannot be changed.", code: common.CodeDataError},
-		{name: "reference", req: map[string]interface{}{"reference": []interface{}{}}, message: "`reference` cannot be changed.", code: common.CodeDataError},
-		{name: "empty name", req: map[string]interface{}{"name": "   "}, message: "`name` can not be empty.", code: common.CodeDataError},
+		{name: "empty body", req: map[string]interface{}{}, message: "request body cannot be empty", code: common.CodeArgumentError},
+		{name: "message", req: map[string]interface{}{"message": []interface{}{}}, message: "`messages` cannot be changed", code: common.CodeDataError},
+		{name: "messages", req: map[string]interface{}{"messages": []interface{}{}}, message: "`messages` cannot be changed", code: common.CodeDataError},
+		{name: "reference", req: map[string]interface{}{"reference": []interface{}{}}, message: "`reference` cannot be changed", code: common.CodeDataError},
+		{name: "empty name", req: map[string]interface{}{"name": "   "}, message: "`name` can not be empty", code: common.CodeDataError},
 	}
 
 	for _, tc := range cases {
@@ -513,7 +513,7 @@ func TestUpdateSession_NotFound(t *testing.T) {
 
 	ctx := t.Context()
 	_, code, err := svc.UpdateSession(ctx, "user-1", "chat-1", "missing", map[string]interface{}{"name": "renamed"})
-	if err == nil || err.Error() != "Session not found!" {
+	if err == nil || err.Error() != "session not found" {
 		t.Fatalf("err=%v", err)
 	}
 	if code != common.CodeDataError {
@@ -1151,8 +1151,8 @@ func TestCompletion_ConversationNotFound(t *testing.T) {
 	_, err := svc.Completion(ctx, "user-1", "missing", []map[string]interface{}{
 		{"role": "user", "content": "hi"},
 	}, "", nil, "msg-1")
-	if err == nil || err.Error() != "Conversation not found" {
-		t.Fatalf("expected 'Conversation not found', got %v", err)
+	if err == nil || err.Error() != "conversation not found" {
+		t.Fatalf("expected 'conversation not found', got %v", err)
 	}
 }
 
@@ -1174,8 +1174,8 @@ func TestCompletion_DialogNotFound(t *testing.T) {
 	_, err := svc.Completion(ctx, "user-1", "session-1", []map[string]interface{}{
 		{"role": "user", "content": "hi"},
 	}, "", nil, "msg-1")
-	if err == nil || err.Error() != "Dialog not found" {
-		t.Fatalf("expected 'Dialog not found', got %v", err)
+	if err == nil || err.Error() != "dialog not found" {
+		t.Fatalf("expected 'dialog not found', got %v", err)
 	}
 }
 
