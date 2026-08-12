@@ -139,7 +139,13 @@ const ChatCard = forwardRef(function ChatCard(
   // resend with the card's model settings (llm_id, temperature, ...).
   const sendCardMessage = useCallback(
     ({ message, messages }: { message: IMessage; messages?: IMessage[] }) =>
-      sendMessage({ message, messages, ...form.getValues(), store_history_messages: false }),
+      sendMessage({
+        message,
+        messages,
+        ...form.getValues(),
+        storeHistoryMessages: false,
+        omitSessionId: true,
+      }),
     [sendMessage, form],
   );
 
@@ -153,9 +159,22 @@ const ChatCard = forwardRef(function ChatCard(
   const { data: currentDialog } = useFetchChat();
   const findLlmByUuid = useFindLlmByUuid();
 
+  // Each card must keep its own independently selected model after the initial
+  // sync. Without this guard, clicking "Apply" in one card patches the dialog
+  // (which invalidates [FetchChat] and refetches currentDialog), and the
+  // changed currentDialog.llm_id would then overwrite every other card's
+  // llm_id via this effect. Sync only when dialogId changes (initial load or
+  // conversation switch), not when currentDialog.llm_id changes due to Apply.
+  const syncedDialogIdRef = useRef<string | undefined>(undefined);
   useLayoutEffect(() => {
-    form.setValue('llm_id', currentDialog?.llm_id || '');
-  }, [currentDialog?.llm_id, form]);
+    if (
+      syncedDialogIdRef.current !== dialogId &&
+      currentDialog?.llm_id
+    ) {
+      form.setValue('llm_id', currentDialog.llm_id);
+      syncedDialogIdRef.current = dialogId;
+    }
+  }, [currentDialog?.llm_id, dialogId, form]);
 
   const isLatestChat = idx === chatBoxIds.length - 1;
 
@@ -171,6 +190,7 @@ const ChatCard = forwardRef(function ChatCard(
       params: {
         ...currentDialog,
         llm_id: llmId,
+        tenant_llm_id: llmId,
         llm_setting: {
           ...omit(values, 'llm_id'),
           model_type: findLlmByUuid(llmId)?.model_type || 'chat',
@@ -182,7 +202,12 @@ const ChatCard = forwardRef(function ChatCard(
   useImperativeHandle(
     ref,
     (): HandlePressEnterType => (params) =>
-      handlePressEnter({ ...params, ...form.getValues(), store_history_messages: false }),
+      handlePressEnter({
+        ...params,
+        ...form.getValues(),
+        storeHistoryMessages: false,
+        omitSessionId: true,
+      }),
   );
 
   useEffect(() => {
@@ -279,6 +304,7 @@ const ChatCard = forwardRef(function ChatCard(
                   regenerateMessage={regenerateMessage}
                   sendLoading={sendLoading}
                   clickDocumentButton={clickDocumentButton}
+                  showLikeButton={false}
                 ></MessageItem>
               );
             })}
@@ -298,11 +324,10 @@ export function MultipleChatBox({
   stopOutputMessage,
   conversation,
 }: MultipleChatBoxProps) {
-  const { createConversationBeforeSendMessage } =
-    useCreateConversationBeforeSendMessage();
-
   const { createConversationBeforeUploadDocument } =
     useCreateConversationBeforeUploadDocument();
+  const { createConversationBeforeSendMessage } =
+    useCreateConversationBeforeSendMessage();
   const { conversationId } = useGetChatSearchParams();
   const disabled = useGetSendButtonDisabled();
   const { visible, hideModal, documentId, selectedChunk, clickDocumentButton } =

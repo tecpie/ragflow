@@ -44,7 +44,7 @@ const ChatContainer = () => {
 
   React.useEffect(() => {
     if (locale && i18n.language !== locale) {
-      changeLanguageAsync(locale);
+      changeLanguageAsync(locale, { persist: false });
     }
   }, [locale, visibleAvatar]);
 
@@ -116,7 +116,9 @@ const ChatContainer = () => {
                 stopOutputMessage={stopOutputMessage}
                 showReasoning
                 showModelThinking
-                showInternet={chatInfo?.has_tavily_key}
+                showInternet={
+                  chatInfo?.has_web_search_provider ?? chatInfo?.has_tavily_key
+                }
               ></NextMessageInput>
             </div>
           </div>

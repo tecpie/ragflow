@@ -4,7 +4,14 @@ import (
 	"context"
 	"fmt"
 	"sync"
+
+	"gorm.io/gorm"
 )
+
+// DefaultLLMContextLength is the fallback chat-model context window (tokens)
+// used for per-cluster text truncation when the model's real max length is
+// unknown (e.g. in tests). Mirrors Python's default llm_model.max_length.
+const DefaultLLMContextLength = 8192
 
 // ChatRequest is the minimal surface a variant needs to dispatch one LLM call.
 type ChatRequest struct {
@@ -16,8 +23,15 @@ type ChatRequest struct {
 	// knowledge compilation pins extraction at 0.1 and merge judging at 0.0,
 	// so variants set it per call site.
 	Temperature *float64
-	APIKey      string
-	BaseURL     string
+	// MaxTokens caps the generated summary length (mirrors Python's
+	// {"max_tokens": max(self._max_token, 512)} config, issue #10235).
+	MaxTokens *int
+	APIKey    string
+	BaseURL   string
+	// DisableRetry tells the production ChatInvoker that the caller owns
+	// transient-error retries (GenJSON is such a caller). It is internal
+	// plumbing and is not part of the user-facing model request.
+	DisableRetry bool
 }
 
 // ChatResponse holds the LLM's text answer.
@@ -96,6 +110,18 @@ type Deps struct {
 	Redis         RedisClient   // optional (datasetnav)
 	TenantID      string
 	DatasetID     string
+	// ModelContextLen is the chat model's context window in tokens
+	// (content_length). The prompt-budget helpers (wikiMapMaxTokens,
+	// deriveWikiPlanBudget, buildClusterContent) use it to size the input/output
+	// quotas (mirrors Python self._llm_model.max_length).
+	ModelContextLen int
+	// ModelMaxOutput is the chat model's generation cap (max_output), the most
+	// tokens one LLM response may emit. Cross-document merge judging packs many
+	// pairs into a single call, so the caller must cap the batch by both the
+	// input window (ModelContextLen) and this output cap; otherwise a large
+	// candidate set can overflow the model's max_output and it returns a
+	// truncated/non-JSON reply. Mirrors Python's max_tokens generation config.
+	ModelMaxOutput int
 }
 
 // DepsResolver resolves the per-run Deps from a tenant/llm/embedding triple.
@@ -136,10 +162,10 @@ func ResolveDeps(tenantID, llmID, embeddingModel string) (Deps, error) {
 // compilation_template ids they contain. It is a DB-backed seam installed by
 // production wiring in internal/ingestion/task; the knowledge_compiler package
 // itself stays DB-independent. When a component is configured with
-// compilation_template_group_ids but no GroupResolver is installed, the
+// compilation_template_group_id but no GroupResolver is installed, the
 // component fails loudly instead of silently emitting rows that miss
 // compilation_template_ids (a data-loss path).
-type GroupResolver func(ctx context.Context, tenantID string, groupIDs []string) ([]string, error)
+type GroupResolver func(ctx context.Context, db *gorm.DB, tenantID string, groupIDs []string) ([]string, error)
 
 var (
 	groupResolverMu sync.RWMutex
@@ -160,7 +186,7 @@ func SetGroupResolver(r GroupResolver) {
 // resolve. Returns an error if group ids are requested but no resolver is
 // installed, surfacing the misconfiguration instead of silently dropping the
 // compilation_template_ids stamp.
-func ResolveGroupTemplateIDs(ctx context.Context, tenantID string, groupIDs []string) ([]string, error) {
+func ResolveGroupTemplateIDs(ctx context.Context, db *gorm.DB, tenantID string, groupIDs []string) ([]string, error) {
 	if len(groupIDs) == 0 {
 		return nil, nil
 	}
@@ -168,7 +194,48 @@ func ResolveGroupTemplateIDs(ctx context.Context, tenantID string, groupIDs []st
 	r := groupResolver
 	groupResolverMu.RUnlock()
 	if r == nil {
-		return nil, fmt.Errorf("knowledge_compiler: compilation_template_group_ids provided but no GroupResolver installed (production wiring must call common.SetGroupResolver)")
+		return nil, fmt.Errorf("knowledge_compiler: compilation_template_group_id provided but no GroupResolver installed (production wiring must call common.SetGroupResolver)")
 	}
-	return r(ctx, tenantID, groupIDs)
+	return r(ctx, db, tenantID, groupIDs)
+}
+
+// TemplateResolver loads a single compilation template by id for the tenant.
+type TemplateResolver func(ctx context.Context, db *gorm.DB, tenantID, templateID string) (TemplateInfo, error)
+
+// TemplateInfo is a resolved compilation template: its id, the kind that
+// selects the Go compiler variant (see KindToVariant), and its config blob (the
+// template "content"). It is dependency-light so common can return it without
+// importing entity/gorm — production wiring (internal/ingestion/task) converts
+// the entity row into this shape.
+type TemplateInfo struct {
+	ID     string
+	Kind   string
+	Config map[string]any
+}
+
+var (
+	templateResolverMu sync.RWMutex
+	templateResolver   TemplateResolver
+)
+
+// SetTemplateResolver installs the production (or test) TemplateResolver.
+// Production wiring calls this from an init() in internal/ingestion/task; tests
+// may inject a stub.
+func SetTemplateResolver(r TemplateResolver) {
+	templateResolverMu.Lock()
+	defer templateResolverMu.Unlock()
+	templateResolver = r
+}
+
+// ResolveTemplate loads a single compilation template by id via the installed
+// resolver. Returns an error when no resolver is installed (compilation_template_id
+// provided but unwired) rather than silently compiling with no template config.
+func ResolveTemplate(ctx context.Context, db *gorm.DB, tenantID, templateID string) (TemplateInfo, error) {
+	templateResolverMu.RLock()
+	r := templateResolver
+	templateResolverMu.RUnlock()
+	if r == nil {
+		return TemplateInfo{}, fmt.Errorf("knowledge_compiler: compilation_template_id provided but no TemplateResolver installed (production wiring must call common.SetTemplateResolver)")
+	}
+	return r(ctx, db, tenantID, templateID)
 }

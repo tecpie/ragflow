@@ -104,14 +104,14 @@ func (s *DocumentService) clearDocumentParseResults(ctx context.Context, doc *en
 	}
 
 	indexName := fmt.Sprintf("ragflow_%s", tenantID)
-	exists, err := s.docEngine.ChunkStoreExists(context.Background(), indexName, doc.KbID)
+	exists, err := s.docEngine.ChunkStoreExists(ctx, indexName, doc.KbID)
 	if err != nil {
 		return err
 	}
 	if !exists {
 		return nil
 	}
-	if _, err := s.docEngine.DeleteChunks(context.Background(), map[string]interface{}{"doc_id": doc.ID}, indexName, doc.KbID); err != nil {
+	if _, err = s.docEngine.DeleteChunks(ctx, map[string]interface{}{"doc_id": doc.ID}, indexName, doc.KbID); err != nil {
 		return err
 	}
 	return nil
@@ -257,6 +257,15 @@ func (s *DocumentService) StopParseDocuments(ctx context.Context, datasetID stri
 
 	docs, err := s.validateDocsInDataset(ctx, deduped, datasetID)
 	if err != nil {
+		// Mirror the Python parse/stop endpoint's "Documents not found" message.
+		var notInDataset *documentsNotInDatasetError
+		if errors.As(err, &notInDataset) {
+			quoted := make([]string, len(notInDataset.ids))
+			for i, id := range notInDataset.ids {
+				quoted[i] = "'" + id + "'"
+			}
+			return nil, fmt.Errorf("Documents not found: [%s]", strings.Join(quoted, ", "))
+		}
 		return nil, err
 	}
 
@@ -277,6 +286,18 @@ func (s *DocumentService) StopParseDocuments(ctx context.Context, datasetID stri
 	return result, nil
 }
 
+// documentsNotInDatasetError carries the ids that are missing from (or do not
+// belong to) a dataset so each endpoint can format its own contract message.
+type documentsNotInDatasetError struct {
+	datasetID string
+	ids       []string
+}
+
+// Error mirrors the Python delete endpoint's message.
+func (e *documentsNotInDatasetError) Error() string {
+	return fmt.Sprintf("These documents do not belong to dataset %s or Document not found: %s", e.datasetID, strings.Join(e.ids, ", "))
+}
+
 // validateDocsInDataset deduplicates IDs, fetches the documents, and ensures
 // every document exists and belongs to the given dataset. Returns the resolved
 // documents.
@@ -285,17 +306,26 @@ func (s *DocumentService) validateDocsInDataset(ctx context.Context, docIDs []st
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch documents: %w", err)
 	}
+	invalid := make([]string, 0)
 	if len(docs) != len(docIDs) {
-		return nil, fmt.Errorf("some document IDs not found in dataset %s", datasetID)
-	}
-	var invalid []string
-	for _, d := range docs {
-		if d.KbID != datasetID {
-			invalid = append(invalid, d.ID)
+		found := make(map[string]struct{}, len(docs))
+		for _, d := range docs {
+			found[d.ID] = struct{}{}
+		}
+		for _, id := range docIDs {
+			if _, ok := found[id]; !ok {
+				invalid = append(invalid, id)
+			}
+		}
+	} else {
+		for _, d := range docs {
+			if d.KbID != datasetID {
+				invalid = append(invalid, d.ID)
+			}
 		}
 	}
 	if len(invalid) > 0 {
-		return nil, fmt.Errorf("These documents do not belong to dataset %s: %v", datasetID, invalid)
+		return nil, &documentsNotInDatasetError{datasetID: datasetID, ids: invalid}
 	}
 	return docs, nil
 }
@@ -350,8 +380,8 @@ func (s *DocumentService) resetDocumentForReparse(ctx context.Context, doc *enti
 		}
 		if s.docEngine != nil {
 			indexName := fmt.Sprintf("ragflow_%s", tenantID)
-			s.deleteChunkImages(doc, indexName)
-			if _, err = s.docEngine.DeleteChunks(context.Background(), map[string]interface{}{"doc_id": doc.ID}, indexName, doc.KbID); err != nil {
+			s.deleteChunkImages(ctx, doc, indexName)
+			if _, err = s.docEngine.DeleteChunks(ctx, map[string]interface{}{"doc_id": doc.ID}, indexName, doc.KbID); err != nil {
 				return err
 			}
 		}
@@ -360,7 +390,7 @@ func (s *DocumentService) resetDocumentForReparse(ctx context.Context, doc *enti
 	return nil
 }
 
-func (s *DocumentService) deleteChunkImages(doc *entity.Document, indexName string) {
+func (s *DocumentService) deleteChunkImages(ctx context.Context, doc *entity.Document, indexName string) {
 	if s.docEngine == nil {
 		return
 	}
@@ -371,7 +401,7 @@ func (s *DocumentService) deleteChunkImages(doc *entity.Document, indexName stri
 
 	const pageSize = 1000
 	for offset := 0; ; offset += pageSize {
-		result, err := s.docEngine.Search(context.Background(), &enginetypes.SearchRequest{
+		result, err := s.docEngine.Search(ctx, &enginetypes.SearchRequest{
 			IndexNames:   []string{indexName},
 			KbIDs:        []string{doc.KbID},
 			Offset:       offset,
@@ -390,8 +420,8 @@ func (s *DocumentService) deleteChunkImages(doc *entity.Document, indexName stri
 			if !ok {
 				continue
 			}
-			if storageImpl.ObjExist(doc.KbID, imageKey) {
-				_ = storageImpl.Remove(doc.KbID, imageKey)
+			if storageImpl.ObjExist(ctx, doc.KbID, imageKey) {
+				_ = storageImpl.Remove(ctx, doc.KbID, imageKey)
 			}
 		}
 	}
@@ -469,7 +499,7 @@ func (s *DocumentService) updateDocumentStatusOnly(ctx context.Context, doc *ent
 
 	indexName := fmt.Sprintf("ragflow_%s", kb.TenantID)
 	return s.docEngine.UpdateChunks(
-		context.Background(),
+		ctx,
 		map[string]interface{}{"doc_id": doc.ID},
 		map[string]interface{}{"available_int": status},
 		indexName,

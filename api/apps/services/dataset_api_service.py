@@ -18,7 +18,7 @@ import json
 import os
 import re
 
-from api.db.joint_services.tenant_model_service import resolve_model_config, resolve_model_id
+from api.db.joint_services.tenant_model_service import resolve_model_config, resolve_model_id, get_composite_model_name_by_ids
 from common.constants import PAGERANK_FLD, LLMType
 from common import settings
 from api.db.db_models import File
@@ -32,7 +32,7 @@ from api.db.services.tenant_model_service import TenantModelService
 from api.db.services.user_service import TenantService, UserService, UserTenantService
 from common.constants import FileSource, StatusEnum
 from api.utils.api_utils import deep_merge, get_parser_config, remap_dictionary_keys, verify_embedding_availability
-from common.misc_utils import thread_pool_exec
+from common.misc_utils import thread_pool_exec, thread_pool_exec_long_time
 from rag.advanced_rag.knowlege_compile.wiki import WIKI_PAGE_COMPILE_KWD
 
 # KB-wide structure-graph merge index types. Each (re)builds the ``dataset_graph``
@@ -50,13 +50,13 @@ _STRUCTURE_INDEX_TYPE_TO_KIND = {
 }
 _STRUCTURE_INDEX_TYPES = frozenset(_STRUCTURE_INDEX_TYPE_TO_KIND)
 
-_VALID_INDEX_TYPES = {"graph", "raptor", "mindmap", "artifact", "skill"} | set(_STRUCTURE_INDEX_TYPES)
+_VALID_INDEX_TYPES = {"graph", "raptor", "mindmap", "wiki", "skill"} | set(_STRUCTURE_INDEX_TYPES)
 
 _INDEX_TYPE_TO_TASK_TYPE = {
     "graph": "structure_graph",
     "raptor": "raptor",
     "mindmap": "structure_mindmap",
-    "artifact": "artifact",
+    "wiki": "wiki",
     "skill": "skill",
     # Structure merge types carry their own task_type (== index_type) so the
     # executor can resolve which kind to merge from the task body.
@@ -67,7 +67,7 @@ _INDEX_TYPE_TO_TASK_ID_FIELD = {
     "graph": "graphrag_task_id",
     "raptor": "raptor_task_id",
     "mindmap": "mindmap_task_id",
-    "artifact": "wiki_task_id",
+    "wiki": "wiki_task_id",
     "skill": "skill_task_id",
     **{t: f"{t}_task_id" for t in _STRUCTURE_INDEX_TYPES},
 }
@@ -76,7 +76,7 @@ _INDEX_TYPE_TO_DISPLAY_NAME = {
     "graph": "Graph",
     "raptor": "RAPTOR",
     "mindmap": "Mindmap",
-    "artifact": "Artifact",
+    "wiki": "Wiki",
     "skill": "Skill",
     "structure_graph": "Structure Graph",
     "structure_mindmap": "Structure Mindmap",
@@ -144,7 +144,7 @@ async def create_dataset(tenant_id: str, req: dict):
     return True, response_data
 
 
-async def delete_datasets(tenant_id: str, ids: list = None, delete_all: bool = False):
+def _delete_datasets_sync(tenant_id: str, ids: list = None, delete_all: bool = False):
     """
     Delete datasets.
 
@@ -221,6 +221,10 @@ async def delete_datasets(tenant_id: str, ids: list = None, delete_all: bool = F
     return True, {"success_count": success_count, "errors": errors[:5]}
 
 
+async def delete_datasets(tenant_id: str, ids: list = None, delete_all: bool = False):
+    return await thread_pool_exec_long_time(_delete_datasets_sync, tenant_id, ids, delete_all)
+
+
 def get_dataset(dataset_id: str, tenant_id: str):
     """
     Get a single dataset.
@@ -284,9 +288,13 @@ async def update_dataset(tenant_id: str, dataset_id: str, req: dict):
     if not req:
         return False, "no properties were modified"
 
-    kb = KnowledgebaseService.get_or_none(id=dataset_id, tenant_id=tenant_id)
-    if kb is None:
+    kbs = KnowledgebaseService.get_kb_by_id(dataset_id, tenant_id)
+    if not kbs:
         return False, f"User '{tenant_id}' lacks permission for dataset '{dataset_id}'"
+
+    kb = KnowledgebaseService.get_or_none(id=dataset_id)
+    if kb is None:
+        return False, "Invalid Dataset ID"
 
     # Extract ext field for additional parameters
     ext_fields = req.pop("ext", {})
@@ -347,7 +355,7 @@ async def update_dataset(tenant_id: str, dataset_id: str, req: dict):
         req["pipeline_id"] = ""
 
     if "name" in req and req["name"].lower() != kb.name.lower():
-        exists = KnowledgebaseService.get_or_none(name=req["name"], tenant_id=tenant_id, status=StatusEnum.VALID.value)
+        exists = KnowledgebaseService.get_or_none(name=req["name"], tenant_id=kb.tenant_id, status=StatusEnum.VALID.value)
         if exists:
             return False, f"Dataset name '{req['name']}' already exists"
 
@@ -405,6 +413,7 @@ def list_datasets(tenant_id: str, args: dict):
     :return: (success, result) or (success, error_message)
     """
     kb_id = args.get("id")
+    kb_ids = args.get("ids")
     name = args.get("name")
     page = int(args.get("page", 1))
     page_size = int(args.get("page_size", 30))
@@ -421,10 +430,13 @@ def list_datasets(tenant_id: str, args: dict):
         # unknown type, default to True
         desc = True
 
+    if kb_id and kb_ids:
+        return False, f"Should not provide both 'id':{kb_id} and 'ids'{kb_ids}"
     if kb_id:
         kbs = KnowledgebaseService.get_kb_by_id(kb_id, tenant_id)
         if not kbs:
             return False, f"User '{tenant_id}' lacks permission for dataset '{kb_id}'"
+
     if name:
         kbs = KnowledgebaseService.get_kb_by_name(name, tenant_id)
         if not kbs:
@@ -440,7 +452,15 @@ def list_datasets(tenant_id: str, args: dict):
         tenants = TenantService.get_joined_tenants_by_user_id(tenant_id)
         tenant_ids = [m["tenant_id"] for m in tenants]
         query_user_id = tenant_id
-    kbs, total = KnowledgebaseService.get_list(tenant_ids, query_user_id, page, page_size, orderby, desc, kb_id, name, keywords, parser_id)
+    if kb_ids:
+        accessible_ids = KnowledgebaseService.get_accessible_ids([m["tenant_id"] for m in tenants], tenant_id, kb_ids)
+        denied_ids = [kb_id for kb_id in kb_ids if kb_id not in accessible_ids]
+        if denied_ids:
+            logging.warning("User '%s' lacks permission for datasets: '%s'", tenant_id, ", ".join(denied_ids))
+        kb_ids = [kb_id for kb_id in kb_ids if kb_id in accessible_ids]
+        if not kb_ids:
+            return True, {"data": [], "total": 0}
+    kbs, total = KnowledgebaseService.get_list(tenant_ids, query_user_id, page, page_size, orderby, desc, kb_id, name, keywords, parser_id, kb_ids)
     users = UserService.get_by_ids([m["tenant_id"] for m in kbs])
     user_map = {m.id: m.to_dict() for m in users}
 
@@ -463,6 +483,10 @@ def list_datasets(tenant_id: str, args: dict):
         if status_by_kb:
             kb["parsing_status"] = status_by_kb.get(kb["id"], {})
         response_data_list.append(remap_dictionary_keys(kb))
+
+    embed_model_names = get_composite_model_name_by_ids([m["embedding_model"] for m in response_data_list])
+    for response_data in response_data_list:
+        response_data["embedding_model_name"] = embed_model_names.get(response_data["embedding_model"], "")
     return True, {"data": response_data_list, "total": total}
 
 
@@ -585,6 +609,10 @@ def run_index(dataset_id: str, tenant_id: str, index_type: str):
         types=[],
         suffix=[],
     )
+    # Disabled documents must not participate in a dataset-level structure
+    # rebuild. Keep them out of the fan-out task itself; the merger also
+    # applies a database-backed filter as a defense in depth.
+    documents = [document for document in documents if str(document.get("status", "1")) != "0"]
     if not documents:
         return False, f"No documents in Dataset {dataset_id}"
 
@@ -927,15 +955,19 @@ def delete_index(dataset_id: str, tenant_id: str, index_type: str, wipe: bool = 
     elif wipe and index_type in _STRUCTURE_INDEX_TYPES:
         from rag.nlp import search
 
-        # Wipe the merged KB-wide dataset_graph rows for the requested kind
-        # (all kinds for the merge-all "structure" type). The per-document
-        # entity/relation rows the merge reads from are left intact.
+        # Wipe the merged KB-wide metadata and entity/relation rows for the
+        # requested kind (all kinds for the merge-all "structure" type). The
+        # per-document entity/relation rows the merge reads from are left intact.
         friendly = _STRUCTURE_INDEX_TYPE_TO_KIND.get(index_type)
         resolved_kind = _resolve_dataset_structure_kind(friendly) if friendly else None
-        condition: dict = {"knowledge_graph_kwd": ["dataset_graph"]}
-        if resolved_kind:
-            condition["compilation_template_kind_kwd"] = [resolved_kind]
-        settings.docStoreConn.delete(condition, search.index_name(kb.tenant_id), dataset_id)
+        conditions = [
+            {"knowledge_graph_kwd": ["dataset_graph"]},
+            {"knowledge_graph_kwd": ["entity", "relation"], "scope_kwd": ["dataset"]},
+        ]
+        for condition in conditions:
+            if resolved_kind:
+                condition["compilation_template_kind_kwd"] = [resolved_kind]
+            settings.docStoreConn.delete(condition, search.index_name(kb.tenant_id), dataset_id)
 
     KnowledgebaseService.update_by_id(kb.id, {task_id_field: "", task_finish_at_field: None})
     return True, {}
@@ -1528,7 +1560,7 @@ async def search_datasets(tenant_id: str, req: dict):
 #
 # These three helpers power the dataset-level "Artifact" tab. They query rows
 # with ``compile_kwd="wiki_page"`` written by TaskHandler's
-# ``_persist_wiki_pages_to_es``. The schema fields they rely on are:
+# ``persist_wiki_pages``. The schema fields they rely on are:
 #   slug_kwd, title_kwd, page_type_kwd, content_with_weight,
 #   topic_kwd, entity_names_kwd, outlinks_kwd, related_kb_pages_kwd,
 #   source_chunk_ids, source_doc_ids
@@ -1561,6 +1593,19 @@ def _compilation_template_kind(kind) -> str:
     if normalized in {"pageindex", "page_index", "knowledge_graph"}:
         return "timeline"
     return normalized
+
+
+def _scalar(raw, default=""):
+    """Infinity ``get_fields`` returns every ``*_kwd`` field as a list (split
+    on ``###``), even single scalar values like ``slug_kwd=["entity/foo"]``.
+    Normalize a field value that is expected to be a scalar identifier back to
+    the first non-empty element."""
+    if isinstance(raw, (list, tuple)):
+        for item in raw:
+            if item not in (None, ""):
+                return item
+        return default
+    return raw if raw not in (None, "") else default
 
 
 def _normalize_compilation_template_group_ids(raw) -> list[str]:
@@ -1616,40 +1661,53 @@ def _extract_pipeline_compiler_group_ids(dsl) -> list[str]:
     return group_ids
 
 
-def _template_is_wiki(template: dict | None) -> bool:
+def _normalize_template_kind(raw) -> str:
+    """Lowercase a template's raw kind WITHOUT folding.
+
+    Unlike :func:`_compilation_template_kind` (which folds ``page_index`` /
+    ``knowledge_graph`` into ``timeline``), this keeps kinds distinct so the
+    alteration API can tell ``graph`` / ``timeline`` / ``tree`` apart.
+    """
+    if not isinstance(raw, str):
+        return ""
+    return raw.strip().lower().replace("-", "_")
+
+
+def _template_matches_kind(template: dict | None, accepted: set[str]) -> bool:
     if not isinstance(template, dict):
         return False
     config = template.get("config") if isinstance(template.get("config"), dict) else {}
     raw_kind = config.get("kind") or template.get("kind") or ""
-    return _compilation_template_kind(raw_kind) == "artifacts"
+    return _normalize_template_kind(raw_kind) in accepted
 
 
-def _group_has_wiki_template(group_id: str, tenant_id: str, group_cache: dict[str, bool]) -> bool:
+def _group_has_template_of_kind(group_id: str, tenant_id: str, accepted: set[str], group_cache: dict[str, bool]) -> bool:
     if group_id in group_cache:
         return group_cache[group_id]
     from api.db.services.compilation_template_group_service import CompilationTemplateGroupService
 
     group = CompilationTemplateGroupService.get_saved(group_id, tenant_id)
-    has_wiki = any(_template_is_wiki(template) for template in (group or {}).get("templates") or [])
-    group_cache[group_id] = has_wiki
-    return has_wiki
+    matched = any(_template_matches_kind(template, accepted) for template in (group or {}).get("templates") or [])
+    group_cache[group_id] = matched
+    return matched
 
 
-def _parser_config_has_wiki_template(parser_config, tenant_id: str, template_cache: dict[str, bool]) -> bool:
+def _parser_config_has_template_of_kind(parser_config, tenant_id: str, accepted: set[str], template_cache: dict[str, bool]) -> bool:
     from api.db.services.compilation_template_service import CompilationTemplateService
     from rag.svr.task_executor_refactor.chunk_post_processor import _parser_config_compilation_template_ids
 
     for template_id in _parser_config_compilation_template_ids(parser_config, tenant_id):
         if template_id not in template_cache:
-            template_cache[template_id] = _template_is_wiki(CompilationTemplateService.get_saved(template_id, tenant_id))
+            template_cache[template_id] = _template_matches_kind(CompilationTemplateService.get_saved(template_id, tenant_id), accepted)
         if template_cache[template_id]:
             return True
     return False
 
 
-def _pipeline_has_wiki_compiler(
+def _pipeline_has_compiler_of_kind(
     pipeline_id: str,
     tenant_id: str,
+    accepted: set[str],
     pipeline_cache: dict[str, bool],
     group_cache: dict[str, bool],
 ) -> bool:
@@ -1667,9 +1725,9 @@ def _pipeline_has_wiki_compiler(
         return False
 
     group_ids = _extract_pipeline_compiler_group_ids(getattr(canvas, "dsl", None))
-    has_wiki = any(_group_has_wiki_template(group_id, tenant_id, group_cache) for group_id in group_ids)
-    pipeline_cache[pipeline_id] = has_wiki
-    return has_wiki
+    matched = any(_group_has_template_of_kind(group_id, tenant_id, accepted, group_cache) for group_id in group_ids)
+    pipeline_cache[pipeline_id] = matched
+    return matched
 
 
 def _skill_index_or_none(tenant_id: str, kb_id: str):
@@ -1766,8 +1824,8 @@ async def get_dataset_structure(dataset_id: str, tenant_id: str, kind: str, keyw
     KB-wide (no ``doc_id`` filter), since dataset-merge templates dedup those rows
     across documents.
 
-    ``keywords`` (optional): return the single best-matching entity's 1-hop
-    subgraph (top-1 + neighbors + touching relations) across the kind, via KNN.
+    ``keywords`` (optional): return the matching entities' subgraph, including
+    neighbors and touching relations, across the kind.
 
     Returns ``(True, {"kind": <kind>, "templates": [...]})`` or
     ``(False, message)`` on auth/validation failure.
@@ -1793,6 +1851,14 @@ async def get_dataset_structure(dataset_id: str, tenant_id: str, kind: str, keyw
     from api.apps.services import structure_graph_common as sgc
 
     keywords = (keywords or "").strip()
+    _, active_doc_ids = await _current_dataset_docs(dataset_id)
+    disabled_doc_ids = await _disabled_dataset_doc_ids(dataset_id)
+    if not active_doc_ids:
+        return True, empty
+    # Dataset rows use the KB id as ``doc_id``. If a historical row has no
+    # source provenance, exclude it while documents are disabled and fall back
+    # to active document rows instead of returning potentially stale content.
+    dataset_excluded_doc_ids = disabled_doc_ids | ({dataset_id} if disabled_doc_ids else set())
 
     def _row_template_id(row: dict) -> str | None:
         raw = row.get("compilation_template_ids")
@@ -1843,48 +1909,63 @@ async def get_dataset_structure(dataset_id: str, tenant_id: str, kind: str, keyw
     # fields only) to enumerate the distinct template ids whose top-level kind
     # matches the request; ``build_bucket`` below then reads each template's rows.
     meta_fields = ["id", "compile_kwd", "compilation_template_ids", "compilation_template_kind_kwd"]
-    kind_template_ids: list[str] = []
-    seen_tid: set[str] = set()
-    has_templateless = False
-    offset = 0
     page_size = 1000
-    pages = 0
-    while True:
-        pages += 1
-        try:
-            res = await thread_pool_exec(
-                settings.docStoreConn.search,
-                meta_fields,
-                [],
-                {"knowledge_graph_kwd": ["entity", "relation"], "scope_kwd": ["dataset"]},
-                [],
-                OrderByExpr(),
-                offset,
-                page_size,
-                index_nm,
-                [dataset_id],
-            )
-            meta_rows = settings.docStoreConn.get_fields(res, meta_fields) or {}
-        except Exception:
-            logging.exception("get_dataset_structure: docStore discovery failed for kb=%s", dataset_id)
-            return True, empty
-        if not meta_rows:
-            break
-        for row in meta_rows.values():
-            tid = _row_template_id(row)
-            stamped_kind = (row.get("compilation_template_kind_kwd") or "").strip()
-            row_kind = stamped_kind or _template_meta(tid) or ""
-            if _resolve_dataset_structure_kind(row_kind) != resolved_kind:
-                continue
-            if tid:
-                if tid not in seen_tid:
-                    seen_tid.add(tid)
-                    kind_template_ids.append(tid)
-            else:
-                has_templateless = True
-        if len(meta_rows) < page_size:
-            break
-        offset += page_size
+
+    async def _discover_scope_templates(scope_kwd: str) -> tuple[list[str], bool, int]:
+        scope_template_ids: list[str] = []
+        seen_scope_tid: set[str] = set()
+        scope_has_templateless = False
+        offset = 0
+        pages = 0
+        while True:
+            pages += 1
+            try:
+                res = await thread_pool_exec(
+                    settings.docStoreConn.search,
+                    meta_fields,
+                    [],
+                    {"knowledge_graph_kwd": ["entity", "relation"], "scope_kwd": [scope_kwd]},
+                    [],
+                    OrderByExpr(),
+                    offset,
+                    page_size,
+                    index_nm,
+                    [dataset_id],
+                )
+                meta_rows = settings.docStoreConn.get_fields(res, meta_fields) or {}
+            except Exception:
+                logging.exception("get_dataset_structure: docStore discovery failed for kb=%s scope=%s", dataset_id, scope_kwd)
+                return [], False, pages
+            if not meta_rows:
+                break
+            for row in meta_rows.values():
+                tid = _row_template_id(row)
+                stamped_kind = row.get("compilation_template_kind_kwd") or ""
+                if isinstance(stamped_kind, list):
+                    stamped_kind = stamped_kind[0].strip()
+                row_kind = stamped_kind or _template_meta(tid) or ""
+                if _resolve_dataset_structure_kind(row_kind) != resolved_kind:
+                    continue
+                if tid:
+                    if tid not in seen_scope_tid:
+                        seen_scope_tid.add(tid)
+                        scope_template_ids.append(tid)
+                else:
+                    scope_has_templateless = True
+            if len(meta_rows) < page_size:
+                break
+            offset += page_size
+        return scope_template_ids, scope_has_templateless, pages
+
+    dataset_template_ids, has_templateless, dataset_pages = await _discover_scope_templates("dataset")
+    kind_template_ids: list[str] = list(dataset_template_ids)
+    template_scope_by_id: dict[str, str] = {tid: "dataset" for tid in dataset_template_ids}
+
+    doc_template_ids, _, doc_pages = await _discover_scope_templates("doc")
+    for tid in doc_template_ids:
+        if tid not in template_scope_by_id:
+            template_scope_by_id[tid] = "doc"
+            kind_template_ids.append(tid)
 
     # Detect datasets that have ONLY the legacy dataset_graph blob (no
     # entity/relation rows yet) so the fallback path below handles them.
@@ -1909,14 +1990,16 @@ async def get_dataset_structure(dataset_id: str, tenant_id: str, kind: str, keyw
             pass
 
     logging.debug(
-        "get_dataset_structure: discovered %d template(s) in %d page(s) for kb=%s kind=%s",
-        len(kind_template_ids),
-        pages,
+        "get_dataset_structure: discovered %d dataset template(s) and %d doc template(s) in %d/%d page(s) for kb=%s kind=%s",
+        len(dataset_template_ids),
+        len(doc_template_ids),
+        dataset_pages,
+        doc_pages,
         dataset_id,
         resolved_kind,
     )
 
-    # ── keywords mode: global KNN across the kind → top-1's focused subgraph. ──
+    # ── keywords mode: name matching/KNN across the kind → matched subgraph. ──
     if keywords:
         if not kind_template_ids:
             return True, empty
@@ -1929,20 +2012,24 @@ async def get_dataset_structure(dataset_id: str, tenant_id: str, kind: str, keyw
 
         def _scope_for_template(row: dict):
             tid = _row_template_id(row) or ""
-            stamped = (row.get("compilation_template_kind_kwd") or "").strip()
+            stamped = row.get("compilation_template_kind_kwd") or ""
+            if isinstance(stamped, list):
+                stamped = stamped[0].strip()
+            scope_kwd = template_scope_by_id.get(tid, "dataset") if tid else "dataset"
             meta = _bucket_meta_for(tid, stamped) if tid else {"template_id": f"kind:{resolved_kind}", "template_name": f"kind:{resolved_kind}", "kind": resolved_kind}
             if tid:
-                return meta, {"compilation_template_ids": [tid], "scope_kwd": ["dataset"]}
-            return meta, {"compilation_template_kind_kwd": [stamped], "scope_kwd": ["dataset"]}
+                return meta, {"compilation_template_ids": [tid], "scope_kwd": [scope_kwd]}
+            return meta, {"compilation_template_kind_kwd": [stamped], "scope_kwd": [scope_kwd]}
 
         bucket_meta, kw_entities, kw_relations = await sgc.keyword_subgraph(
             index_nm,
             dataset_id,
             embd_mdl,
-            {"compilation_template_ids": kind_template_ids, "knowledge_graph_kwd": ["entity"], "scope_kwd": ["dataset"]},
+            {"compilation_template_ids": kind_template_ids, "knowledge_graph_kwd": ["entity"], "scope_kwd": ["dataset", "doc"]},
             keywords,
             _scope_for_template,
             log_ctx=f"kb={dataset_id}",
+            excluded_doc_ids=dataset_excluded_doc_ids,
         )
         if resolved_kind in {"knowledge_graph", "mind_map", "timeline"}:
             kw_entities = sgc.filter_entities_with_relations(kw_entities, kw_relations)
@@ -1958,8 +2045,17 @@ async def get_dataset_structure(dataset_id: str, tenant_id: str, kind: str, keyw
     # ── normal mode: per-template subgraph sampling from raw KB-wide rows. ──
     templates_out: list[dict] = []
     for tid in kind_template_ids:
+        scope_kwd = template_scope_by_id.get(tid, "dataset")
         try:
-            entities, relations = await sgc.build_bucket(index_nm, dataset_id, {"compilation_template_ids": [tid], "scope_kwd": ["dataset"]})
+            scope = {"compilation_template_ids": [tid], "scope_kwd": [scope_kwd]}
+            if scope_kwd == "doc":
+                scope["doc_id"] = sorted(active_doc_ids)
+            entities, relations = await sgc.build_bucket(
+                index_nm,
+                dataset_id,
+                scope,
+                excluded_doc_ids=dataset_excluded_doc_ids if scope_kwd == "dataset" else disabled_doc_ids,
+            )
         except Exception:
             logging.exception("get_dataset_structure: bucket build failed for kb=%s template=%s", dataset_id, tid)
             continue
@@ -1979,7 +2075,7 @@ async def get_dataset_structure(dataset_id: str, tenant_id: str, kind: str, keyw
         try:
             res_l = await thread_pool_exec(
                 settings.docStoreConn.search,
-                ["content_with_weight", "compilation_template_kind_kwd"],
+                ["content_with_weight", "compilation_template_kind_kwd", "compile_kwd"],
                 [],
                 {"knowledge_graph_kwd": [_DATASET_STRUCTURE_ROW_KWD], "must_not": {"exists": "compilation_template_ids"}},
                 [],
@@ -1989,13 +2085,34 @@ async def get_dataset_structure(dataset_id: str, tenant_id: str, kind: str, keyw
                 index_nm,
                 [dataset_id],
             )
-            legacy_rows = settings.docStoreConn.get_fields(res_l, ["content_with_weight", "compilation_template_kind_kwd"]) or {}
+            legacy_rows = settings.docStoreConn.get_fields(res_l, ["content_with_weight", "compilation_template_kind_kwd", "compile_kwd"]) or {}
         except Exception:
             logging.exception("get_dataset_structure: legacy blob fetch failed for kb=%s", dataset_id)
             legacy_rows = {}
         legacy_bucket = {"template_id": f"kind:{resolved_kind}", "template_name": f"kind:{resolved_kind}", "kind": resolved_kind, "entities": [], "relations": []}
+        reconstructed_compile_kwds: set[str] = set()
         for row in legacy_rows.values():
-            if _resolve_dataset_structure_kind((row.get("compilation_template_kind_kwd") or "").strip()) != resolved_kind:
+            stamped_kind = row.get("compilation_template_kind_kwd") or ""
+            if isinstance(stamped_kind, list):
+                stamped_kind = stamped_kind[0].strip()
+            if _resolve_dataset_structure_kind((stamped_kind or "").strip()) != resolved_kind:
+                continue
+            if disabled_doc_ids:
+                compile_kwd = _scalar(row.get("compile_kwd"))
+                if not compile_kwd or compile_kwd in reconstructed_compile_kwds:
+                    continue
+                reconstructed_compile_kwds.add(compile_kwd)
+                try:
+                    entities, relations = await sgc.build_bucket(
+                        index_nm,
+                        dataset_id,
+                        {"compile_kwd": [compile_kwd], "doc_id": sorted(active_doc_ids)},
+                        excluded_doc_ids=disabled_doc_ids,
+                    )
+                except Exception:
+                    continue
+                legacy_bucket["entities"].extend(entities)
+                legacy_bucket["relations"].extend(relations)
                 continue
             try:
                 graph = json.loads(row.get("content_with_weight") or "{}")
@@ -2003,8 +2120,8 @@ async def get_dataset_structure(dataset_id: str, tenant_id: str, kind: str, keyw
                 continue
             if not isinstance(graph, dict):
                 continue
-            legacy_bucket["entities"].extend(graph.get("entities") or [])
-            legacy_bucket["relations"].extend(graph.get("relations") or [])
+            legacy_bucket["entities"].extend(item for item in (graph.get("entities") or []) if isinstance(item, dict))
+            legacy_bucket["relations"].extend(item for item in (graph.get("relations") or []) if isinstance(item, dict))
         if resolved_kind in {"knowledge_graph", "mind_map", "timeline"}:
             legacy_bucket["entities"] = sgc.filter_entities_with_relations(legacy_bucket["entities"], legacy_bucket["relations"])
         if legacy_bucket["entities"] or legacy_bucket["relations"]:
@@ -2014,14 +2131,40 @@ async def get_dataset_structure(dataset_id: str, tenant_id: str, kind: str, keyw
     return True, {"kind": kind, "templates": templates_out}
 
 
-async def get_wiki_alteration(dataset_id: str, tenant_id: str):
-    """Return doc-level drift between current dataset docs and compiled wiki provenance."""
-    if not KnowledgebaseService.accessible(dataset_id, tenant_id):
-        return False, "no authorization"
-    ok, kb = KnowledgebaseService.get_by_id(dataset_id)
-    if not ok:
-        return False, "Invalid Dataset ID"
+# ── artifacts/alteration: per-``kind`` provenance & eligibility mapping ──
+#
+# Alteration is a pure set operation shared by every kind:
+#   removed        = involved (product provenance) − current (dataset docs)
+#   newly_uploaded = eligible (should be compiled) − involved
+# Only two inputs vary by kind: how ``involved`` provenance is gathered, and
+# which template kinds make a doc ``eligible``.
 
+# Non-folded template kinds that make a doc eligible for each API kind.
+_ALTERATION_ELIGIBLE_TEMPLATE_KINDS = {
+    "wiki": {"artifacts"},
+    "graph": {"knowledge_graph"},
+    "mindmap": {"mind_map"},
+    "timeline": {"timeline"},
+    "tree": {"tree", "page_index"},
+}
+
+# Dataset-merged structure kinds carry provenance in ``source_doc_ids`` or
+# ``doc_ids_kwd`` on ``scope_kwd="dataset"`` rows, discovered by their stamped
+# top-level kind.
+_ALTERATION_KIND_TO_MERGED_ROW_KIND = {
+    "graph": "knowledge_graph",
+    "mindmap": "mind_map",
+    "timeline": "timeline",
+}
+
+# Per-document structure kinds keep one product row per document; provenance is
+# the row's own ``doc_id`` (no dataset merge, no ``source_doc_ids``). ``tree`` and
+# ``page_index`` write distinct ``compile_kwd`` values.
+_ALTERATION_TREE_COMPILE_KWDS = ["tree", "page_index"]
+
+
+async def _current_dataset_docs(dataset_id: str):
+    """Return ``(docs, current_doc_id_set)`` for the dataset."""
     docs, _ = await thread_pool_exec(
         DocumentService.get_by_kb_id,
         kb_id=dataset_id,
@@ -2034,81 +2177,198 @@ async def get_wiki_alteration(dataset_id: str, tenant_id: str):
         types=[],
         suffix=[],
     )
-    current_doc_ids = {str(doc.get("id")) for doc in docs or [] if doc.get("id")}
+    docs = [doc for doc in docs if str(doc.get("status", "1")) != "0"]
+    docs = docs or []
+    current_doc_ids = {str(doc.get("id")) for doc in docs if doc.get("id")}
+    return docs, current_doc_ids
 
-    wiki_involved_doc_ids: set[str] = set()
-    pack = _wiki_index_or_none(kb.tenant_id, dataset_id)
-    if pack is not None:
-        index_nm, _ = pack
-        from common.doc_store.doc_store_base import OrderByExpr
 
-        select_fields = ["id", "source_doc_ids"]
-        offset = 0
-        page_size = 1000
-        while True:
-            try:
-                res = await thread_pool_exec(
-                    settings.docStoreConn.search,
-                    select_fields=select_fields,
-                    highlight_fields=[],
-                    condition={"compile_kwd": [WIKI_PAGE_COMPILE_KWD]},
-                    match_expressions=[],
-                    order_by=OrderByExpr(),
-                    offset=offset,
-                    limit=page_size,
-                    index_names=index_nm,
-                    knowledgebase_ids=[dataset_id],
-                )
-                rows = settings.docStoreConn.get_fields(res, select_fields) or {}
-            except Exception:
-                logging.exception("get_wiki_alteration: docStore search failed for kb=%s", dataset_id)
-                rows = {}
+async def _disabled_dataset_doc_ids(dataset_id: str) -> set[str]:
+    return await thread_pool_exec(DocumentService.get_disabled_doc_ids_by_kb_id, dataset_id)
 
-            if not rows:
-                break
-            for row in rows.values():
-                source_doc_ids = row.get("source_doc_ids")
-                if isinstance(source_doc_ids, str):
-                    source_doc_ids = [source_doc_ids]
-                if not isinstance(source_doc_ids, list):
-                    continue
-                wiki_involved_doc_ids.update(str(doc_id) for doc_id in source_doc_ids if doc_id)
 
-            offset += page_size
-            total = settings.docStoreConn.get_total(res)
-            if not total or offset >= int(total):
-                break
-
-    template_cache: dict[str, bool] = {}
-    group_cache: dict[str, bool] = {}
-    pipeline_cache: dict[str, bool] = {}
-    eligible_wiki_doc_ids: set[str] = set()
-    for doc in docs or []:
-        doc_id = str(doc.get("id") or "")
-        if not doc_id:
-            continue
-        parser_config = doc.get("parser_config") or {}
-        if _parser_config_has_wiki_template(parser_config, kb.tenant_id, template_cache):
-            eligible_wiki_doc_ids.add(doc_id)
-            continue
-        if _pipeline_has_wiki_compiler(
-            doc.get("pipeline_id") or "",
-            kb.tenant_id,
-            pipeline_cache,
-            group_cache,
-        ):
-            eligible_wiki_doc_ids.add(doc_id)
-
-    removed_doc_ids = sorted(wiki_involved_doc_ids - current_doc_ids)
-    newly_uploaded_doc_ids = sorted(eligible_wiki_doc_ids - wiki_involved_doc_ids)
-    return True, {
+def _alteration_result(current_doc_ids: set, involved_doc_ids: set, eligible_doc_ids: set) -> dict:
+    """Build the drift response dict shared by every ``kind``."""
+    removed_doc_ids = sorted(involved_doc_ids - current_doc_ids)
+    newly_uploaded_doc_ids = sorted(eligible_doc_ids - involved_doc_ids)
+    return {
         "removed": len(removed_doc_ids),
         "newly_uploaded": len(newly_uploaded_doc_ids),
         "removed_doc_ids": removed_doc_ids,
         "newly_uploaded_doc_ids": newly_uploaded_doc_ids,
-        "involved_doc_ids": sorted(wiki_involved_doc_ids),
-        "eligible_doc_ids": sorted(eligible_wiki_doc_ids),
+        "involved_doc_ids": sorted(involved_doc_ids),
+        "eligible_doc_ids": sorted(eligible_doc_ids),
     }
+
+
+def _flatten_provenance_doc_ids(value) -> set[str]:
+    """Normalize source_doc_ids stored as JSON strings, lists, or scalars."""
+    if value is None:
+        return set()
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return set()
+        try:
+            return _flatten_provenance_doc_ids(json.loads(raw))
+        except (json.JSONDecodeError, TypeError):
+            return {raw}
+    if isinstance(value, (list, tuple, set)):
+        result: set[str] = set()
+        for item in value:
+            result.update(_flatten_provenance_doc_ids(item))
+        return result
+    return {str(value)}
+
+
+def _eligible_doc_ids_for_kind(docs, tenant_id: str, kind: str) -> set:
+    """Doc ids whose parser_config or pipeline carries a template of ``kind``."""
+    accepted = _ALTERATION_ELIGIBLE_TEMPLATE_KINDS.get(kind) or set()
+    template_cache: dict[str, bool] = {}
+    group_cache: dict[str, bool] = {}
+    pipeline_cache: dict[str, bool] = {}
+    eligible: set[str] = set()
+    for doc in docs or []:
+        if str(doc.get("status", "1")) == "0":
+            continue
+        doc_id = str(doc.get("id") or "")
+        if not doc_id:
+            continue
+        parser_config = doc.get("parser_config") or {}
+        if _parser_config_has_template_of_kind(parser_config, tenant_id, accepted, template_cache):
+            eligible.add(doc_id)
+            continue
+        if _pipeline_has_compiler_of_kind(doc.get("pipeline_id") or "", tenant_id, accepted, pipeline_cache, group_cache):
+            eligible.add(doc_id)
+    return eligible
+
+
+async def _involved_doc_ids_paged(index_nm, dataset_id: str, condition: dict, field: str | list[str], from_list: bool) -> set:
+    """Page a docStore search, folding provenance fields into a doc-id set.
+
+    ``from_list`` reads the selected fields as lists of provenance document IDs;
+    otherwise the selected field is the row's own scalar document ID.
+    """
+    from common.doc_store.doc_store_base import OrderByExpr
+
+    involved: set[str] = set()
+    fields = [field] if isinstance(field, str) else field
+    select_fields = ["id", *fields]
+    offset = 0
+    page_size = 1000
+    while True:
+        try:
+            res = await thread_pool_exec(
+                settings.docStoreConn.search,
+                select_fields=select_fields,
+                highlight_fields=[],
+                condition=condition,
+                match_expressions=[],
+                order_by=OrderByExpr(),
+                offset=offset,
+                limit=page_size,
+                index_names=index_nm,
+                knowledgebase_ids=[dataset_id],
+            )
+            rows = settings.docStoreConn.get_fields(res, select_fields) or {}
+        except Exception:
+            logging.exception("alteration: docStore search failed for kb=%s cond=%s", dataset_id, condition)
+            rows = {}
+
+        if not rows:
+            break
+        for row in rows.values():
+            if from_list:
+                for field_name in fields:
+                    involved.update(_flatten_provenance_doc_ids(row.get(field_name)))
+            else:
+                involved.update(_flatten_provenance_doc_ids(row.get(fields[0])))
+
+        offset += page_size
+        total = settings.docStoreConn.get_total(res)
+        if not total or offset >= int(total):
+            break
+    return involved
+
+
+async def _involved_doc_ids_for_kind(index_nm, dataset_id: str, kind: str) -> set:
+    """Gather the doc ids baked into the compiled product for ``kind``."""
+    if kind == "wiki":
+        return await _involved_doc_ids_paged(index_nm, dataset_id, {"compile_kwd": [WIKI_PAGE_COMPILE_KWD]}, "source_doc_ids", from_list=True)
+    if kind in _ALTERATION_KIND_TO_MERGED_ROW_KIND:
+        condition = {
+            "knowledge_graph_kwd": ["entity", "relation"],
+            "scope_kwd": ["dataset"],
+            "compilation_template_kind_kwd": [_ALTERATION_KIND_TO_MERGED_ROW_KIND[kind]],
+        }
+        involved = await _involved_doc_ids_paged(index_nm, dataset_id, condition, ["source_doc_ids", "doc_ids_kwd"], from_list=True)
+        if involved:
+            return involved
+
+        # Historical dataset rows may predate provenance columns. Recover the
+        # source document set from their template/compile identity so alteration
+        # still reports disabled documents instead of treating every active
+        # document as newly uploaded.
+        template_ids = await _involved_doc_ids_paged(index_nm, dataset_id, condition, "compilation_template_ids", from_list=True)
+        compile_kwds = await _involved_doc_ids_paged(index_nm, dataset_id, condition, "compile_kwd", from_list=True)
+        if not template_ids and not compile_kwds:
+            legacy_condition = {
+                "knowledge_graph_kwd": [_DATASET_STRUCTURE_ROW_KWD],
+                "compilation_template_kind_kwd": [_ALTERATION_KIND_TO_MERGED_ROW_KIND[kind]],
+            }
+            template_ids = await _involved_doc_ids_paged(index_nm, dataset_id, legacy_condition, "compilation_template_ids", from_list=True)
+            compile_kwds = await _involved_doc_ids_paged(index_nm, dataset_id, legacy_condition, "compile_kwd", from_list=True)
+        source_condition: dict = {"knowledge_graph_kwd": ["entity", "relation"]}
+        if template_ids:
+            source_condition["compilation_template_ids"] = sorted(template_ids)
+        elif compile_kwds:
+            source_condition["compile_kwd"] = sorted(compile_kwds)
+        else:
+            return set()
+        involved = await _involved_doc_ids_paged(index_nm, dataset_id, source_condition, "doc_id", from_list=False)
+        involved.discard(dataset_id)
+        return involved
+    if kind == "tree":
+        return await _involved_doc_ids_paged(index_nm, dataset_id, {"compile_kwd": list(_ALTERATION_TREE_COMPILE_KWDS)}, "doc_id", from_list=False)
+    return set()
+
+
+async def _get_alteration(dataset_id: str, tenant_id: str, kind: str):
+    """Shared driver: doc-level drift between the ``kind`` product and the dataset."""
+    if not KnowledgebaseService.accessible(dataset_id, tenant_id):
+        return False, "no authorization"
+    ok, kb = KnowledgebaseService.get_by_id(dataset_id)
+    if not ok:
+        return False, "Invalid Dataset ID"
+
+    docs, current_doc_ids = await _current_dataset_docs(dataset_id)
+
+    involved_doc_ids: set[str] = set()
+    pack = _compiled_index_or_none(kb.tenant_id, dataset_id)
+    if pack is not None:
+        index_nm, _ = pack
+        involved_doc_ids = await _involved_doc_ids_for_kind(index_nm, dataset_id, kind)
+
+    eligible_doc_ids = _eligible_doc_ids_for_kind(docs, kb.tenant_id, kind)
+    return True, _alteration_result(current_doc_ids, involved_doc_ids, eligible_doc_ids)
+
+
+async def get_wiki_alteration(dataset_id: str, tenant_id: str):
+    """Return doc-level drift between current dataset docs and compiled wiki provenance."""
+    return await _get_alteration(dataset_id, tenant_id, "wiki")
+
+
+async def get_structure_alteration(dataset_id: str, tenant_id: str, kind: str):
+    """Return doc-level drift for a non-wiki structure ``kind``.
+
+    ``kind`` is one of ``graph`` / ``mindmap`` / ``timeline`` (dataset-merged
+    products, provenance from ``source_doc_ids``) or ``tree`` (per-document
+    products covering ``tree`` + ``page_index``, provenance from ``doc_id``).
+    """
+    kind = (kind or "").strip().lower()
+    if kind not in _ALTERATION_KIND_TO_MERGED_ROW_KIND and kind != "tree":
+        return False, f"Unsupported structure kind: {kind!r}. Expected one of: graph, mindmap, timeline, tree."
+    return await _get_alteration(dataset_id, tenant_id, kind)
 
 
 async def list_wiki_pages(
@@ -2118,6 +2378,7 @@ async def list_wiki_pages(
     page_size: int = 200,
     page_type: str | None = None,
     topic: str | None = None,
+    keywords: str = "",
 ):
     """List artifact pages for the left-hand 2-column list.
 
@@ -2141,6 +2402,7 @@ async def list_wiki_pages(
     offset = (page - 1) * page_size
     page_type = page_type.strip() if isinstance(page_type, str) else page_type
     topic = topic.strip() if isinstance(topic, str) else topic
+    keywords = (keywords or "").strip().casefold()
 
     condition: dict = {"compile_kwd": [WIKI_PAGE_COMPILE_KWD]}
     if page_type:
@@ -2167,38 +2429,71 @@ async def list_wiki_pages(
         "outlinks_int",
         "summary_with_weight",
     ]
+
+    def _to_item(row):
+        slug = _scalar(row.get("slug_kwd"))
+        if not slug:
+            return None
+        return {
+            "slug": slug,
+            "title": _scalar(row.get("title_kwd")) or slug,
+            "page_type": _scalar(row.get("page_type_kwd")) or "concept",
+            "topic": _scalar(row.get("topic_kwd")) or "",
+            "summary": row.get("summary_with_weight") or "",
+        }
+
     try:
-        res = settings.docStoreConn.search(
-            select_fields=select_fields,
-            highlight_fields=[],
-            condition=condition,
-            match_expressions=[],
-            order_by=order_by,
-            offset=offset,
-            limit=page_size,
-            index_names=index_nm,
-            knowledgebase_ids=[dataset_id],
-        )
-        field_map = settings.docStoreConn.get_fields(res, select_fields)
+        if not keywords:
+            res = settings.docStoreConn.search(
+                select_fields=select_fields,
+                highlight_fields=[],
+                condition=condition,
+                match_expressions=[],
+                order_by=order_by,
+                offset=offset,
+                limit=page_size,
+                index_names=index_nm,
+                knowledgebase_ids=[dataset_id],
+            )
+            field_map = settings.docStoreConn.get_fields(res, select_fields)
+            items = [item for row in (field_map or {}).values() if (item := _to_item(row)) is not None]
+            total = settings.docStoreConn.get_total(res)
+        else:
+            # Wiki list search is intentionally metadata-based. These fields
+            # are available on existing rows and behave consistently across
+            # every document-store backend, unlike a full-text query over
+            # backend-specific token fields.
+            matched_items = []
+            batch_size = 1000
+            search_offset = 0
+            while True:
+                res = settings.docStoreConn.search(
+                    select_fields=select_fields,
+                    highlight_fields=[],
+                    condition=condition,
+                    match_expressions=[],
+                    order_by=order_by,
+                    offset=search_offset,
+                    limit=batch_size,
+                    index_names=index_nm,
+                    knowledgebase_ids=[dataset_id],
+                )
+                field_map = settings.docStoreConn.get_fields(res, select_fields)
+                rows = list((field_map or {}).values())
+                if not rows:
+                    break
+                for row in rows:
+                    item = _to_item(row)
+                    if item is not None and any(keywords in str(item[field]).casefold() for field in ("title", "slug", "summary")):
+                        matched_items.append(item)
+                if len(rows) < batch_size:
+                    break
+                search_offset += batch_size
+            total = len(matched_items)
+            items = matched_items[offset : offset + page_size]
     except Exception:
         logging.exception("list_wiki_pages: docStore search failed for kb=%s", dataset_id)
         return True, {"total": 0, "items": []}
-
-    total = settings.docStoreConn.get_total(res)
-    items = []
-    for row in (field_map or {}).values():
-        slug = row.get("slug_kwd")
-        if not isinstance(slug, str) or not slug:
-            continue
-        items.append(
-            {
-                "slug": slug,
-                "title": row.get("title_kwd") or slug,
-                "page_type": row.get("page_type_kwd") or "concept",
-                "topic": row.get("topic_kwd") or "",
-                "summary": row.get("summary_with_weight") or "",
-            }
-        )
 
     return True, {"total": int(total or 0), "items": items}
 
@@ -2208,6 +2503,7 @@ async def list_wiki_topics(
     tenant_id: str,
     page: int = 1,
     page_size: int = 200,
+    keywords: str = "",
 ):
     """List wiki topics for the dataset Artifact tab."""
     if not KnowledgebaseService.accessible(dataset_id, tenant_id):
@@ -2224,6 +2520,7 @@ async def list_wiki_topics(
     page = max(1, int(page or 1))
     page_size = max(1, min(int(page_size or 200), 1000))
     offset = (page - 1) * page_size
+    keywords = (keywords or "").strip().casefold()
 
     try:
         agg_res = settings.docStoreConn.search(
@@ -2270,9 +2567,12 @@ async def list_wiki_topics(
             if not rows:
                 break
             for row in rows.values():
-                t = row.get("topic_kwd")
-                if isinstance(t, str) and t:
-                    meta[t] = {"title": row.get("title_kwd") or t, "slug": row.get("slug_kwd") or t}
+                t = _scalar(row.get("topic_kwd"))
+                if t:
+                    meta[t] = {
+                        "title": _scalar(row.get("title_kwd")) or t,
+                        "slug": _scalar(row.get("slug_kwd")) or t,
+                    }
             _offset += _BATCH
     except Exception:
         logging.exception("list_wiki_topics: topic metadata lookup failed for kb=%s", dataset_id)
@@ -2290,6 +2590,41 @@ async def list_wiki_topics(
         ),
         key=lambda x: (-x["page_count"], x["title"].lower()),
     )
+
+    if keywords:
+        matching_topics = {item["topic"] for item in ranked if any(keywords in str(item[field]).casefold() for field in ("topic", "title", "slug"))}
+
+        child_fields = ["topic_kwd", "title_kwd", "slug_kwd", "summary_with_weight"]
+        batch_size = 1000
+        child_offset = 0
+        try:
+            while True:
+                child_res = settings.docStoreConn.search(
+                    select_fields=child_fields,
+                    highlight_fields=[],
+                    condition={"compile_kwd": [WIKI_PAGE_COMPILE_KWD], "page_type_kwd": ["concept", "entity"]},
+                    match_expressions=[],
+                    order_by=OrderByExpr(),
+                    offset=child_offset,
+                    limit=batch_size,
+                    index_names=index_nm,
+                    knowledgebase_ids=[dataset_id],
+                )
+                child_map = settings.docStoreConn.get_fields(child_res, child_fields)
+                child_rows = list((child_map or {}).values())
+                if not child_rows:
+                    break
+                for row in child_rows:
+                    topic_name = _scalar(row.get("topic_kwd"))
+                    if topic_name and any(keywords in str(_scalar(row.get(field)) or "").casefold() for field in ("title_kwd", "slug_kwd", "summary_with_weight")):
+                        matching_topics.add(topic_name)
+                if len(child_rows) < batch_size:
+                    break
+                child_offset += batch_size
+        except Exception:
+            logging.exception("list_wiki_topics: child-page keyword lookup failed for kb=%s", dataset_id)
+
+        ranked = [item for item in ranked if item["topic"] in matching_topics]
 
     total = len(ranked)
     items = ranked[offset : offset + page_size]
@@ -2329,6 +2664,7 @@ async def get_wiki_page(
         "title_kwd",
         "page_type_kwd",
         "topic_kwd",
+        "md_with_weight",
         "content_with_weight",
         "summary_with_weight",
         "entity_names_kwd",
@@ -2366,13 +2702,15 @@ async def get_wiki_page(
         return True, None
 
     _, row = next(iter(field_map.items()))
-    content_md = row.get("content_with_weight") or ""
+    # The incremental writer stores page body in md_with_weight; fall back to
+    # content_with_weight for any rows written by the legacy path.
+    content_md = row.get("md_with_weight") or row.get("content_with_weight") or ""
     summary = row.get("summary_with_weight") or ""
     return True, {
-        "slug": row.get("slug_kwd") or full_slug,
-        "title": row.get("title_kwd") or full_slug,
-        "page_type": row.get("page_type_kwd") or page_type,
-        "topic": row.get("topic_kwd") or "",
+        "slug": _scalar(row.get("slug_kwd")) or full_slug,
+        "title": _scalar(row.get("title_kwd")) or full_slug,
+        "page_type": _scalar(row.get("page_type_kwd")) or page_type,
+        "topic": _scalar(row.get("topic_kwd")) or "",
         "content_md_rendered": content_md,
         "summary": summary,
         "entity_names": row.get("entity_names_kwd") or [],
@@ -2495,12 +2833,68 @@ async def delete_skills(dataset_id: str, tenant_id: str):
     return True, {"deleted": int(deleted or 0)}
 
 
-async def delete_skill(dataset_id: str, tenant_id: str, skill_kwd: str):
-    """Delete a single compiled skill node identified by ``skill_kwd``.
+def _parse_list_field(value):
+    """Normalize a search-result ``_kwd`` field to a Python list.
 
-    Removes the per-node ``skill`` row(s) matching ``skill_kwd`` (the same
-    identity ``get_skill_page`` reads). The aggregate ``skill_all`` tree row is
-    left untouched. Returns ``(True, {"deleted": <n>})``.
+    Infinity stores keyword fields as ``###``-joined strings;
+    ES / OpenSearch / OceanBase keep native lists.
+    """
+    if isinstance(value, list):
+        return [v for v in value if v]
+    if isinstance(value, str) and value:
+        return [v for v in value.split("###") if v]
+    return []
+
+
+def _walk_skill_tree(tree: list[dict], target_kwd: str, parent_kwd: str | None = None):
+    """Depth-first search through the ``skill_all`` tree JSON.
+
+    Returns ``(parent_kwd, found_node)`` or ``(None, None)`` when *target_kwd*
+    is not present in the tree.
+    """
+    for node in tree:
+        if node.get("skill_kwd") == target_kwd:
+            return parent_kwd, node
+        children = node.get("children_kwd", [])
+        if children:
+            result = _walk_skill_tree(children, target_kwd, node.get("skill_kwd"))
+            p, n = result
+            if n is not None:
+                return p, n
+    return None, None
+
+
+def _collect_tree_descendants(node: dict) -> set[str]:
+    """Return all ``skill_kwd`` values from *node*'s subtree (recursive)."""
+    result: set[str] = set()
+    for child in node.get("children_kwd", []):
+        kwd = child.get("skill_kwd", "")
+        if kwd:
+            result.add(kwd)
+        result.update(_collect_tree_descendants(child))
+    return result
+
+
+def _prune_skill_tree(tree: list[dict], deleted_kwds: set[str]) -> list[dict]:
+    """Remove nodes whose ``skill_kwd`` is in *deleted_kwds* (and their subtrees)."""
+    result = []
+    for node in tree:
+        if node.get("skill_kwd") in deleted_kwds:
+            continue
+        children = node.get("children_kwd", [])
+        node["children_kwd"] = _prune_skill_tree(children, deleted_kwds)
+        result.append(node)
+    return result
+
+
+async def delete_skill(dataset_id: str, tenant_id: str, skill_kwd: str):
+    """Delete a compiled skill node and its descendants.
+
+    1. Walk the ``skill_all`` tree to identify the target node, its parent,
+       and all descendant ``skill_kwd`` values.
+    2. Delete every matching ``compile_kwd="skill"`` row (self + subtree).
+    3. If a parent exists, remove the deleted node from its ``children_kwd``.
+    4. Prune the ``skill_all`` tree and rewrite the aggregate row.
     """
     if not KnowledgebaseService.accessible(dataset_id, tenant_id):
         return False, "no authorization"
@@ -2511,15 +2905,123 @@ async def delete_skill(dataset_id: str, tenant_id: str, skill_kwd: str):
         return True, {"deleted": 0}
     index_nm, _ = pack
 
+    # ------------------------------------------------------------------
+    # 1. Read current skill_all tree
+    # ------------------------------------------------------------------
+    from common.doc_store.doc_store_base import OrderByExpr
+
+    _ALL_SELECT = ["id", "kb_id", "doc_id", "compile_kwd", "skill_with_weight", "available_int"]
+    try:
+        res = settings.docStoreConn.search(
+            select_fields=_ALL_SELECT,
+            highlight_fields=[],
+            condition={"compile_kwd": [_SKILL_ALL_COMPILE_KWD]},
+            match_expressions=[],
+            order_by=OrderByExpr(),
+            offset=0,
+            limit=1,
+            index_names=index_nm,
+            knowledgebase_ids=[dataset_id],
+        )
+        field_map = settings.docStoreConn.get_fields(res, _ALL_SELECT)
+    except Exception:
+        logging.exception("delete_skill: read skill_all failed kb=%s skill=%s", dataset_id, skill_kwd)
+        return False, "Failed to read skill tree."
+
+    if not field_map:
+        return True, {"deleted": 0}
+    _, skill_all_row = next(iter(field_map.items()))
+
+    raw_tree = skill_all_row.get("skill_with_weight", "[]")
+    tree = json.loads(raw_tree) if isinstance(raw_tree, str) else raw_tree
+    tree = tree if isinstance(tree, list) else [tree]
+
+    # ------------------------------------------------------------------
+    # 2. Locate target node and collect descendants
+    # ------------------------------------------------------------------
+    parent_kwd, found_node = _walk_skill_tree(tree, skill_kwd)
+    if found_node is None:
+        # Fallback: node not tracked in the tree; try direct delete anyway.
+        try:
+            deleted = settings.docStoreConn.delete(
+                {"compile_kwd": [_SKILL_COMPILE_KWD], "skill_kwd": [skill_kwd]},
+                index_nm,
+                dataset_id,
+            )
+        except Exception:
+            logging.exception("delete_skill: fallback delete failed kb=%s skill=%s", dataset_id, skill_kwd)
+            return False, "Failed to delete skill."
+        return True, {"deleted": int(deleted or 0)}
+
+    descendant_kwds = _collect_tree_descendants(found_node)
+    all_kwds = [skill_kwd] + sorted(descendant_kwds)
+
+    # ------------------------------------------------------------------
+    # 3. Delete compile_kwd="skill" rows (self + all descendants)
+    # ------------------------------------------------------------------
     try:
         deleted = settings.docStoreConn.delete(
-            {"compile_kwd": [_SKILL_COMPILE_KWD], "skill_kwd": [skill_kwd]},
+            {"compile_kwd": [_SKILL_COMPILE_KWD], "skill_kwd": all_kwds},
             index_nm,
             dataset_id,
         )
     except Exception:
-        logging.exception("delete_skill: docStore delete failed for kb=%s skill=%s", dataset_id, skill_kwd)
+        logging.exception("delete_skill: delete failed kb=%s skill=%s kwds=%s", dataset_id, skill_kwd, all_kwds)
         return False, "Failed to delete skill."
+
+    # ------------------------------------------------------------------
+    # 4. Update parent's children_kwd
+    # ------------------------------------------------------------------
+    if parent_kwd:
+        _NODE_SELECT = [
+            "id",
+            "kb_id",
+            "doc_id",
+            "compile_kwd",
+            "skill_kwd",
+            "depth_int",
+            "children_kwd",
+            "source_doc_ids",
+            "md_with_weight",
+            "available_int",
+            "parent_kwd",
+        ]
+        try:
+            res = settings.docStoreConn.search(
+                select_fields=_NODE_SELECT,
+                highlight_fields=[],
+                condition={"compile_kwd": [_SKILL_COMPILE_KWD], "skill_kwd": [parent_kwd]},
+                match_expressions=[],
+                order_by=OrderByExpr(),
+                offset=0,
+                limit=1,
+                index_names=index_nm,
+                knowledgebase_ids=[dataset_id],
+            )
+            fm = settings.docStoreConn.get_fields(res, _NODE_SELECT)
+        except Exception:
+            logging.exception("delete_skill: read parent failed kb=%s parent=%s", dataset_id, parent_kwd)
+        else:
+            if fm:
+                _, parent_row = next(iter(fm.items()))
+                children = [c for c in _parse_list_field(parent_row.get("children_kwd", [])) if c != skill_kwd]
+                parent_row["children_kwd"] = children
+                try:
+                    settings.docStoreConn.insert([parent_row], index_nm, dataset_id)
+                except Exception:
+                    logging.exception("delete_skill: update parent children_kwd failed kb=%s parent=%s", dataset_id, parent_kwd)
+
+    # ------------------------------------------------------------------
+    # 5. Prune and rewrite skill_all tree
+    # ------------------------------------------------------------------
+    try:
+        deleted_set = set(all_kwds)
+        pruned_tree = _prune_skill_tree(tree, deleted_set)
+        skill_all_row["skill_with_weight"] = json.dumps(pruned_tree, ensure_ascii=False, indent=2)
+        settings.docStoreConn.insert([skill_all_row], index_nm, dataset_id)
+    except Exception:
+        logging.exception("delete_skill: rewrite skill_all failed kb=%s skill=%s", dataset_id, skill_kwd)
+        return False, "Failed to update skill tree."
 
     return True, {"deleted": int(deleted or 0)}
 
@@ -2913,7 +3415,7 @@ async def update_wiki_page(
     content_before = ""
     try:
         res = settings.docStoreConn.search(
-            select_fields=["id", "content_with_weight"],
+            select_fields=["id", "md_with_weight", "content_with_weight"],
             highlight_fields=[],
             condition={
                 "compile_kwd": [WIKI_PAGE_COMPILE_KWD],
@@ -2929,11 +3431,11 @@ async def update_wiki_page(
         )
         field_map = settings.docStoreConn.get_fields(
             res,
-            ["id", "content_with_weight"],
+            ["id", "md_with_weight", "content_with_weight"],
         )
         if field_map:
             row_id, row = next(iter(field_map.items()))
-            content_before = row.get("content_with_weight") or ""
+            content_before = row.get("md_with_weight") or row.get("content_with_weight") or ""
     except Exception:
         logging.exception(
             "update_wiki_page: lookup failed for kb=%s slug=%s",
@@ -2954,6 +3456,7 @@ async def update_wiki_page(
         ok = settings.docStoreConn.update(
             {"id": row_id},
             {
+                "md_with_weight": rendered,
                 "content_with_weight": rendered,
                 "summary_with_weight": summary,
                 "outlinks_kwd": list(outlinks),
@@ -2971,6 +3474,17 @@ async def update_wiki_page(
 
     if not ok:
         return True, None
+
+    refresh_idx = getattr(settings.docStoreConn, "refresh_idx", None)
+    if callable(refresh_idx):
+        try:
+            await thread_pool_exec(refresh_idx, index_nm)
+        except Exception:
+            logging.exception(
+                "update_wiki_page: index refresh failed for kb=%s slug=%s",
+                dataset_id,
+                full_slug,
+            )
 
     # Record a file_commit row on every real change. ``record_page_edit``
     # returns None for empty-diff saves, which we silently swallow.
@@ -3046,7 +3560,7 @@ def _wiki_entity_payload(row: dict) -> dict | None:
                 payload = parsed
         except Exception:
             pass
-    slug = payload.get("slug") or row.get("slug_kwd")
+    slug = payload.get("slug") or _scalar(row.get("slug_kwd"))
     if not isinstance(slug, str) or not slug:
         return None
     out = {
@@ -3142,7 +3656,13 @@ async def _wiki_search_entities_by_slugs(
     dataset_id: str,
     slugs: list[str],
 ):
-    """Fetch entity rows whose ``slug_kwd`` is in ``slugs``. Unordered."""
+    """Fetch entity rows whose ``slug_kwd`` is in ``slugs``. Unordered.
+
+    Like :func:`_wiki_search_relations_from`, we avoid pushing ``slug_kwd`` (a
+    *_kwd analysed field) into the search filter — a `slug_kwd: [..]` with ~20
+    entries triggers TOO_MANY_CONNECTIONS. Pull all entity rows once and filter
+    in memory.
+    """
     if not slugs:
         return {}
 
@@ -3155,22 +3675,35 @@ async def _wiki_search_entities_by_slugs(
         "source_chunk_ids",
         "content_with_weight",
     ]
-    res = await thread_pool_exec(
-        settings.docStoreConn.search,
-        select_fields,
-        [],
-        {
-            "compile_kwd": [_WIKI_GRAPH_ENTITY_KWD],
-            "slug_kwd": list(slugs),
-        },
-        [],
-        OrderByExpr(),
-        0,
-        max(len(slugs), 1),
-        index_nm,
-        [dataset_id],
-    )
-    return settings.docStoreConn.get_fields(res, select_fields)
+    wanted = set(slugs)
+    results = {}
+    offset, page_size = 0, 1000
+    while True:
+        res = await thread_pool_exec(
+            settings.docStoreConn.search,
+            select_fields,
+            [],
+            {"compile_kwd": [_WIKI_GRAPH_ENTITY_KWD]},
+            [],
+            OrderByExpr(),
+            offset,
+            page_size,
+            index_nm,
+            [dataset_id],
+        )
+        rows = settings.docStoreConn.get_fields(res, select_fields)
+        if not rows:
+            break
+        for row in rows.values():
+            slug = row.get("slug_kwd")
+            if isinstance(slug, list):
+                slug = slug[0] if slug else ""
+            if slug in wanted:
+                results[row.get("id", len(results))] = row
+        if len(rows) < page_size:
+            break
+        offset += page_size
+    return results
 
 
 async def _wiki_search_relations_from(
@@ -3178,31 +3711,54 @@ async def _wiki_search_relations_from(
     dataset_id: str,
     from_slugs: list[str],
 ):
-    """Fetch all relation rows with ``from_kwd`` in ``from_slugs``."""
+    """Fetch relation rows whose ``from_kwd`` is in ``from_slugs``.
+
+    IMPORTANT: we do NOT push ``from_slugs`` into the search filter. ``from_kwd``
+    is a *_kwd (whitespace-# analysed) field, and the generic search path turns
+    `from_kwd: [v1, v2, ...]` into one ``filter_fulltext`` clause per value. A
+    batch of only ~20 slugs already blows past Infinity's per-query connection
+    budget and surfaces as TOO_MANY_CONNECTIONS (the incremental writer emits
+    many relations, so sub_slugs easily exceeds 20). Instead we pull ALL relation
+    rows for the dataset in ONE cheap query (relations are short and few) and
+    filter in memory.
+    """
     if not from_slugs:
         return {}
 
     from common.doc_store.doc_store_base import OrderByExpr
 
     select_fields = ["id", "from_kwd", "to_kwd", "content_with_weight"]
-    # Generous upper bound: relations are short; bulk-pull all matching at
-    # once rather than paging.
-    res = await thread_pool_exec(
-        settings.docStoreConn.search,
-        select_fields,
-        [],
-        {
-            "compile_kwd": [_WIKI_GRAPH_RELATION_KWD],
-            "from_kwd": list(from_slugs),
-        },
-        [],
-        OrderByExpr(),
-        0,
-        10000,
-        index_nm,
-        [dataset_id],
-    )
-    return settings.docStoreConn.get_fields(res, select_fields)
+    wanted = set(from_slugs)
+    # Single query without the huge from_kwd IN-filter. Page over results in
+    # case a dataset has more than 10000 relations.
+    results = {}
+    offset, page_size = 0, 1000
+    while True:
+        res = await thread_pool_exec(
+            settings.docStoreConn.search,
+            select_fields,
+            [],
+            {"compile_kwd": [_WIKI_GRAPH_RELATION_KWD]},
+            [],
+            OrderByExpr(),
+            offset,
+            page_size,
+            index_nm,
+            [dataset_id],
+        )
+        rows = settings.docStoreConn.get_fields(res, select_fields)
+        if not rows:
+            break
+        for row in rows.values():
+            frm = row.get("from_kwd")
+            if isinstance(frm, list):
+                frm = frm[0] if frm else ""
+            if frm in wanted:
+                results[row.get("id", len(results))] = row
+        if len(rows) < page_size:
+            break
+        offset += page_size
+    return results
 
 
 async def get_wiki_graph(
@@ -3520,5 +4076,19 @@ async def clear_wiki(dataset_id: str, tenant_id: str):
                 dataset_id,
             )
             deleted[kwd] = False
+
+    from api.db.services.file_commit_service import FileCommitService
+
+    if all(result is not False for result in deleted.values()):
+        try:
+            deleted["file_commit_history"] = FileCommitService.delete_all_page_history(dataset_id)
+        except Exception:
+            logging.exception(
+                "clear_wiki: failed to delete page version history for kb=%s",
+                dataset_id,
+            )
+            deleted["file_commit_history"] = False
+    else:
+        deleted["file_commit_history"] = False
 
     return True, {"deleted": deleted}

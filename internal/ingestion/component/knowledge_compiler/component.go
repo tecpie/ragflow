@@ -1,24 +1,30 @@
 // Package knowledge_compiler implements the KnowledgeCompiler ingestion
 // component: a single runtime.Component that dispatches to one of the
-// knowledge-compile variants (structure / wiki / raptor / mindmap / datasetnav)
-// based on the `variant` param. See PORT_PLAN.md for the full design.
+// knowledge-compile variants (structure / wiki / tree / mindmap) based on the
+// `variant` param. See PORT_PLAN.md for the full design.
 package knowledge_compiler
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"log"
+	"sort"
 	"strings"
 
 	"ragflow/internal/agent/runtime"
+	clog "ragflow/internal/common"
+	"ragflow/internal/ingestion/component/globals"
 	"ragflow/internal/ingestion/component/knowledge_compiler/common"
-	"ragflow/internal/ingestion/component/knowledge_compiler/datasetnav"
 	"ragflow/internal/ingestion/component/knowledge_compiler/mindmap"
-	"ragflow/internal/ingestion/component/knowledge_compiler/raptor"
 	"ragflow/internal/ingestion/component/knowledge_compiler/structure"
+	"ragflow/internal/ingestion/component/knowledge_compiler/tree"
 	"ragflow/internal/ingestion/component/knowledge_compiler/wiki"
 	"ragflow/internal/ingestion/component/schema"
+	"ragflow/internal/service/nav"
 	"ragflow/internal/tokenizer"
 
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 
@@ -35,7 +41,12 @@ var chunkerOutputs = map[string]string{
 	"_ERROR":        "Set only on validation failure.",
 }
 
-const componentNameKnowledgeCompiler = "KnowledgeCompiler"
+// componentNameCompiler is the canonical, unified component name for the
+// knowledge-compilation flow. It matches the Python side
+// (rag/flow/compiler/compiler.py registers component_name = "Compiler"), so a
+// canvas saved by the Python frontend and Go's built-in ingestion templates
+// both reference the node as "Compiler" and resolve to the same component.
+const componentNameCompiler = "Compiler"
 
 // KnowledgeCompilerComponent is the runtime.Component surface. Param is set at
 // construction from the DSL; per-call overrides flow through the inputs map.
@@ -58,10 +69,6 @@ func NewKnowledgeCompilerComponent(name string, params map[string]any) (runtime.
 func (c *KnowledgeCompilerComponent) Inputs() map[string]string {
 	return map[string]string{
 		"chunks":                "List of map[string]any from upstream chunker/parser; each must carry id + text/content_with_weight.",
-		"llm_id":                "Optional per-call LLM id override.",
-		"embedding_model":       "Optional per-call embedding model override.",
-		"tenant_id":             "Optional tenant scope (defaults to resolver context).",
-		"dataset_id":            "Optional dataset scope (wiki historical dedup).",
 		"historical_candidates": "Optional []common.Candidate override for historical dedup (test/offline).",
 	}
 }
@@ -83,91 +90,128 @@ func (c *KnowledgeCompilerComponent) Outputs() map[string]string {
 func (c *KnowledgeCompilerComponent) Invoke(ctx context.Context, db *gorm.DB, inputs map[string]any) (map[string]any, error) {
 	_ = db
 	param := c.Param
-	if v, ok := inputs["llm_id"].(string); ok && v != "" {
-		param.LLMID = v
-	}
-	if v, ok := inputs["embedding_model"].(string); ok && v != "" {
-		param.EmbeddingModel = v
-	}
-	tenantID, _ := inputs["tenant_id"].(string)
-	datasetID, _ := inputs["dataset_id"].(string)
-
-	// Validate the variant before resolving deps so a bad variant fails fast
-	// with ErrUnknownVariant rather than a deps-resolution error.
-	switch param.Variant {
-	case common.VariantStructure, common.VariantWiki, common.VariantRaptor,
-		common.VariantMindmap, common.VariantDatasetnav:
-		// recognised; dispatch below
-	default:
-		return nil, fmt.Errorf("%w: %q", common.ErrUnknownVariant, param.Variant)
+	// Resolve the run-level tenant scope from the shared CanvasState.Globals
+	// bag first (seeded by the pipeline at run start), falling back to the
+	// component's own input map. Mirrors parser.go: it keeps the tenant id from
+	// being lost when the upstream output map narrows it, which would otherwise
+	// leave the template-group lookup with an empty tenant and fail loudly.
+	tenantID := globals.GlobalOrInput(ctx, inputs, "tenant_id", "")
+	// The ingestion pipeline seeds kb_id (not dataset_id) into the canvas
+	// globals/inputs. In RAGFlow the knowledge base id IS the dataset id, so
+	// fall back to kb_id when dataset_id is absent. This keeps the compiler's
+	// dataset-scoped writes (merged wiki_page rows, wiki graph) keyed to the
+	// correct dataset instead of an empty string.
+	datasetID := globals.GlobalOrInput(ctx, inputs, "dataset_id", "")
+	if datasetID == "" {
+		datasetID = globals.GlobalOrInput(ctx, inputs, "kb_id", "")
 	}
 
-	deps, err := common.ResolveDeps(tenantID, param.LLMID, param.EmbeddingModel)
+	// Resolve the compilation template spec(s). Priority:
+	// compilation_template_id > compilation_template_group_id. The variant is
+	// derived from each template's kind (see common.KindToVariant), not from
+	// the DSL.
+	specs, err := resolveTemplateSpecs(ctx, db, tenantID, param)
 	if err != nil {
 		return nil, err
 	}
-	deps.TenantID = tenantID
-	deps.DatasetID = datasetID
 
-	// Resolve compilation-template-group ids to concrete template ids and merge
-	// them with any explicitly-passed template ids. Group-only configs that
-	// cannot be resolved fail loudly rather than silently emitting rows missing
-	// compilation_template_ids (a data-loss path).
-	resolvedGroups, err := common.ResolveGroupTemplateIDs(ctx, tenantID, param.GroupIDs)
-	if err != nil {
-		return nil, err
+	// The eino wiring does not auto-merge run-level metadata into every
+	// component's input map, so doc_id may arrive only via CanvasState.Globals
+	// (seeded by the pipeline at run start) rather than inputs["doc_id"].
+	// Mirror the dataset_id/kb_id resolution above: fall back to globals so the
+	// compiler (and its wiki sub-logs) see the real doc_id instead of "unknown".
+	if d, ok := inputs["doc_id"].(string); !ok || d == "" {
+		if g := globals.GlobalOrInput(ctx, inputs, "doc_id", ""); g != "" {
+			inputs["doc_id"] = g
+		}
 	}
-	templateIDs := append(append([]string{}, param.TemplateIDs...), resolvedGroups...)
 
 	in, err := buildInputs(inputs, param)
 	if err != nil {
 		return nil, err
 	}
 
-	// Stamp the resolved template ids onto every product as it leaves the
-	// variant — including products streamed out through a sink under
-	// ExceedFlush — so they are not skipped by the post-Run stamping below
-	// (which only sees the buffered remainder in out.Products). The post-Run
-	// loop still covers that buffered remainder (M1).
-	// Only wrap a real sink. When no sink is supplied (in.Sink == nil) we must
-	// leave it nil so the product buffer is preserved under ExceedFlush; wrapping
-	// a nil sink would route flushed products into a delegate-less stamping sink
-	// that silently discards them (data loss).
-	if len(templateIDs) > 0 && in.Sink != nil {
-		in.Sink = &templateIDStampingSink{delegate: in.Sink, ids: templateIDs}
-	}
-
+	// Each spec compiles independently; products are stamped with the producing
+	// template's id and kind. All products are buffered (no streaming sink), so
+	// the post-run loop below covers every row (M1).
 	var out common.Outputs
-	switch param.Variant {
-	case common.VariantStructure:
-		out, err = structure.Run(ctx, deps, param, in)
-	case common.VariantWiki:
-		out, err = wiki.Run(ctx, deps, param, in)
-	case common.VariantRaptor:
-		out, err = raptor.Run(ctx, deps, param, in)
-	case common.VariantMindmap:
-		out, err = mindmap.Run(ctx, deps, param, in)
-	case common.VariantDatasetnav:
-		out, err = datasetnav.Run(ctx, deps, param, in)
-	default:
-		return nil, fmt.Errorf("%w: %q", common.ErrUnknownVariant, param.Variant)
-	}
-	if err != nil {
-		return nil, err
+	// navByProducts accumulates every tree/structure by-product job so each is
+	// written after the spec loop (not just the last one).
+	var navByProducts []navByProduct
+	for _, spec := range specs {
+		variant, err := common.KindToVariant(spec.Kind)
+		if err != nil {
+			return nil, err
+		}
+
+		// Per-spec Param: variant + resolved template config, with scalar config
+		// overrides (language, similarity, workers, dedup, llm/embedding) layered
+		// on top of the DSL params and Extra. This is how the template's stored
+		// "content" drives the compile without the caller passing variant-specific
+		// params inline.
+		specParam := param
+		specParam.Variant = variant
+		specParam.TemplateID = spec.ID
+		specParam.TemplateConfig = spec.Config
+		overlayTemplateConfig(&specParam, spec.Config)
+
+		deps, err := common.ResolveDeps(tenantID, specParam.LLMID, specParam.EmbeddingModel)
+		if err != nil {
+			return nil, err
+		}
+		deps.TenantID = tenantID
+		deps.DatasetID = datasetID
+
+		specIn := in
+		if specIn.VariantSpecific == nil {
+			specIn.VariantSpecific = map[string]any{}
+		}
+		specIn.VariantSpecific["config"] = spec.Config
+
+		var o common.Outputs
+		switch variant {
+		case common.VariantStructure:
+			o, err = structure.Run(ctx, deps, specParam, specIn)
+		case common.VariantWiki:
+			o, err = wiki.Run(ctx, deps, specParam, specIn)
+		case common.VariantTree:
+			o, err = tree.Run(ctx, deps, specParam, specIn)
+		case common.VariantMindmap:
+			o, err = mindmap.Run(ctx, deps, specParam, specIn)
+		default:
+			return nil, fmt.Errorf("%w: %q", common.ErrUnknownVariant, variant)
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		// Accumulate tree/structure by-product jobs so each is written after the
+		// spec loop (a multi-spec batch must not drop any spec's products). nav is
+		// a derived artifact; its failures are logged and never abort the pipeline.
+		if variant == common.VariantTree || variant == common.VariantStructure {
+			navByProducts = append(navByProducts, navByProduct{deps: deps, variant: variant, products: o.Products})
+		}
+
+		for i := range o.Products {
+			if o.Products[i].Meta == nil {
+				o.Products[i].Meta = map[string]any{}
+			}
+			o.Products[i].Meta["compilation_template_ids"] = []string{spec.ID}
+			o.Products[i].Kind = spec.Kind
+			o.Products[i].TemplateID = spec.ID
+			o.Products[i].Variant = variant
+		}
+		out.Products = append(out.Products, o.Products...)
 	}
 
-	// Stamp the compilation template ids onto every product so the chunk
-	// converter can emit compilation_template_ids (Python stamps one
-	// template_id per row; here we carry the full resolved list since the Go
-	// component runs one variant per Invoke and the caller may pass multiple
-	// template ids from a compilation-template-group). The list is the union of
-	// explicitly-passed template ids and any resolved from group ids.
-	if len(templateIDs) > 0 {
-		for i := range out.Products {
-			if out.Products[i].Meta == nil {
-				out.Products[i].Meta = map[string]any{}
-			}
-			out.Products[i].Meta["compilation_template_ids"] = templateIDs
+	// Write each dataset-nav by-product after all specs ran. tree by-product
+	// (Python compiler.py:475) and structure/page_index by-product (Python
+	// runner.py:189). Failures are logged and never abort the pipeline.
+	for _, job := range navByProducts {
+		if job.variant == common.VariantTree {
+			upsertTreeNav(ctx, job.deps, in.DocID, job.products)
+		} else {
+			upsertStructureNav(ctx, job.deps, in.DocID, job.products)
 		}
 	}
 
@@ -179,19 +223,256 @@ func (c *KnowledgeCompilerComponent) Invoke(ctx context.Context, db *gorm.DB, in
 	if err != nil {
 		return nil, err
 	}
+	// Per-doc telemetry: confirm how many compiled rows (and specifically
+	// wiki_page wiki sections vs pages) this single document produced, so a
+	// missing dataset-level wiki_page can be traced to "never generated" vs
+	// "generated then dropped".
+	var pageCount, sectionCount, entityCount, relationCount int
+	for _, p := range out.Products {
+		switch {
+		case p.Variant == common.VariantWiki && metaString(p.Meta, "kind") == "page":
+			pageCount++
+		case p.Variant == common.VariantWiki && metaString(p.Meta, "kind") == "section":
+			sectionCount++
+		case p.Variant == common.VariantWiki && metaString(p.Meta, "kind") == "entity":
+			entityCount++
+		case p.Variant == common.VariantWiki && metaString(p.Meta, "kind") == "relation":
+			relationCount++
+		}
+	}
+	clog.Info("knowledge_compiler: per-doc products generated",
+		zap.String("doc_id", in.DocID),
+		zap.Int("total_products", len(out.Products)),
+		zap.Int("wiki_page", pageCount),
+		zap.Int("wiki_section", sectionCount),
+		zap.Int("wiki_entity", entityCount),
+		zap.Int("wiki_relation", relationCount),
+		zap.Int("chunk_docs", len(compiled)),
+	)
 	return mergeChunks(inputs, compiled), nil
+}
+
+// navByProduct is one deferred dataset-nav by-product job: the compile variant
+// that produced it and the products to summarize from.
+type navByProduct struct {
+	deps     common.Deps
+	variant  common.Variant
+	products []common.Product
+}
+
+// upsertTreeNav writes the dataset-nav by-product after tree compilation. It
+// finds the tree root product (Meta kind=root) whose Content is the document
+// summary, and places it into the ES-backed nav tree. Any failure (missing nav
+// service, missing root, embedding/upsert error) is logged and skipped — the
+// nav artifact must never block the compile pipeline.
+func upsertTreeNav(ctx context.Context, deps common.Deps, docID string, products []common.Product) {
+	ns := nav.GetNavService()
+	if ns == nil {
+		log.Printf("knowledge_compiler: datasetnav by-product skipped (NavService not initialized)")
+		return
+	}
+	var summary string
+	var vec []float32
+	for i := range products {
+		if kind, _ := products[i].Meta["kind"].(string); kind == "root" {
+			summary = products[i].Content
+			vec = products[i].Vector
+			break
+		}
+	}
+	if strings.TrimSpace(summary) == "" {
+		log.Printf("knowledge_compiler: datasetnav by-product skipped (tree has no root summary)")
+		return
+	}
+	if len(vec) == 0 {
+		if deps.Embed == nil {
+			log.Printf("knowledge_compiler: datasetnav by-product skipped (no embedder, no precomputed vector)")
+			return
+		}
+		embeddings, err := deps.Embed.Encode(ctx, []string{summary})
+		if err != nil {
+			log.Printf("knowledge_compiler: datasetnav by-product skipped (embedding failed): %v", err)
+			return
+		}
+		if len(embeddings) == 0 {
+			log.Printf("knowledge_compiler: datasetnav by-product skipped (embedding produced no vector)")
+			return
+		}
+		vec = embeddings[0]
+	}
+	if err := ns.UpsertDoc(ctx, nav.UpsertDocInput{
+		TenantID: deps.TenantID,
+		KbID:     deps.DatasetID,
+		DocID:    docID,
+		Summary:  summary,
+		Embedd:   vec,
+	}); err != nil {
+		// Log and continue: nav is a derived artifact, never abort compile.
+		log.Printf("knowledge_compiler: datasetnav by-product upsert failed (continuing): %v", err)
+	}
+}
+
+// upsertStructureNav writes the dataset-nav by-product after structure/page_index
+// compilation (mirroring Python runner.py:189 _upsert_dataset_nav_from_page_index).
+// It finds the graph product (Meta kind=graph), summarizes its entity
+// descriptions into a document-level summary, and places it into the nav tree.
+// Failures are logged and never abort the compile pipeline.
+func upsertStructureNav(ctx context.Context, deps common.Deps, docID string, products []common.Product) {
+	ns := nav.GetNavService()
+	if ns == nil {
+		log.Printf("knowledge_compiler: datasetnav by-product skipped (NavService not initialized)")
+		return
+	}
+	var graph *common.Product
+	for i := range products {
+		if kind, _ := products[i].Meta["kind"].(string); kind == "graph" {
+			graph = &products[i]
+			break
+		}
+	}
+	if graph == nil {
+		return
+	}
+	summary := pageIndexSummary(graph.Content)
+	if strings.TrimSpace(summary) == "" {
+		log.Printf("knowledge_compiler: datasetnav by-product skipped (structure graph has no entity descriptions)")
+		return
+	}
+	// Embed the SUMMARY text, not the graph JSON — the nav doc's vector must
+	// represent the summary semantics for the KNN router to match correctly.
+	if deps.Embed == nil {
+		log.Printf("knowledge_compiler: datasetnav by-product skipped (no embedder)")
+		return
+	}
+	embeddings, err := deps.Embed.Encode(ctx, []string{summary})
+	if err != nil || len(embeddings) == 0 {
+		log.Printf("knowledge_compiler: datasetnav by-product skipped (structure embedding failed): %v", err)
+		return
+	}
+	vec := embeddings[0]
+	if err := ns.UpsertDoc(ctx, nav.UpsertDocInput{
+		TenantID: deps.TenantID,
+		KbID:     deps.DatasetID,
+		DocID:    docID,
+		Summary:  summary,
+		Embedd:   vec,
+	}); err != nil {
+		log.Printf("knowledge_compiler: datasetnav by-product upsert failed (continuing): %v", err)
+	}
+}
+
+// pageIndexSummary concatenates entity descriptions from a structure graph JSON
+// ({"entities": [{"name","description"}, ...]}), producing a document-level
+// summary for dataset navigation.
+func pageIndexSummary(graphJSON string) string {
+	var graph struct {
+		Entities []struct {
+			Name        string `json:"name"`
+			Description string `json:"description"`
+		} `json:"entities"`
+	}
+	if err := json.Unmarshal([]byte(graphJSON), &graph); err != nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, e := range graph.Entities {
+		desc := strings.Join(strings.Fields(e.Description), " ")
+		if desc == "" {
+			continue
+		}
+		if e.Name != "" {
+			b.WriteString(e.Name + ": ")
+		}
+		b.WriteString(desc + "\n")
+	}
+	return b.String()
+}
+
+// resolveTemplateSpecs resolves the configured compilation template spec(s) to
+// their TemplateInfo rows. Priority: compilation_template_id >
+// compilation_template_group_id. The group path resolves the group to its
+// child template ids and then loads each template.
+func resolveTemplateSpecs(ctx context.Context, db *gorm.DB, tenantID string, param common.Param) ([]common.TemplateInfo, error) {
+	if param.CompilationTemplateID != "" {
+		info, err := common.ResolveTemplate(ctx, db, tenantID, param.CompilationTemplateID)
+		if err != nil {
+			return nil, err
+		}
+		return []common.TemplateInfo{info}, nil
+	}
+	if param.CompilationTemplateGroupID != "" {
+		ids, err := common.ResolveGroupTemplateIDs(ctx, db, tenantID, []string{param.CompilationTemplateGroupID})
+		if err != nil {
+			return nil, err
+		}
+		specs := make([]common.TemplateInfo, 0, len(ids))
+		for _, id := range ids {
+			info, err := common.ResolveTemplate(ctx, db, tenantID, id)
+			if err != nil {
+				return nil, err
+			}
+			specs = append(specs, info)
+		}
+		return specs, nil
+	}
+	return nil, fmt.Errorf("knowledge_compiler: one of compilation_template_id or compilation_template_group_id is required")
+}
+
+// overlayTemplateConfig layers scalar fields from the resolved template config
+// (the template "content") onto the param. For self-documenting defaults
+// (language, similarity_threshold, max_workers, enable_historical_dedup) the
+// config value wins when the param is unset. For llm_id / embedding_model, the
+// caller's per-call override always wins; the config only fills them in when
+// the caller left them empty.
+func overlayTemplateConfig(param *common.Param, cfg map[string]any) {
+	if cfg == nil {
+		return
+	}
+	if v, ok := cfg["language"].(string); ok && v != "" {
+		param.Language = v
+	}
+	if v, ok := cfg["similarity_threshold"].(float64); ok && v > 0 {
+		param.SimilarityThreshold = v
+	}
+	if v, ok := cfg["max_workers"].(float64); ok && int(v) > 0 {
+		param.MaxWorkers = int(v)
+	}
+	if v, ok := cfg["enable_historical_dedup"].(bool); ok {
+		param.EnableHistoricalDedup = v
+	}
+	// llm_id / embedding_model are optional per-call overrides documented on
+	// Invoke. The template config supplies defaults, so only apply them when
+	// the caller has not already provided an explicit value (the caller wins).
+	if v, ok := cfg["llm_id"].(string); ok && v != "" && param.LLMID == "" {
+		param.LLMID = v
+	}
+	if v, ok := cfg["embedding_model"].(string); ok && v != "" && param.EmbeddingModel == "" {
+		param.EmbeddingModel = v
+	}
+}
+
+// kindOrVariant returns the original template kind when present (the true
+// compilation_template.kind, e.g. "page_index"), otherwise the collapsed Go
+// variant. It drives the compilation_template_kind_kwd stamp.
+func kindOrVariant(p common.Product) string {
+	if p.Kind != "" {
+		return p.Kind
+	}
+	return string(p.Variant)
 }
 
 // variantCompileKWD maps each Go variant to the compile_kwd discriminator value
 // Python writes into ES (rag/advanced_rag/knowlege_compile). It is the primary
 // key that distinguishes compiled knowledge units from ordinary chunks and
-// routes retrieval-side filters (e.g. "compile_kwd": ["artifact_page"]).
+// routes retrieval-side filters. The wiki value MUST be "wiki_page" (Python's
+// canonical WIKI_PAGE_COMPILE_KWD in wiki.py:1661 / wiki_incremental.py:44 /
+// dataset_wiki_generator.py:108) so Go-produced wiki pages are visible to the
+// artifact API (dataset_artifact_service.go reads compile_kwd="wiki_page").
 var variantCompileKWD = map[common.Variant]string{
-	common.VariantStructure:  "structure",
-	common.VariantWiki:       "artifact_page",
-	common.VariantRaptor:     "raptor",
-	common.VariantMindmap:    "mindmap",
-	common.VariantDatasetnav: "dataset_nav",
+	common.VariantStructure: "structure",
+	common.VariantWiki:      "wiki_page",
+	common.VariantTree:      "tree",
+	common.VariantMindmap:   "mindmap",
 }
 
 // productsToChunkDocs converts the internal compiled Product rows into
@@ -241,13 +522,21 @@ func productsToChunkDocs(products []common.Product) ([]schema.ChunkDoc, error) {
 		if v := metaString(p.Meta, "compile_kwd"); v != "" {
 			compileKWD = v
 		}
+		// Wiki sub-parts: sections get their own compile_kwd so that a page
+		// search on compile_kwd="wiki_page" returns pages only (page.go emits
+		// both kind:"page" and kind:"section" rows under VariantWiki). This is
+		// the schema-backed page/section discriminator: "wiki_page" == page,
+		// "wiki_section" == a page sub-section.
+		if p.Variant == common.VariantWiki && metaString(p.Meta, "kind") == "section" && compileKWD == "wiki_page" {
+			compileKWD = "wiki_section"
+		}
 		if compileKWD == "" {
 			compileKWD = string(p.Variant)
 		}
 		if err := doc.SetExtraValue("compile_kwd", compileKWD); err != nil {
 			return nil, err
 		}
-		if err := doc.SetExtraValue("compilation_template_kind_kwd", string(p.Variant)); err != nil {
+		if err := doc.SetExtraValue("compilation_template_kind_kwd", kindOrVariant(p)); err != nil {
 			return nil, err
 		}
 		if p.ParentID != "" {
@@ -345,12 +634,25 @@ func applyVariantColumns(doc *schema.ChunkDoc, p common.Product) error {
 	case common.VariantWiki:
 		// One artifact_page row per wiki page; section rows reuse the same
 		// page-level columns so retrieval-side filters work uniformly.
-		if v := metaString(p.Meta, "slug"); v != "" {
-			if err := doc.SetExtraValue("slug_kwd", v); err != nil {
-				return err
-			}
-			if err := doc.SetExtraValue("artifact_slug_kwd", v); err != nil {
-				return err
+		// Match the Python writer contract (api/db/db_models.py slug_kwd):
+		// slug_kwd stores the full "<page_type>/<slug>" form, so retrieval
+		// filters (GetWikiPage) can reconstruct it directly. page_type is also
+		// stored separately for topic grouping.
+		if pageType := metaString(p.Meta, "page_type"); pageType != "" {
+			if slug := metaString(p.Meta, "slug"); slug != "" {
+				// Normalize to the full "<page_type>/<slug>" form (Python writer
+				// contract). Idempotent: a slug that already carries the prefix
+				// (some producers emit pageType/slug directly) is left as-is.
+				fullSlug := slug
+				if !strings.Contains(slug, "/") {
+					fullSlug = pageType + "/" + slug
+				}
+				if err := doc.SetExtraValue("slug_kwd", fullSlug); err != nil {
+					return err
+				}
+				if err := doc.SetExtraValue("artifact_slug_kwd", fullSlug); err != nil {
+					return err
+				}
 			}
 		}
 		if v := metaString(p.Meta, "title"); v != "" {
@@ -408,7 +710,7 @@ func applyVariantColumns(doc *schema.ChunkDoc, p common.Product) error {
 			}
 		}
 
-	case common.VariantRaptor:
+	case common.VariantTree:
 		// raptor_kwd tags summary/root nodes; raptor_layer_int records tree depth.
 		if kind != "" {
 			if err := doc.SetExtraValue("raptor_kwd", kind); err != nil {
@@ -444,35 +746,6 @@ func applyVariantColumns(doc *schema.ChunkDoc, p common.Product) error {
 		}
 		if v := metaStringSlice(p.Meta, "children"); len(v) > 0 {
 			if err := doc.SetExtraValue("children_kwd", v); err != nil {
-				return err
-			}
-		}
-
-	case common.VariantDatasetnav:
-		// nav_cluster / nav_doc rows: type_kwd discriminates the row kind.
-		if v := metaString(p.Meta, "type"); v != "" {
-			if err := doc.SetExtraValue("type_kwd", v); err != nil {
-				return err
-			}
-		}
-		if v := metaString(p.Meta, "name"); v != "" {
-			if err := doc.SetExtraValue("title_kwd", v); err != nil {
-				return err
-			}
-			setTitleTokens(doc, v)
-		}
-		if v, ok := metaInt(p.Meta, "depth"); ok {
-			if err := doc.SetExtraValue("depth_int", v); err != nil {
-				return err
-			}
-		}
-		if v, ok := metaInt(p.Meta, "size"); ok {
-			if err := doc.SetExtraValue("doc_count_int", v); err != nil {
-				return err
-			}
-		}
-		if v := metaStringSlice(p.Meta, "doc_ids"); len(v) > 0 {
-			if err := doc.SetExtraValue("doc_ids_kwd", v); err != nil {
 				return err
 			}
 		}
@@ -541,7 +814,21 @@ func metaStringSlice(m map[string]any, key string) []string {
 // headless / manual chaining reads them from the component output map, so they
 // must be forwarded when present.
 func mergeChunks(inputs map[string]any, compiled []schema.ChunkDoc) map[string]any {
-	raw, _ := inputs["chunks"].([]any)
+	// Accept both the []any and []map[string]any chunk carriers (the chunker
+	// emits the latter; buildInputs already handles both). Without this, the
+	// original source chunks would be dropped when the carrier is []map[string]any.
+	var raw []any
+	switch v := inputs["chunks"].(type) {
+	case []any:
+		raw = v
+	case []map[string]any:
+		raw = make([]any, 0, len(v))
+		for _, m := range v {
+			raw = append(raw, m)
+		}
+	default:
+		log.Printf("knowledge_compiler: mergeChunks: unexpected chunks type %T", inputs["chunks"])
+	}
 	merged := make([]any, 0, len(raw)+len(compiled))
 	for _, r := range raw {
 		merged = append(merged, r)
@@ -565,6 +852,23 @@ func mergeChunks(inputs map[string]any, compiled []schema.ChunkDoc) map[string]a
 }
 
 // buildInputs converts the runtime inputs map into a typed common.Inputs.
+// It is necessary because the pipeline passes components a generic
+// map[string]any contract while every variant Run consumes a strongly-typed
+// common.Inputs: this function is the single translation seam that decouples
+// the dependency-light common package (and thus the variants) from the raw
+// serialization shape, and the one place where inputs are validated, defaulted,
+// and enriched (e.g. extracting each chunk's pre-computed embedding) before any
+// LLM/embedding work begins.
+// mapKeys returns the sorted keys of m, for diagnostics logging.
+func mapKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
 func buildInputs(inputs map[string]any, param common.Param) (common.Inputs, error) {
 	in := common.Inputs{
 		LLMID:           param.LLMID,
@@ -574,33 +878,51 @@ func buildInputs(inputs map[string]any, param common.Param) (common.Inputs, erro
 	if d, ok := inputs["doc_id"].(string); ok && d != "" {
 		in.DocID = d
 	}
-	if raw, ok := inputs["chunks"].([]any); ok {
-		for _, r := range raw {
-			m, ok := r.(map[string]any)
+	// The upstream pipeline hands chunks over as a []any of map[string]any in
+	// some paths and as a []map[string]any in others (the chunker emits the
+	// latter). Accept both so the knowledge compiler never silently drops the
+	// whole upstream output on a type mismatch.
+	var raw []map[string]any
+	switch v := inputs["chunks"].(type) {
+	case []any:
+		raw = make([]map[string]any, 0, len(v))
+		for _, item := range v {
+			m, ok := item.(map[string]any)
 			if !ok {
 				continue
 			}
-			ch := common.Chunk{Meta: m}
-			if id, ok := m["id"].(string); ok {
-				ch.ID = id
-			}
-			if t, ok := m["text"].(string); ok {
-				ch.Text = t
-			}
-			if cw, ok := m["content_with_weight"].(string); ok {
-				ch.Content = cw
-			}
-			in.Chunks = append(in.Chunks, ch)
+			raw = append(raw, m)
 		}
+	case []map[string]any:
+		raw = v
+	default:
+		log.Printf("knowledge_compiler: buildInputs: unexpected chunks type %T", inputs["chunks"])
+	}
+	log.Printf("knowledge_compiler: buildInputs: accepted %d chunk(s) from inputs[chunks]", len(raw))
+	for _, m := range raw {
+		ch := common.Chunk{Meta: m}
+		if id, ok := m["id"].(string); ok {
+			ch.ID = id
+		}
+		if t, ok := m["text"].(string); ok {
+			ch.Text = t
+		}
+		if cw, ok := m["content_with_weight"].(string); ok {
+			ch.Content = cw
+		}
+		// Reuse the embedding the upstream pipeline already computed on the
+		// chunk (stored under q_<dim>_vec); variants fall back to embedding
+		// on demand when it is absent. A chunk must carry exactly one vector.
+		if vec, err := common.VectorFromChunkMap(m, 0); err == nil {
+			ch.Vector = vec
+		}
+		in.Chunks = append(in.Chunks, ch)
 	}
 	if hc, ok := inputs["historical_candidates"].([]common.Candidate); ok {
 		in.HistoricalCandidates = hc
 	}
-	if sink, ok := inputs["sink"].(common.ChunkedSink); ok {
-		in.Sink = sink
-	}
 	known := map[string]bool{
-		"doc_id": true, "chunks": true, "historical_candidates": true, "sink": true,
+		"doc_id": true, "chunks": true, "historical_candidates": true,
 		"llm_id": true, "embedding_model": true, "tenant_id": true, "dataset_id": true,
 	}
 	for k, v := range inputs {
@@ -611,42 +933,18 @@ func buildInputs(inputs map[string]any, param common.Param) (common.Inputs, erro
 	return in, nil
 }
 
-// templateIDStampingSink wraps a ChunkedSink so every emitted product carries
-// the resolved compilation template ids. It is used to stamp products that
-// leave the variant through a streaming sink (ExceedFlush) — those never reach
-// the buffered out.Products and would otherwise skip the template-id stamping
-// (M1).
-type templateIDStampingSink struct {
-	delegate common.ChunkedSink
-	ids      []string
-}
-
-// Emit stamps the template ids onto each product before delegating (a nil
-// delegate is treated as a no-op drain).
-func (s *templateIDStampingSink) Emit(ctx context.Context, items []common.Product) error {
-	for i := range items {
-		if items[i].Meta == nil {
-			items[i].Meta = map[string]any{}
-		}
-		items[i].Meta["compilation_template_ids"] = s.ids
-	}
-	if s.delegate == nil {
-		return nil
-	}
-	return s.delegate.Emit(ctx, items)
-}
-
 func init() {
-	runtime.MustRegister(componentNameKnowledgeCompiler, runtime.CategoryIngestion,
-		NewKnowledgeCompilerComponent, runtime.Metadata{
-			Version: "0.1.0",
-			Inputs: map[string]string{
-				"chunks":          "Upstream chunker/parser output chunks (id + text/content_with_weight).",
-				"llm_id":          "Optional LLM id override.",
-				"embedding_model": "Optional embedding model override.",
-				"tenant_id":       "Optional tenant scope.",
-				"dataset_id":      "Optional dataset scope (wiki historical dedup).",
-			},
-			Outputs: chunkerOutputs,
-		})
+	// Register under the single unified name "Compiler" (matching the Python
+	// side) so both Python-saved canvases and Go's built-in ingestion templates
+	// resolve to the same component without name translation.
+	meta := runtime.Metadata{
+		Version: "0.1.0",
+		Inputs: map[string]string{
+			"chunks":                "Upstream chunker/parser output chunks (id + text/content_with_weight).",
+			"historical_candidates": "Optional historical dedup candidates for offline/test runs.",
+		},
+		Outputs: chunkerOutputs,
+	}
+	runtime.MustRegister(componentNameCompiler, runtime.CategoryIngestion,
+		NewKnowledgeCompilerComponent, meta)
 }

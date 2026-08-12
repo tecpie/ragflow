@@ -61,6 +61,8 @@ export function useSendSingleMessage({
       enableInternet,
       enableThinking,
       enableModelThinking,
+      storeHistoryMessages,
+      omitSessionId,
       ...params
     }: {
       message: IMessage;
@@ -72,7 +74,7 @@ export function useSendSingleMessage({
         api.completionUrl,
         {
           chat_id: chatId,
-          session_id: sessionId,
+          ...(omitSessionId ? {} : { session_id: sessionId }),
           messages: [
             ...(Array.isArray(messages) && messages?.length > 0
               ? messages
@@ -83,6 +85,9 @@ export function useSendSingleMessage({
           enable_thinking: enableModelThinking,
           internet: enableInternet,
           ...params,
+          ...(storeHistoryMessages === undefined
+            ? {}
+            : { store_history_messages: storeHistoryMessages }),
           pass_all_history_messages: true,
         },
         controller,
@@ -115,7 +120,7 @@ export function useSendSingleMessage({
       targetConversationId,
       ...params
     }: NextMessageInputOnPressEnterParameter &
-      CreateConversationBeforeSendMessageReturnType) => {
+      Partial<NonNullable<CreateConversationBeforeSendMessageReturnType>>) => {
       if (trim(value) === '' || !done) return;
       const id = uuid();
 

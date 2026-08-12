@@ -59,6 +59,7 @@ export function ModelsSection(props: ModelsSectionProps) {
     hideIfEmpty = false,
     getFormValues,
     verifyTransform,
+    instanceDetailsLoaded,
     onBlurSuppressChange,
     onInstanceModelsChange,
     onInstanceModelsEdited,
@@ -86,6 +87,8 @@ export function ModelsSection(props: ModelsSectionProps) {
   const {
     catalog,
     setCatalog,
+    updateCatalogModel,
+    clearCatalogOverride,
     manualListLoading,
     hasFetched,
     handleListModels,
@@ -96,6 +99,8 @@ export function ModelsSection(props: ModelsSectionProps) {
     resolveCreds,
     instanceModels,
     apiKeyValue: currentCreds.apiKey,
+    baseUrlValue: currentCreds.baseUrl,
+    instanceDetailsLoaded,
   });
 
   // 3a. Draft-only: locally-tracked "added models" list.
@@ -142,6 +147,11 @@ export function ModelsSection(props: ModelsSectionProps) {
   const removeDraftModel = useCallback((name: string) => {
     setDraftModels((prev) => prev.filter((m) => m.name !== name));
   }, []);
+  const updateDraftModel = useCallback((item: IProviderModelItem) => {
+    setDraftModels((prev) =>
+      prev.map((m) => (m.name === item.name ? { ...m, ...item } : m)),
+    );
+  }, []);
 
   // 4. Derived union list (instance ∪ catalog) + push to host.
   const { instanceItems, models, addedSet } = useModelsDerived({
@@ -169,9 +179,7 @@ export function ModelsSection(props: ModelsSectionProps) {
     });
 
   // 6a. Model selection for batch verify.
-  const [selectedModels, setSelectedModels] = useState<Set<string>>(
-    new Set(),
-  );
+  const [selectedModels, setSelectedModels] = useState<Set<string>>(new Set());
 
   const toggleModel = useCallback((name: string) => {
     setSelectedModels((prev) => {
@@ -234,6 +242,7 @@ export function ModelsSection(props: ModelsSectionProps) {
     filteredModels,
     addedSet,
     setCatalog,
+    clearCatalogOverride,
     addDraftModel,
     removeDraftModel,
     setDraftModelsList: setDraftModels,
@@ -248,9 +257,15 @@ export function ModelsSection(props: ModelsSectionProps) {
     handleEditSubmit,
     editLoading,
     customModelDialogFields,
+    providerFeatureKeys,
   } = useModelEdit({
     providerName,
     instanceName,
+    addedSet,
+    isDraftInstance,
+    updateCatalogModel,
+    clearCatalogOverride,
+    updateDraftModel,
   });
 
   // Add-custom-model dialog open state (local UI state).
@@ -423,6 +438,7 @@ export function ModelsSection(props: ModelsSectionProps) {
         title={tSetting('addCustomModelTitle')}
         fields={customModelDialogFields}
         existingNames={models.map((m) => m.name)}
+        providerFeatureKeys={providerFeatureKeys}
         onSubmit={async (item) => {
           await handleAddCustom(item);
           setDialogOpen(false);
@@ -441,6 +457,7 @@ export function ModelsSection(props: ModelsSectionProps) {
         existingNames={models
           .filter((m) => m.name !== editingModel?.name)
           .map((m) => m.name)}
+        providerFeatureKeys={providerFeatureKeys}
         defaultValues={editDefaultValues}
         loading={editLoading}
         onSubmit={async (item) => {

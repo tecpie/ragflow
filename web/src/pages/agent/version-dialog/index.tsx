@@ -19,12 +19,12 @@ import {
 import { IModalProps } from '@/interfaces/common';
 import { cn } from '@/lib/utils';
 import { formatDate } from '@/utils/date';
-import { downloadJsonFile } from '@/utils/file-util';
 import { ConnectionMode, ReactFlow, ReactFlowProvider } from '@xyflow/react';
 import { ArrowDownToLine } from 'lucide-react';
 import { ReactNode, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { nodeTypes } from '../canvas';
+import { downloadDsl } from '../utils/download-dsl';
 
 function Dot() {
   return (
@@ -51,10 +51,8 @@ export function VersionDialog({
   );
 
   const downloadFile = useCallback(() => {
-    // Must export full DSL; importDsl only accepts `graph.nodes`.
-    const dsl = agent?.dsl;
-    if (dsl?.graph) {
-      downloadJsonFile(dsl, agent?.title);
+    if (agent?.dsl) {
+      downloadDsl(agent.dsl, agent.title);
     }
   }, [agent?.dsl, agent?.title]);
 

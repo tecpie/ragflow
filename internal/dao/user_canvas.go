@@ -69,11 +69,6 @@ func userCanvasQualifiedOrderClause(orderby string, desc bool) string {
 	return order + " ASC"
 }
 
-func escapeSQLLike(s string) string {
-	replacer := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
-	return replacer.Replace(s)
-}
-
 func splitUserCanvasTags(raw string) []string {
 	parts := strings.Split(raw, ",")
 	tags := make([]string, 0, len(parts))
@@ -487,6 +482,14 @@ func (dao *UserCanvasDAO) UpdateDSL(ctx context.Context, db *gorm.DB, canvasID s
 // UpdateFields updates only the supplied user_canvas columns.
 func (dao *UserCanvasDAO) UpdateFields(ctx context.Context, db *gorm.DB, canvasID string, fields map[string]interface{}) (int64, error) {
 	result := db.WithContext(ctx).Model(&entity.UserCanvas{}).Where("id = ?", canvasID).Updates(fields)
+	return result.RowsAffected, result.Error
+}
+
+// UpdateFieldsTx is the transactional variant of UpdateFields. Used by
+// service.AgentService.UpdateAgent so the canvas row update and the
+// version-row save commit atomically in one transaction.
+func (dao *UserCanvasDAO) UpdateFieldsTx(tx *gorm.DB, canvasID string, fields map[string]interface{}) (int64, error) {
+	result := tx.Model(&entity.UserCanvas{}).Where("id = ?", canvasID).Updates(fields)
 	return result.RowsAffected, result.Error
 }
 

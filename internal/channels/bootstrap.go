@@ -124,7 +124,7 @@ func (r *Runtime) Reconcile(ctx context.Context) error {
 			break
 		}
 	}
-	if err := syncWhatsAppGateway(ctx, activeWhatsApp); err != nil && activeWhatsApp {
+	if err = syncWhatsAppGateway(ctx, activeWhatsApp); err != nil && activeWhatsApp {
 		log.Printf("failed to sync WhatsApp gateway: %v", err)
 	}
 
@@ -138,7 +138,7 @@ func (r *Runtime) Reconcile(ctx context.Context) error {
 		if isRunning || retryPending {
 			continue
 		}
-		if err := r.startChannel(ctx, accountID, wanted); err != nil {
+		if err = r.startChannel(ctx, accountID, wanted); err != nil {
 			log.Printf("failed to start chat channel %s (%s): %v", accountID, wanted.channel, err)
 			r.recordStartFailure(accountID, wanted.fp, now)
 			continue
@@ -277,8 +277,22 @@ func (r *Runtime) startChannel(ctx context.Context, accountID string, wanted des
 // buildChannel constructs the platform-specific channel implementation for one chat_channel row.
 func buildChannel(accountID string, wanted desiredChannel) (core.Channel, error) {
 	switch wanted.channel {
+	case "feishu":
+		return newFeishuChannelFromConfig(accountID, wanted.credential)
+	case "discord":
+		return newDiscordChannelFromConfig(accountID, wanted.credential)
+	case "qqbot":
+		return newQQBotChannelFromConfig(accountID, wanted.credential)
 	case "whatsapp":
 		return newWhatsAppChannelFromConfig(accountID, wanted.credential)
+	case "line":
+		return newLineChannelFromConfig(accountID, wanted.credential)
+	case "telegram":
+		return newTelegramChannelFromConfig(accountID, wanted.credential)
+	case "wecom":
+		return newWeComChannelFromConfig(accountID, wanted.credential)
+	case "dingtalk":
+		return newDingTalkChannelFromConfig(accountID, wanted.credential)
 	default:
 		return nil, fmt.Errorf("unknown channel: %s", wanted.channel)
 	}
