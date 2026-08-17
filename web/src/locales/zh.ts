@@ -1086,7 +1086,6 @@ NER：使用 spaCy NER 和基于规则的关键词提取来抽取 Entities 和 R
       keywordTip: `应用 LLM 分析用户的问题，提取在相关性计算中要强调的关键词。对长查询效果较好，但会延长响应时间。`,
       reasoning: '推理',
       reasoningTip:
-      reasoningTip:
         '在问答过程中是否启用推理工作流，例如Deepseek-R1或OpenAI o1等模型所采用的方式。启用后，该功能允许模型访问外部知识，并借助思维链推理等技术逐步解决复杂问题。通过将问题分解为可处理的步骤，这种方法增强了模型提供准确回答的能力，从而在需要逻辑推理和多步思考的任务上表现更优。',
       modelThinking: '深度思考',
       modelThinkingTip:
