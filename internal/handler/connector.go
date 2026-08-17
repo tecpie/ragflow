@@ -30,6 +30,7 @@ import (
 	"ragflow/internal/entity"
 	"ragflow/internal/i18n"
 	"ragflow/internal/service"
+	syncerconnector "ragflow/internal/syncer/connector"
 )
 
 type connectorServiceIface interface {
@@ -362,8 +363,17 @@ func (h *ConnectorHandler) TestConnector(c *gin.Context) {
 		return
 	}
 	if err != nil && !errors.Is(err, service.ErrConnectorNoAuth) && !errors.Is(err, service.ErrConnectorNotFound) {
-		// Validation failure (e.g. missing credentials): mirror Python's DATA_ERROR with data=false.
-		common.ResponseWithCodeData(c, common.CodeDataError, false, err.Error())
+		// Schema/credential validation failures map to DATA_ERROR;
+		// anything unexpected falls back to SERVER_ERROR.
+		var (
+			valErr  *syncerconnector.ConnectorValidationError
+			credErr *syncerconnector.ConnectorMissingCredentialError
+		)
+		if errors.As(err, &valErr) || errors.As(err, &credErr) {
+			common.ResponseWithCodeData(c, common.CodeDataError, false, err.Error())
+			return
+		}
+		common.ResponseWithCodeData(c, common.CodeServerError, false, "REST API connector validation failed, please check logs.")
 		return
 	}
 	if connectorErrorResponse(c, err) {
