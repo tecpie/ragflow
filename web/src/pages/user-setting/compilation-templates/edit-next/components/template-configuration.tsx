@@ -14,7 +14,6 @@
  *  limitations under the License.
  */
 
-import { ModelTreeSelectFormField } from '@/components/model-tree-select';
 import { SelectWithSearch } from '@/components/originui/select-with-search';
 import { RAGFlowFormItem } from '@/components/ragflow-form';
 import { SwitchFormField } from '@/components/switch-fom-field';
@@ -176,12 +175,6 @@ export function TemplateConfiguration({
             />
           </RAGFlowFormItem>
 
-          <ModelTreeSelectFormField
-            name={`templates.${selectedTemplateIndex}.llm_id`}
-            label={t('setting.llmForExtraction')}
-            required
-          />
-
           <RAGFlowFormItem
             name={`templates.${selectedTemplateIndex}.kind`}
             label={t('knowledgeCompilation.builtinTemplates')}
@@ -210,11 +203,23 @@ export function TemplateConfiguration({
           </RAGFlowFormItem>
 
           {kind === CompilationTemplateKind.Artifacts && (
-            <SwitchFormField
-              name={`templates.${selectedTemplateIndex}.config.plan`}
-              label={t('setting.plan')}
-              vertical={false}
-            />
+            <RAGFlowFormItem
+              name={`templates.${selectedTemplateIndex}.config.mode`}
+              label={t('setting.wikiMode')}
+              tooltip={t('setting.wikiModeTip')}
+            >
+              {(field) => (
+                <SelectWithSearch
+                  value={typeof field.value === 'string' ? field.value : ''}
+                  onChange={field.onChange}
+                  disabled={field.disabled}
+                  options={[
+                    { label: t('setting.entityMode'), value: 'entity' },
+                    { label: t('setting.topicMode'), value: 'topic' },
+                  ]}
+                />
+              )}
+            </RAGFlowFormItem>
           )}
 
           {kind === CompilationTemplateKind.Tree ? (

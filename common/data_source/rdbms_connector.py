@@ -92,25 +92,6 @@ class RDBMSConnector(LoadConnector, PollConnector, SlimConnectorWithPermSync):
         self._sync_config: Dict[str, Any] | None = None
         self._pending_sync_cursor_value: Any = None
 
-    @classmethod
-    def build_connector(cls, config: Dict[str, Any], *, db_type: str) -> "RDBMSConnector":
-        default_port = 3306 if db_type == DatabaseType.MYSQL else 5432
-        batch_size = int(config.get("batch_size") or INDEX_BATCH_SIZE)
-        connector = cls(
-            db_type=db_type,
-            host=config.get("host", "localhost"),
-            port=int(config.get("port") or default_port),
-            database=config.get("database", ""),
-            query=config.get("query", ""),
-            content_columns=config.get("content_columns", ""),
-            metadata_columns=config.get("metadata_columns", ""),
-            id_column=config.get("id_column") or None,
-            timestamp_column=config.get("timestamp_column") or None,
-            batch_size=batch_size,
-        )
-        connector.load_credentials(config.get("credentials") or {})
-        return connector
-
     # Language labels that may leak in when a query is pasted from a
     # markdown ```sql code fence.
     _FENCE_LANGUAGES = {"sql", "tsql", "t-sql", "mssql", "mysql", "postgresql", "psql"}
@@ -148,6 +129,25 @@ class RDBMSConnector(LoadConnector, PollConnector, SlimConnectorWithPermSync):
             return self.content_columns
         excluded = {self.id_column, self.timestamp_column}
         return [col for col in row_dict.keys() if col not in excluded]
+
+    @classmethod
+    def build_connector(cls, config: Dict[str, Any], *, db_type: str) -> "RDBMSConnector":
+        default_port = 3306 if db_type == DatabaseType.MYSQL else 5432
+        batch_size = int(config.get("batch_size") or INDEX_BATCH_SIZE)
+        connector = cls(
+            db_type=db_type,
+            host=config.get("host", "localhost"),
+            port=int(config.get("port") or default_port),
+            database=config.get("database", ""),
+            query=config.get("query", ""),
+            content_columns=config.get("content_columns", ""),
+            metadata_columns=config.get("metadata_columns", ""),
+            id_column=config.get("id_column") or None,
+            timestamp_column=config.get("timestamp_column") or None,
+            batch_size=batch_size,
+        )
+        connector.load_credentials(config.get("credentials") or {})
+        return connector
 
     def load_credentials(self, credentials: Dict[str, Any]) -> Dict[str, Any] | None:
         """Load database credentials."""

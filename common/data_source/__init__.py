@@ -28,19 +28,30 @@ from common.constants import FileSource
 
 from .airtable_connector import AirtableConnector
 from .asana_connector import AsanaConnector
+from .azure_blob_connector import AzureBlobConnector
+from .bigquery_connector import BigQueryConnector
 from .bitbucket.connector import BitbucketConnector
 from .blob_connector import BlobStorageConnector
 from .box_connector import BoxConnector
 from .confluence_connector import ConfluenceConnector
+from .config import BlobType, DocumentSource
 from .dingtalk_ai_table_connector import DingTalkAITableConnector
 from .discord_connector import DiscordConnector
 from .dropbox_connector import DropboxConnector
+from .exceptions import (
+    ConnectorMissingCredentialError,
+    ConnectorValidationError,
+    CredentialExpiredError,
+    InsufficientPermissionsError,
+    UnexpectedValidationError,
+)
 from .github.connector import GithubConnector
 from .gitlab_connector import GitlabConnector
 from .gmail_connector import GmailConnector
 from .google_drive.connector import GoogleDriveConnector
 from .imap_connector import ImapConnector
 from .jira.connector import JiraConnector
+from .models import BasicExpertInfo, Document, ImageSection, TextSection
 from .moodle_connector import MoodleConnector
 from .notion_connector import NotionConnector
 from .onedrive_connector import OneDriveConnector
@@ -49,17 +60,12 @@ from .rdbms_connector import RDBMSConnector
 from .rest_api_connector import RestAPIConnector
 from .rss_connector import RSSConnector
 from .salesforce_connector import SalesforceConnector
-from .azure_blob_connector import AzureBlobConnector
 from .seafile_connector import SeaFileConnector
 from .sharepoint_connector import SharePointConnector
 from .slack_connector import SlackConnector
 from .teams_connector import TeamsConnector
 from .webdav_connector import WebDAVConnector
 from .zendesk_connector import ZendeskConnector
-from .bigquery_connector import BigQueryConnector
-from .config import BlobType, DocumentSource
-from .models import Document, TextSection, ImageSection, BasicExpertInfo
-from .exceptions import ConnectorMissingCredentialError, ConnectorValidationError, CredentialExpiredError, InsufficientPermissionsError, UnexpectedValidationError
 
 CONNECTOR_BY_SOURCE: dict[str, type] = {
     FileSource.S3: BlobStorageConnector,
@@ -92,6 +98,11 @@ CONNECTOR_BY_SOURCE: dict[str, type] = {
     FileSource.MYSQL: RDBMSConnector,
     FileSource.POSTGRESQL: RDBMSConnector,
     FileSource.REST_API: RestAPIConnector,
+    FileSource.BIGQUERY: BigQueryConnector,
+    FileSource.ONEDRIVE: OneDriveConnector,
+    FileSource.OUTLOOK: OutlookConnector,
+    FileSource.SALESFORCE: SalesforceConnector,
+    FileSource.AZURE_BLOB: AzureBlobConnector,
 }
 
 
@@ -118,6 +129,10 @@ __all__ = [
     "GoogleDriveConnector",
     "JiraConnector",
     "SharePointConnector",
+    "GithubConnector",
+    "GitlabConnector",
+    "BitbucketConnector",
+    "BoxConnector",
     "OneDriveConnector",
     "OutlookConnector",
     "SalesforceConnector",
