@@ -83,9 +83,7 @@ func (r *RAGconModel) ChatWithMessages(ctx context.Context, modelName string, me
 	}
 
 	reqBody := buildRequestBody(chatModelConfig, modelName, messages, false)
-	if strings.Contains(strings.ToLower(modelName), "qwen3") && (chatModelConfig == nil || chatModelConfig.Thinking == nil) {
-		reqBody["enable_thinking"] = false
-	}
+	applyQwen3ThinkingDefault(modelName, reqBody)
 
 	body, err := r.baseModel.doRequest(ctx, url, apiConfig, reqBody, nonStreamCallTimeout)
 	if err != nil {
@@ -119,9 +117,7 @@ func (r *RAGconModel) ChatStreamlyWithSender(ctx context.Context, modelName stri
 
 	reqBody := buildRequestBody(chatModelConfig, modelName, messages, true)
 	reqBody["stream_options"] = map[string]interface{}{"include_usage": true}
-	if strings.Contains(strings.ToLower(modelName), "qwen3") && (chatModelConfig == nil || chatModelConfig.Thinking == nil) {
-		reqBody["enable_thinking"] = false
-	}
+	applyQwen3ThinkingDefault(modelName, reqBody)
 
 	return r.baseModel.doStreamRequest(ctx, url, apiConfig, reqBody, streamCallTimeout, func(body io.ReadCloser) error {
 		return HandleStreamingResponse(body, modelUsage, chatModelConfig, OpenAIParserConfig, sender)

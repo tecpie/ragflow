@@ -80,9 +80,8 @@ func (o *OpenAIModel) ChatWithMessages(ctx context.Context, modelName string, me
 	if strings.Contains(strings.ToLower(modelName), "qwen3") {
 		if chatModelConfig != nil && chatModelConfig.Thinking != nil {
 			reqBody["enable_thinking"] = *chatModelConfig.Thinking
-		} else {
-			reqBody["enable_thinking"] = false
 		}
+		applyQwen3ThinkingDefault(modelName, reqBody)
 	}
 
 	body, err := o.baseModel.doRequest(ctx, url, apiConfig, reqBody, nonStreamCallTimeout)
@@ -126,9 +125,8 @@ func (o *OpenAIModel) ChatStreamlyWithSender(ctx context.Context, modelName stri
 	if strings.Contains(strings.ToLower(modelName), "qwen3") {
 		if chatModelConfig != nil && chatModelConfig.Thinking != nil {
 			reqBody["enable_thinking"] = *chatModelConfig.Thinking
-		} else {
-			reqBody["enable_thinking"] = false
 		}
+		applyQwen3ThinkingDefault(modelName, reqBody)
 	}
 
 	return o.baseModel.doStreamRequest(ctx, url, apiConfig, reqBody, streamCallTimeout, func(body io.ReadCloser) error {

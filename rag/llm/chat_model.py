@@ -34,6 +34,7 @@ from enum import StrEnum
 from common.aimlapi_utils import attribution_headers
 from common.misc_utils import thread_pool_exec
 from common.llm_request_context import current_llm_user
+from common.model_thinking_utils import THINKING_CONTROL_KEYS, is_qwen3_thinking_model
 from common.token_utils import num_tokens_from_string, total_token_count_from_response, usage_from_response
 from rag.llm import FACTORY_DEFAULT_BASE_URL, LITELLM_PROVIDER_PREFIX, SupportedLiteLLMProvider
 from rag.llm.key_utils import _normalize_replicate_key
@@ -129,16 +130,20 @@ def _apply_model_family_policies(
             val = val.get("type")
 
         enable_thinking = sanitized_gen_conf.get("enable_thinking")
+        reasoning = sanitized_gen_conf.get("reasoning")
 
         if isinstance(val, str) and val in {"enabled", "disabled"}:
             return val
         if isinstance(enable_thinking, bool):
             return "enabled" if enable_thinking else "disabled"
+        if isinstance(reasoning, bool):
+            return "enabled" if reasoning else "disabled"
         return None
 
     def _pop_thinking_controls():
         sanitized_gen_conf.pop("thinking", None)
         sanitized_gen_conf.pop("enable_thinking", None)
+        sanitized_gen_conf.pop("reasoning", None)
 
     def _merge_extra_body(target: dict, extra: dict) -> None:
         body = target.get("extra_body")
@@ -148,13 +153,14 @@ def _apply_model_family_policies(
         target["extra_body"] = body
 
     thinking_type = _thinking_type()
+    sanitized_gen_conf.pop("reasoning", None)
 
     # Qwen3 keeps RAGFlow's system default of disabling thinking unless explicitly overridden.
     if "qwen3" in model_name_lower:
         _pop_thinking_controls()
-        # -preview variants (e.g. qwen3.8-max-preview) only accept
-        # enable_thinking=True; the API rejects any other value.
-        if "-preview" in model_name_lower:
+        # Thinking-only SKUs (qwen3-*-thinking, qwen3.5-*, qwen3.x-preview)
+        # reject enable_thinking=false. Hybrid Qwen3 still defaults to off.
+        if is_qwen3_thinking_model(model_name):
             enable_thinking = True
         else:
             enable_thinking = thinking_type == "enabled" if thinking_type else False
@@ -167,6 +173,8 @@ def _apply_model_family_policies(
             _merge_extra_body(sanitized_kwargs, {"enable_thinking": enable_thinking})
 
     if backend == "base":
+        sanitized_gen_conf.pop("thinking", None)
+        sanitized_gen_conf.pop("enable_thinking", None)
         return sanitized_gen_conf, sanitized_kwargs
 
     if backend == "litellm":
@@ -269,7 +277,10 @@ class Base(ABC):
         if "max_tokens" in gen_conf:
             del gen_conf["max_tokens"]
 
-        gen_conf = {k: v for k, v in gen_conf.items() if k in ALLOWED_GEN_CONF_KEYS}
+        # Keep thinking controls so _apply_model_family_policies can map
+        # agent/dialog `reasoning` onto the provider field. The policy then
+        # strips them before the OpenAI-compatible request is sent.
+        gen_conf = {k: v for k, v in gen_conf.items() if k in ALLOWED_GEN_CONF_KEYS or k in THINKING_CONTROL_KEYS}
         return gen_conf
 
     async def _async_chat_streamly(self, history, gen_conf, **kwargs):

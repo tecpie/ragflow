@@ -143,13 +143,37 @@ func (a *AliyunModel) ChatStreamlyWithSender(ctx context.Context, modelName stri
 	})
 }
 
-// applyQwen3ThinkingDefault ensures enable_thinking=false is sent for qwen3
-// models when it hasn't been explicitly configured. DashScope defaults
+// qwen3RequiresThinking reports whether this Qwen3 SKU only accepts
+// enable_thinking=true. DashScope rejects any other value for thinking-only
+// variants such as qwen3-*-thinking, dotted releases (qwen3.5-*, qwen3.8-*-preview),
+// and other -preview Qwen3 endpoints.
+func qwen3RequiresThinking(modelName string) bool {
+	name := strings.ToLower(modelName)
+	if !strings.Contains(name, "qwen3") {
+		return false
+	}
+	if strings.Contains(name, "thinking") || strings.Contains(name, "-preview") {
+		return true
+	}
+	idx := strings.Index(name, "qwen3.")
+	if idx >= 0 && idx+6 < len(name) && name[idx+6] >= '0' && name[idx+6] <= '9' {
+		return true
+	}
+	return false
+}
+
+// applyQwen3ThinkingDefault ensures enable_thinking=false is sent for hybrid
+// qwen3 models when it hasn't been explicitly configured. DashScope defaults
 // enable_thinking to true for qwen3 models, which produces reasoning output
 // that RAGFlow doesn't expect in most pipelines. Mirrors Python's
-// chat_model.py default of enable_thinking=False for qwen3.
+// chat_model.py default of enable_thinking=False for hybrid qwen3, and
+// enable_thinking=True for thinking-only SKUs that reject any other value.
 func applyQwen3ThinkingDefault(modelName string, reqBody map[string]interface{}) {
 	if !strings.Contains(strings.ToLower(modelName), "qwen3") {
+		return
+	}
+	if qwen3RequiresThinking(modelName) {
+		reqBody["enable_thinking"] = true
 		return
 	}
 	if _, alreadySet := reqBody["enable_thinking"]; alreadySet {

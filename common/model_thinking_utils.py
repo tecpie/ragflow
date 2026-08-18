@@ -14,14 +14,26 @@
 #  limitations under the License.
 #
 
+import re
+
 DASHSCOPE_PROVIDERS = {"Tongyi-Qianwen", "Dashscope"}
 GPUSTACK_PROVIDER = "GPUStack"
 KIMI_K2_MODEL_HINTS = ("kimi-k2.5", "kimi-k2.6")
+THINKING_CONTROL_KEYS = frozenset({"thinking", "enable_thinking", "reasoning"})
+_QWEN3_DOTTED_VERSION = re.compile(r"qwen3\.\d")
 
 
 def is_qwen3_thinking_model(model_name: str) -> bool:
+    """True when the Qwen3 variant only accepts enable_thinking=True.
+
+    DashScope rejects any other value for thinking-only SKUs such as
+    ``qwen3-*-thinking``, dotted releases (``qwen3.5-*``, ``qwen3.8-*-preview``),
+    and other ``-preview`` Qwen3 endpoints.
+    """
     name = (model_name or "").lower()
-    return "qwen3" in name and "thinking" in name
+    if "qwen3" not in name:
+        return False
+    return "thinking" in name or "-preview" in name or _QWEN3_DOTTED_VERSION.search(name) is not None
 
 
 def is_kimi_k2_model(model_name: str) -> bool:
@@ -68,12 +80,8 @@ def apply_enable_thinking_policy(
         return conf, {}
 
     family = detect_thinking_family(provider)
-    if (
-        not thinking_enabled
-        and is_qwen3_thinking_model(model_name)
-        and family in {"dashscope", "gpustack_multi_engine"}
-    ):
-        return conf, {}
+    if is_qwen3_thinking_model(model_name):
+        thinking_enabled = True
 
     if family == "gemini":
         if thinking_enabled:

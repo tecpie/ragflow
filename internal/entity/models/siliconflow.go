@@ -79,9 +79,7 @@ func (s *SiliconflowModel) ChatWithMessages(ctx context.Context, modelName strin
 			reqBody["enable_thinking"] = *chatModelConfig.Thinking
 		}
 	}
-	if strings.Contains(strings.ToLower(modelName), "qwen3") && (chatModelConfig == nil || chatModelConfig.Thinking == nil) {
-		reqBody["enable_thinking"] = false
-	}
+	applyQwen3ThinkingDefault(modelName, reqBody)
 
 	body, err := s.baseModel.doRequest(ctx, url, apiConfig, reqBody, nonStreamCallTimeout)
 	if err != nil {
@@ -115,9 +113,7 @@ func (s *SiliconflowModel) ChatStreamlyWithSender(ctx context.Context, modelName
 			reqBody["enable_thinking"] = *chatModelConfig.Thinking
 		}
 	}
-	if strings.Contains(strings.ToLower(modelName), "qwen3") && (chatModelConfig == nil || chatModelConfig.Thinking == nil) {
-		reqBody["enable_thinking"] = false
-	}
+	applyQwen3ThinkingDefault(modelName, reqBody)
 
 	return s.baseModel.doStreamRequest(ctx, url, apiConfig, reqBody, streamCallTimeout, func(body io.ReadCloser) error {
 		return HandleStreamingResponse(body, modelUsage, chatModelConfig, OpenAIParserConfig, sender)
