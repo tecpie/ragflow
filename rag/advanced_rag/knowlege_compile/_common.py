@@ -43,6 +43,7 @@ from typing import Any, Awaitable, Callable, Iterable, Optional
 import xxhash
 
 from common.misc_utils import thread_pool_exec
+from common.model_thinking_utils import is_qwen3_thinking_model
 from common.token_utils import num_tokens_from_string
 from rag.nlp import rag_tokenizer
 from rag.prompts.generator import INPUT_UTILIZATION, gen_json, split_chunks
@@ -63,10 +64,8 @@ def knowledge_compile_gen_conf(chat_mdl, gen_conf: Optional[dict] = None) -> dic
         extra_body["thinking"] = {"type": "disabled"}
         conf["extra_body"] = extra_body
     elif "qwen3" in model_name:
-        # chat_model.py maps this flag to the provider-specific request body.
-        # -preview variants (e.g. qwen3.8-max-preview) only accept
-        # enable_thinking=True on their API endpoint.
-        conf["enable_thinking"] = True if "-preview" in model_name else False
+        # Hybrid Qwen3 still defaults to off. Thinking-only SKUs reject false.
+        conf["enable_thinking"] = is_qwen3_thinking_model(model_name)
     else:
         # LiteLLM maps this common control for providers that support it and
         # drops it for providers that do not. Keep model-specific overrides
