@@ -584,3 +584,19 @@ def test_ocr_empty_images_fills_content(monkeypatch, tmp_path):
 
     sections = parser._transfer_to_sections(outputs, parse_method="raw")
     assert sections[0][0] == "ocr-text"
+
+
+def test_normalize_backend_accepts_current_names(monkeypatch):
+    module = _load_mineru_parser(monkeypatch)
+
+    assert module.normalize_backend("pipeline") == "pipeline"
+    assert module.normalize_backend("vlm-engine") == "vlm-engine"
+    assert module.normalize_backend("hybrid-engine") == "hybrid-engine"
+    assert module.normalize_backend("vlm-http-client") == "vlm-http-client"
+    assert module.normalize_backend("hybrid-http-client") == "hybrid-http-client"
+
+    with pytest.raises(ValueError, match="Invalid MinerU backend"):
+        module.normalize_backend("vlm-vllm-engine")
+
+    with pytest.raises(ValueError, match="Invalid MinerU backend"):
+        module.normalize_backend("not-a-backend")
