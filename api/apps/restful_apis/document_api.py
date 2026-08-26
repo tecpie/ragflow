@@ -761,7 +761,7 @@ def list_docs(dataset_id, tenant_id):
         type: string
         required: false
         default: "create_time"
-        description: Field to order by.
+        description: Field to order by. Allowed values: create_time, update_time, name, size.
       - in: query
         name: desc
         type: boolean
@@ -901,7 +901,7 @@ def _get_docs_with_request(req, dataset_id: str):
     page_size = validate_rest_api_page_size(q.get("page_size", DEFAULT_PAGE_SIZE))
 
     orderby = q.get("orderby", "create_time")
-    if orderby not in ("create_time", "update_time", "name"):
+    if orderby not in ("create_time", "update_time", "name", "size"):
         return RetCode.ARGUMENT_ERROR, f"invalid orderby field: {orderby}", [], 0
     desc = str(q.get("desc", "true")).strip().lower() != "false"
     keywords = q.get("keywords", "")

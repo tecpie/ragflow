@@ -528,7 +528,7 @@ func (h *DocumentHandler) ListDocuments(c *gin.Context) {
 
 	if orderby := c.Query("orderby"); orderby != "" {
 		switch orderby {
-		case "create_time", "update_time", "name":
+		case "create_time", "update_time", "name", "size":
 		default:
 			common.ResponseWithCodeData(c, common.CodeArgumentError, nil, fmt.Sprintf("invalid orderby field: %s", orderby))
 			return
@@ -1512,7 +1512,7 @@ func (h *DocumentHandler) StartIngestionTask(c *gin.Context) {
 	userID := c.GetString("user_id")
 	if orderby := c.Query("orderby"); orderby != "" {
 		switch orderby {
-		case "create_time", "update_time", "name":
+		case "create_time", "update_time", "name", "size":
 		default:
 			common.ResponseWithCodeData(c, common.CodeArgumentError, nil, fmt.Sprintf("invalid orderby field: %s", orderby))
 			return
@@ -1637,7 +1637,7 @@ func (h *DocumentHandler) StopParseDocuments(c *gin.Context) {
 	userID := c.GetString("user_id")
 	if orderby := c.Query("orderby"); orderby != "" {
 		switch orderby {
-		case "create_time", "update_time", "name":
+		case "create_time", "update_time", "name", "size":
 		default:
 			common.ResponseWithCodeData(c, common.CodeArgumentError, nil, fmt.Sprintf("invalid orderby field: %s", orderby))
 			return
