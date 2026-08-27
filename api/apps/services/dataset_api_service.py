@@ -18,9 +18,9 @@ import logging
 import os
 import re
 
-from api.db.db_models import File
+from api.db.db_models import Connector2Kb, Document, File, SyncLogs
 from api.db.joint_services.tenant_model_service import get_composite_model_name_by_ids, resolve_model_config, resolve_model_id
-from api.db.services.connector_service import Connector2KbService
+from api.db.services.connector_service import Connector2KbService, SyncLogsService
 from api.db.services.document_service import DocumentService, queue_raptor_o_graphrag_tasks
 from api.db.services.file2document_service import File2DocumentService
 from api.db.services.file_service import FileService
@@ -30,7 +30,7 @@ from api.db.services.tenant_model_service import TenantModelService
 from api.db.services.user_service import TenantService, UserService, UserTenantService
 from api.utils.api_utils import deep_merge, get_parser_config, remap_dictionary_keys, verify_embedding_availability
 from common import settings
-from common.constants import PAGERANK_FLD, FileSource, LLMType, RetCode, StatusEnum
+from common.constants import PAGERANK_FLD, FileSource, LLMType, RetCode, StatusEnum, TaskStatus
 from common.misc_utils import thread_pool_exec, thread_pool_exec_long_time
 from rag.advanced_rag.knowlege_compile.wiki import WIKI_PAGE_COMPILE_KWD
 
@@ -172,6 +172,15 @@ def _delete_datasets_sync(tenant_id: str, ids: list = None, delete_all: bool = F
     errors = []
     success_count = 0
     for kb_id, kb in kb_id_instance_pairs:
+        # Cancel this dataset's queued syncs before touching its documents.
+        # Tasks are only picked up while they are SCHEDULE, so cancelling stops
+        # every run that has not started yet; a sync already in flight is not
+        # interruptible, which is what the stranded-row sweep below covers.
+        SyncLogsService.filter_update(
+            [SyncLogs.kb_id == kb_id, SyncLogs.status.in_([TaskStatus.SCHEDULE, TaskStatus.RUNNING])],
+            {"status": TaskStatus.CANCEL},
+        )
+
         for doc in DocumentService.query(kb_id=kb_id):
             if not DocumentService.remove_document(doc, tenant_id):
                 errors.append(f"Remove document '{doc.id}' error for dataset '{kb_id}'")
@@ -208,6 +217,22 @@ def _delete_datasets_sync(tenant_id: str, ids: list = None, delete_all: bool = F
         if not KnowledgebaseService.delete_by_id(kb_id):
             errors.append(f"Delete dataset error for {kb_id}")
             continue
+
+        # Unwire the data sources only once the dataset is really gone, so a
+        # failed deletion above leaves a dataset that is still linked and still
+        # syncable. Left behind, these rows keep the connector scheduler queueing
+        # syncs against a kb_id that no longer resolves, and any document such a
+        # run writes outlives its dataset -- an invisible row that later reports
+        # a cross-KB id collision against whatever dataset is linked next.
+        Connector2KbService.filter_delete([Connector2Kb.kb_id == kb_id])
+        SyncLogsService.filter_delete([SyncLogs.kb_id == kb_id])
+
+        # Sweep anything the per-document loop could not see, including rows
+        # written by a sync that was already in flight when deletion started.
+        stranded = DocumentService.filter_delete([Document.kb_id == kb_id])
+        if stranded:
+            logging.warning("delete_datasets: removed %s stranded document rows for dataset %s", stranded, kb_id)
+
         success_count += 1
 
     if not errors:
@@ -790,7 +815,9 @@ def delete_tags(dataset_id: str, tenant_id: str, tags: list[str]):
     from rag.nlp import search
 
     for t in tags:
-        settings.docStoreConn.update({"tag_kwd": t, "kb_id": [dataset_id]}, {"remove": {"tag_kwd": t}}, search.index_name(kb.tenant_id), dataset_id)
+        updated = settings.docStoreConn.update({"tag_kwd": t, "kb_id": [dataset_id]}, {"remove": {"tag_kwd": t}}, search.index_name(kb.tenant_id), dataset_id)
+        if callable(getattr(settings.docStoreConn, "db_type", None)) and settings.docStoreConn.db_type() == "gaussdb" and not updated:
+            return False, "Failed to update dataset tags in document store"
 
     return True, {}
 
@@ -993,7 +1020,11 @@ def rename_tag(dataset_id: str, tenant_id: str, from_tag: str, to_tag: str):
 
     from rag.nlp import search
 
-    settings.docStoreConn.update({"tag_kwd": from_tag, "kb_id": [dataset_id]}, {"remove": {"tag_kwd": from_tag.strip()}, "add": {"tag_kwd": to_tag}}, search.index_name(kb.tenant_id), dataset_id)
+    updated = settings.docStoreConn.update(
+        {"tag_kwd": from_tag, "kb_id": [dataset_id]}, {"remove": {"tag_kwd": from_tag.strip()}, "add": {"tag_kwd": to_tag}}, search.index_name(kb.tenant_id), dataset_id
+    )
+    if callable(getattr(settings.docStoreConn, "db_type", None)) and settings.docStoreConn.db_type() == "gaussdb" and not updated:
+        return False, "Failed to update dataset tags in document store"
 
     return True, {"from": from_tag, "to": to_tag}
 
@@ -1026,12 +1057,14 @@ async def search(dataset_id: str, tenant_id: str, req: dict):
 
     page = int(req.get("page", 1))
     size = int(req.get("size", 30))
+    rerank_candidates_count = int(req.get("rerank_candidates_count", 64))
     question = req.get("question", "")
     doc_ids = req.get("doc_ids", [])
     use_kg = req.get("use_kg", False)
     similarity_threshold = float(req.get("similarity_threshold", 0.0))
     vector_similarity_weight = float(req.get("vector_similarity_weight", 0.3))
-    top = max(1, min(int(req.get("top_k", 1024)), 2048))
+    knn_top_k = max(1, min(int(req.get("knn_top_k", 1024)), 2048))
+    knn_num_candidates = int(req.get("knn_num_candidates", 2048))
     langs = req.get("cross_languages", [])
 
     if not KnowledgebaseService.accessible(dataset_id, tenant_id):
@@ -1060,17 +1093,18 @@ async def search(dataset_id: str, tenant_id: str, req: dict):
         meta_data_filter = search_config.get("meta_data_filter", {})
         similarity_threshold = float(search_config.get("similarity_threshold", similarity_threshold))
         vector_similarity_weight = float(search_config.get("vector_similarity_weight", vector_similarity_weight))
-        top = max(1, min(int(search_config.get("top_k", top)), 2048))
+        knn_top_k = max(1, min(int(search_config.get("top_k", knn_top_k)), 2048))
+        rerank_candidates_count = int(search_config.get("rerank_candidates_count", 100))
         use_kg = search_config.get("use_kg", use_kg)
         langs = search_config.get("cross_languages", langs)
         logging.debug(
-            "Dataset search loaded Search config: search_id=%s dataset_id=%s vector_similarity_weight=%s full_text_weight=%s similarity_threshold=%s top_k=%s",
+            "Dataset search loaded Search config: search_id=%s dataset_id=%s vector_similarity_weight=%s full_text_weight=%s similarity_threshold=%s knn_top_k=%s",
             search_id,
             dataset_id,
             vector_similarity_weight,
             1 - vector_similarity_weight,
             similarity_threshold,
-            top,
+            knn_top_k,
         )
         if meta_data_filter.get("method") in ["auto", "semi_auto"]:
             chat_id = search_config.get("chat_id", "")
@@ -1136,10 +1170,12 @@ async def search(dataset_id: str, tenant_id: str, req: dict):
         similarity_threshold,
         vector_similarity_weight,
         doc_ids=local_doc_ids,
-        top=top,
+        knn_top_k=knn_top_k,
+        knn_num_candidates=knn_num_candidates,
         rerank_mdl=rerank_mdl,
         rank_feature=labels,
         trace_id=search_id,
+        rerank_candidates_count=rerank_candidates_count,
     )
 
     if use_kg:
@@ -1263,7 +1299,11 @@ def check_embedding(dataset_id: str, tenant_id: str, req: dict):
             cid = ids[0]
             full_doc = docStoreConn.get(cid, index_nm, [kb_id]) or {}
             vec_field = _guess_vec_field(full_doc)
-            vec = _as_float_vec(full_doc.get(vec_field))
+            vec_valid = full_doc.get(f"{vec_field}_valid") if vec_field else None
+            if callable(getattr(docStoreConn, "db_type", None)) and docStoreConn.db_type() == "gaussdb" and vec_valid is False:
+                vec = []
+            else:
+                vec = _as_float_vec(full_doc.get(vec_field))
 
             out.append(
                 {
@@ -1402,12 +1442,14 @@ async def search_datasets(tenant_id: str, req: dict):
     kb_ids = req.get("dataset_ids", [])
     page = int(req.get("page", 1))
     size = int(req.get("size", 30))
+    rerank_candidates_count = int(req.get("rerank_candidates_count", 64))
     question = req.get("question", "")
     doc_ids = req.get("doc_ids", [])
     use_kg = req.get("use_kg", False)
     similarity_threshold = float(req.get("similarity_threshold", 0.0))
     vector_similarity_weight = float(req.get("vector_similarity_weight", 0.3))
-    top = max(1, min(int(req.get("top_k", 1024)), 2048))
+    knn_top_k = max(1, min(int(req.get("knn_top_k", 1024)), 2048))
+    knn_num_candidates = int(req.get("knn_num_candidates", 2048))
     langs = req.get("cross_languages", [])
 
     logging.debug(
@@ -1448,17 +1490,18 @@ async def search_datasets(tenant_id: str, req: dict):
         meta_data_filter = search_config.get("meta_data_filter", {})
         similarity_threshold = float(search_config.get("similarity_threshold", similarity_threshold))
         vector_similarity_weight = float(search_config.get("vector_similarity_weight", vector_similarity_weight))
-        top = max(1, min(int(search_config.get("top_k", top)), 2048))
+        knn_top_k = max(1, min(int(search_config.get("top_k", knn_top_k)), 2048))
+        rerank_candidates_count = int(search_config.get("rerank_candidates_count", 100))
         use_kg = search_config.get("use_kg", use_kg)
         langs = search_config.get("cross_languages", langs)
         logging.debug(
-            "Dataset search loaded Search config: search_id=%s dataset_ids=%s vector_similarity_weight=%s full_text_weight=%s similarity_threshold=%s top_k=%s",
+            "Dataset search loaded Search config: search_id=%s dataset_ids=%s vector_similarity_weight=%s full_text_weight=%s similarity_threshold=%s knn_top_k=%s",
             search_id,
             kb_ids,
             vector_similarity_weight,
             1 - vector_similarity_weight,
             similarity_threshold,
-            top,
+            knn_top_k,
         )
         if meta_data_filter.get("method") in ["auto", "semi_auto"]:
             chat_id = search_config.get("chat_id", "")
@@ -1528,11 +1571,13 @@ async def search_datasets(tenant_id: str, req: dict):
         similarity_threshold,
         vector_similarity_weight,
         doc_ids=local_doc_ids,
-        top=top,
+        knn_top_k=knn_top_k,
+        knn_num_candidates=knn_num_candidates,
         rerank_mdl=rerank_mdl,
         rank_feature=labels,
         trace_id=search_id,
         must_not=None if req.get("include_knowledge_compilation", True) else {"exists": "compile_kwd"},
+        rerank_candidates_count=rerank_candidates_count,
     )
 
     if use_kg:
@@ -1544,7 +1589,6 @@ async def search_datasets(tenant_id: str, req: dict):
         except Exception:
             logging.warning("search_datasets KG retrieval failed: datasets=%s tenant=%s", kb_ids, tenant_id, exc_info=True)
     ranks["chunks"] = settings.retriever.retrieval_by_children(ranks["chunks"], tenant_ids)
-    ranks["total"] = len(ranks["chunks"])
 
     for c in ranks["chunks"]:
         c.pop("vector", None)
@@ -2639,46 +2683,13 @@ async def list_wiki_topics(
     if not counts:
         return True, {"total": 0, "items": []}
 
-    # Resolve display metadata (title/slug) from the topic landing pages; fall
-    # back to the raw topic name when a topic has no ``page_type="topic"`` row.
-    meta: dict[str, dict] = {}
-    try:
-        meta_fields = ["topic_kwd", "title_kwd", "slug_kwd"]
-        _BATCH = 1000
-        _offset = 0
-        while True:
-            meta_res = settings.docStoreConn.search(
-                select_fields=meta_fields,
-                highlight_fields=[],
-                condition={"compile_kwd": [WIKI_PAGE_COMPILE_KWD], "page_type_kwd": ["topic"]},
-                match_expressions=[],
-                order_by=OrderByExpr(),
-                offset=_offset,
-                limit=_BATCH,
-                index_names=index_nm,
-                knowledgebase_ids=[dataset_id],
-            )
-            rows = settings.docStoreConn.get_fields(meta_res, meta_fields) or {}
-            if not rows:
-                break
-            for row in rows.values():
-                t = _scalar(row.get("topic_kwd"))
-                if t:
-                    meta[t] = {
-                        "title": _scalar(row.get("title_kwd")) or t,
-                        "slug": _scalar(row.get("slug_kwd")) or t,
-                    }
-            _offset += _BATCH
-    except Exception:
-        logging.exception("list_wiki_topics: topic metadata lookup failed for kb=%s", dataset_id)
-
     # Rank topics by page count (descending), then title for a stable order.
     ranked = sorted(
         (
             {
                 "topic": t,
-                "title": (meta.get(t) or {}).get("title") or t,
-                "slug": (meta.get(t) or {}).get("slug") or t,
+                "title": t.rsplit("/", 1)[-1],
+                "slug": t,
                 "page_count": c,
             }
             for t, c in counts.items()
@@ -3869,7 +3880,7 @@ async def _search_layers_chunks(tenant_id, dataset_id, query, top_k, embd_mdl, k
 
     kwargs = {}
     if top_k is not None:
-        kwargs["top"] = top_k
+        kwargs["knn_top_k"] = top_k
     if doc_scope:
         kwargs["doc_ids"] = [str(d) for d in doc_scope if str(d).strip()]
 

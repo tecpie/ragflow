@@ -3,7 +3,7 @@
  * keep writing into the store) after the chat page unmounts, so that navigating
  * away mid-answer and back shows the stream still in progress.
  */
-import { IMessage } from '@/interfaces/database/chat';
+import { IMessage, Variable } from '@/interfaces/database/chat';
 import {
   CompletionChunk,
   parseCompletionEventStream,
@@ -21,6 +21,7 @@ export type RunChatCompletionStreamParams = {
   enableThinking?: string;
   enableInternet?: boolean;
   enableModelThinking?: boolean;
+  llmSetting?: Variable;
 };
 
 export type RunChatCompletionStreamResult = {
@@ -35,6 +36,7 @@ export async function runChatCompletionStream({
   enableThinking,
   enableInternet,
   enableModelThinking,
+  llmSetting,
 }: RunChatCompletionStreamParams): Promise<RunChatCompletionStreamResult> {
   const { beginStream, applyAnswer, endStream } = useChatStreamStore.getState();
 
@@ -79,6 +81,7 @@ export async function runChatCompletionStream({
         enableThinking,
         enableInternet,
         enableModelThinking,
+        llmSetting,
       },
       controller.signal,
     );

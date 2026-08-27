@@ -275,6 +275,36 @@ func TestDiscordValidateNoNetwork(t *testing.T) {
 	}
 }
 
+func TestDiscordConnectorValidateConnectorSetting(t *testing.T) {
+	fixture := newDiscordFixture()
+	server := httptest.NewServer(fixture.handler())
+	defer server.Close()
+
+	connector := newDiscordTestConnector(t, map[string]any{
+		"credentials": map[string]any{"discord_bot_token": "token"},
+		"server_ids":  []any{"1001"},
+		"channels":    []any{"general"},
+	})
+	connector.baseURL = server.URL
+	if err := connector.ValidateConnectorSetting(context.Background(), nil); err != nil {
+		t.Fatalf("ValidateConnectorSetting: %v", err)
+	}
+	if fixture.requests.Load() == 0 {
+		t.Fatalf("ValidateConnectorSetting made no network requests")
+	}
+
+	empty := newDiscordTestConnector(t, map[string]any{
+		"credentials": map[string]any{"discord_bot_token": "token"},
+		"server_ids":  []any{"1001"},
+		"channels":    []any{"missing"},
+	})
+	empty.baseURL = server.URL
+	var valErr *ConnectorValidationError
+	if err := empty.ValidateConnectorSetting(context.Background(), nil); !errors.As(err, &valErr) {
+		t.Fatalf("ValidateConnectorSetting empty err = %v, want ConnectorValidationError", err)
+	}
+}
+
 func TestDiscordOpenSyncMergesBatches(t *testing.T) {
 	fixture := newDiscordFixture()
 	base := mustTime(t, "2026-08-14T10:00:00Z")
@@ -617,7 +647,8 @@ func TestDiscordResumeFingerprintMismatch(t *testing.T) {
 	}
 	session.Close()
 
-	// Run 2 filters to one channel, changing the enumeration: resume is ignored.
+	// Run 2 filters to one channel, changing the enumeration: resume must be
+	// rejected so the runner can restart the same fixed window.
 	secondConnector := newDiscordTestConnector(t, map[string]any{
 		"server_ids":  []any{"1001"},
 		"channels":    []any{"general"},
@@ -629,17 +660,8 @@ func TestDiscordResumeFingerprintMismatch(t *testing.T) {
 		FromBeginning: true,
 		Resume:        batch.Checkpoint,
 	})
-	if err != nil {
-		t.Fatalf("resumed OpenSync: %v", err)
-	}
-	defer resumed.Close()
-
-	first, err := resumed.NextBatch(context.Background())
-	if err != nil {
-		t.Fatalf("resumed NextBatch: %v", err)
-	}
-	if first.Documents[0].SourceID != "DISCORD_m1" {
-		t.Fatalf("resumed doc = %q, want full re-scan from DISCORD_m1", first.Documents[0].SourceID)
+	if resumed != nil || err == nil || !errors.Is(err, ErrSyncResumeInvalid) {
+		t.Fatalf("resumed OpenSync = session %v, err %v, want ErrSyncResumeInvalid", resumed, err)
 	}
 }
 
@@ -660,17 +682,8 @@ func TestDiscordResumeInvalidCursor(t *testing.T) {
 		FromBeginning: true,
 		Resume:        &SyncCheckpoint{Cursor: "not-json"},
 	})
-	if err != nil {
-		t.Fatalf("OpenSync: %v", err)
-	}
-	defer session.Close()
-
-	batch, err := session.NextBatch(context.Background())
-	if err != nil {
-		t.Fatalf("NextBatch: %v", err)
-	}
-	if batch.Documents[0].SourceID != "DISCORD_m1" {
-		t.Fatalf("doc = %q, want full re-scan from DISCORD_m1", batch.Documents[0].SourceID)
+	if session != nil || err == nil || !errors.Is(err, ErrSyncResumeInvalid) {
+		t.Fatalf("resume OpenSync = session %v, err %v, want ErrSyncResumeInvalid", session, err)
 	}
 }
 

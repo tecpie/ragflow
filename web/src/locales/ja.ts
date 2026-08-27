@@ -438,6 +438,12 @@ export default {
       dialogueExamplesTitle: '会話の例',
       methodEmpty: 'ナレッジベースカテゴリの視覚的説明がここに表示されます',
 
+      audio: `<p>対応ファイル形式は <b>WAV、MP3、AAC、FLAC、OGG</b> およびその他の一般的な音声形式です。</p>
+<p>この方法は、音声認識モデルを使用して音声ファイルをテキストに文字起こしします。</p>`,
+      email: `<p>対応ファイル形式は <b>EML</b> と <b>MSG</b> です。</p>
+<p>この方法はメールファイルを解析し、ヘッダーフィールド（差出人、宛先、CC、件名、日付など）、本文、添付ファイルを抽出します。</p>`,
+      knowledgeCompiler: `<p>このパイプラインはファイルを解析・チャンク化した後、Knowledge Compiler コンポーネントを通じてチャンクを構造化ナレッジユニット（ナレッジグラフ、Wiki、RAPTOR、マインドマップ、データセットナビゲーション）にコンパイルします。</p>
+<p>コンパイルされたナレッジユニットはチャンクとしてチャンクストリームにマージされて出力されるため、チャンク化されたドキュメントの上に検索可能なナレッジレイヤーを構築するのに最適です。</p>`,
       book: `<p>対応ファイル形式は<b>DOCX</b>, <b>PDF</b>, <b>TXT</b>です。</p><p>
       PDF形式の書籍では、解析時間を短縮するため、<i>ページ範囲</i>を設定してください。</p>`,
 
@@ -607,9 +613,6 @@ export default {
       dataSource: 'データソース',
       linkSourceSetTip: 'このデータセットとのデータソース連携を管理します',
       linkDataSource: 'データソースを連携',
-      tocExtraction: 'PageIndex',
-      tocExtractionTip:
-        ' 既存のチャンクに対して、階層的な目次（ファイルごとに1つのディレクトリ）を生成します。クエリ時にディレクトリ拡張が有効になっている場合、システムは大規模モデルを使用してユーザーの質問に関連するディレクトリ項目を判定し、関連するチャンクを特定します。',
       deleteGenerateModalContent:
         "\n        <p>生成された<strong class='text-text-primary'>{{type}}</strong>の結果を削除すると、\n        このデータセットから派生したすべてのエンティティと関係性が削除されます。\n        元のファイルはそのまま残ります。<p>\n        <br/>\n        続行しますか？\n      ",
       extractRaptor: 'RAPTORを抽出',
@@ -891,6 +894,9 @@ export default {
       created: '作成日',
       action: 'アクション',
       embedModalTitle: 'ウェブサイトに埋め込む',
+      embedUserIdPlaceholder: '例: user-001',
+      embedUserIdTooltip:
+        '埋め込みページのエンドユーザーを識別する文字列（最大255文字）です。埋め込みURLに userId パラメータとして付加されます。',
       comingSoon: '近日公開',
       fullScreenTitle: '全画面埋め込み',
 
@@ -1332,6 +1338,7 @@ export default {
         'Microsoft Graph経由でSharePointサイトに接続し、ドキュメントライブラリを同期します。',
       sharepointSiteUrlTip:
         'インデックス対象のSharePointサイトの完全なURLです（例: https://contoso.sharepoint.com/sites/MySite）。Sites.Read.AllおよびFiles.Read.Allのアプリケーション権限（管理者の同意）を持つAzure ADアプリが必要です。',
+      azure_devopsDescription: 'Azure DevOps に接続し、リポジトリのファイルとプルリクエストを同期します。',
       bitbucketDescription: 'Bitbucketに接続し、PRの内容を同期します。',
       bitbucketTopWorkspaceTip:
         'インデックス対象のBitbucketワークスペースです（例: https://bitbucket.org/atlassian/workspace の「atlassian」）。',
@@ -1774,6 +1781,8 @@ export default {
       listModelsLoading: 'モデルを読み込み中…',
       selectModelBeforeVerify:
         '検証する前に、少なくとも1つのモデルを選択してください。',
+      selectModelBeforeSave:
+        '保存する前に、少なくとも1つのモデルを検出して選択してください。',
       addCustomModel: 'カスタムモデルを追加',
       addCustomModelTitle: 'カスタムモデルを追加',
       batchAddModels: '表示中のモデルをすべて追加',

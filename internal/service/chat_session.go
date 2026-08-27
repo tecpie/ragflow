@@ -1819,6 +1819,7 @@ func (s *ChatSessionService) buildDefaultCompletionDialog(tenantID string) *enti
 		PromptConfig:           entity.JSONMap{},
 		KBIDs:                  entity.JSONSlice{},
 		TopN:                   6,
+		RerankCandidatesCount:  64,
 		TopK:                   1024,
 		RerankID:               "",
 		SimilarityThreshold:    0.1,

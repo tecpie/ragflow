@@ -7,6 +7,50 @@ import (
 	"github.com/xuri/excelize/v2"
 )
 
+func xlsxTableHTML(res ParseResult) string {
+	var out strings.Builder
+	for _, item := range res.JSON {
+		if item["doc_type_kwd"] != "table" {
+			continue
+		}
+		text, _ := item["text"].(string)
+		out.WriteString(text)
+	}
+	return out.String()
+}
+
+func TestXLSXImageMIMEType(t *testing.T) {
+	tests := []struct {
+		extension string
+		mime      string
+		ok        bool
+	}{
+		{extension: ".png", mime: "image/png", ok: true},
+		{extension: ".JPG", mime: "image/jpeg", ok: true},
+		{extension: ".emf", mime: "image/x-emf", ok: true},
+		{extension: ".emz", mime: "image/x-emz", ok: true},
+		{extension: ".ico", mime: "image/x-icon", ok: true},
+		{extension: ".wmf", mime: "image/x-wmf", ok: true},
+		{extension: ".wmz", mime: "image/x-wmz", ok: true},
+		{extension: ".unknown", ok: false},
+	}
+	for _, tc := range tests {
+		mime, ok := xlsxImageMIMEType(tc.extension)
+		if mime != tc.mime || ok != tc.ok {
+			t.Errorf("xlsxImageMIMEType(%q) = (%q, %v), want (%q, %v)", tc.extension, mime, ok, tc.mime, tc.ok)
+		}
+	}
+}
+
+func TestExtractXLSXImagesWarningForInvalidSheet(t *testing.T) {
+	f := excelize.NewFile()
+	defer f.Close()
+	_, warnings := extractXLSXImages(f, "MissingSheet")
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "image discovery failed") {
+		t.Fatalf("warnings = %v, want image discovery warning", warnings)
+	}
+}
+
 // newTestXLSX builds an in-memory .xlsx from a cell writer.
 func newTestXLSX(t *testing.T, fill func(f *excelize.File)) []byte {
 	t.Helper()
@@ -151,7 +195,7 @@ func TestXLSXParser_HeaderAndCaption(t *testing.T) {
 	if res.Err != nil {
 		t.Fatalf("ParseWithResult: %v", res.Err)
 	}
-	html := res.HTML
+	html := xlsxTableHTML(res)
 	if !strings.Contains(html, `<caption>Sheet1</caption>`) {
 		t.Fatalf("want <caption>Sheet1</caption>, got:\n%s", html)
 	}
@@ -187,7 +231,7 @@ func TestXLSXParser_MergedHeaderInheritance(t *testing.T) {
 	if res.Err != nil {
 		t.Fatalf("ParseWithResult: %v", res.Err)
 	}
-	html := res.HTML
+	html := xlsxTableHTML(res)
 	// The merged master text must have propagated into all three <th> slots.
 	if !strings.Contains(html, "<tr><th>Sales Report</th><th>Sales Report</th><th>Sales Report</th></tr>") {
 		t.Fatalf("merged master text not inherited into header <th>, got:\n%s", html)
@@ -211,11 +255,11 @@ func TestDetectHeaderRow_ListObject(t *testing.T) {
 	if res.Err != nil {
 		t.Fatalf("ParseWithResult: %v", res.Err)
 	}
-	if !strings.Contains(res.HTML, "<tr><th>Name</th><th>Age</th></tr>") {
-		t.Fatalf("want ListObject header row detected, got:\n%s", res.HTML)
+	if !strings.Contains(xlsxTableHTML(res), "<tr><th>Name</th><th>Age</th></tr>") {
+		t.Fatalf("want ListObject header row detected, got:\n%s", xlsxTableHTML(res))
 	}
-	if strings.Contains(res.HTML, "<th>Title</th>") {
-		t.Fatalf("title row must not be the header:\n%s", res.HTML)
+	if strings.Contains(xlsxTableHTML(res), "<th>Title</th>") {
+		t.Fatalf("title row must not be the header:\n%s", xlsxTableHTML(res))
 	}
 }
 
@@ -238,11 +282,11 @@ func TestDetectHeaderRow_Lightweight(t *testing.T) {
 	if res.Err != nil {
 		t.Fatalf("ParseWithResult: %v", res.Err)
 	}
-	if !strings.Contains(res.HTML, "<tr><th>Item</th><th>Count</th></tr>") {
-		t.Fatalf("want row-2 header detected, got:\n%s", res.HTML)
+	if !strings.Contains(xlsxTableHTML(res), "<tr><th>Item</th><th>Count</th></tr>") {
+		t.Fatalf("want row-2 header detected, got:\n%s", xlsxTableHTML(res))
 	}
-	if strings.Contains(res.HTML, "<th>100</th>") {
-		t.Fatalf("numeric row 1 must not be the header:\n%s", res.HTML)
+	if strings.Contains(xlsxTableHTML(res), "<th>100</th>") {
+		t.Fatalf("numeric row 1 must not be the header:\n%s", xlsxTableHTML(res))
 	}
 }
 
@@ -260,8 +304,8 @@ func TestXLSXParser_CommonCaseNoRegression(t *testing.T) {
 	if res.Err != nil {
 		t.Fatalf("ParseWithResult: %v", res.Err)
 	}
-	if !strings.Contains(res.HTML, "<tr><th>col_a</th><th>col_b</th></tr>") {
-		t.Fatalf("common-case header must render as <th>:\n%s", res.HTML)
+	if !strings.Contains(xlsxTableHTML(res), "<tr><th>col_a</th><th>col_b</th></tr>") {
+		t.Fatalf("common-case header must render as <th>:\n%s", xlsxTableHTML(res))
 	}
 }
 
@@ -288,11 +332,11 @@ func TestDetectHeaderRow_BoldSubtotalNotHeader(t *testing.T) {
 	if res.Err != nil {
 		t.Fatalf("ParseWithResult: %v", res.Err)
 	}
-	if !strings.Contains(res.HTML, "<tr><th>2023</th><th>2024</th></tr>") {
-		t.Fatalf("numeric row 1 must remain the header:\n%s", res.HTML)
+	if !strings.Contains(xlsxTableHTML(res), "<tr><th>2023</th><th>2024</th></tr>") {
+		t.Fatalf("numeric row 1 must remain the header:\n%s", xlsxTableHTML(res))
 	}
-	if strings.Contains(res.HTML, "<th>Total</th>") {
-		t.Fatalf("bold subtotal row must not be promoted to header:\n%s", res.HTML)
+	if strings.Contains(xlsxTableHTML(res), "<th>Total</th>") {
+		t.Fatalf("bold subtotal row must not be promoted to header:\n%s", xlsxTableHTML(res))
 	}
 }
 
@@ -321,11 +365,11 @@ func TestDetectHeaderRow_StyledHeaderPastFarMerge(t *testing.T) {
 	if res.Err != nil {
 		t.Fatalf("ParseWithResult: %v", res.Err)
 	}
-	if !strings.Contains(res.HTML, "<th>Name</th><th>Desc</th>") {
-		t.Fatalf("narrow bold header past far merge must be detected:\n%s", res.HTML)
+	if !strings.Contains(xlsxTableHTML(res), "<th>Name</th><th>Desc</th>") {
+		t.Fatalf("narrow bold header past far merge must be detected:\n%s", xlsxTableHTML(res))
 	}
-	if strings.Contains(res.HTML, "<th>Sales Report</th>") {
-		t.Fatalf("wide merged title must not be the header:\n%s", res.HTML)
+	if strings.Contains(xlsxTableHTML(res), "<th>Sales Report</th>") {
+		t.Fatalf("wide merged title must not be the header:\n%s", xlsxTableHTML(res))
 	}
 }
 
@@ -351,11 +395,11 @@ func TestDetectHeaderRow_StyledTextHeaderOverNumeric(t *testing.T) {
 	if res.Err != nil {
 		t.Fatalf("ParseWithResult: %v", res.Err)
 	}
-	if !strings.Contains(res.HTML, "<tr><th>Product</th><th>Units</th></tr>") {
-		t.Fatalf("styled text header over numeric data must be detected:\n%s", res.HTML)
+	if !strings.Contains(xlsxTableHTML(res), "<tr><th>Product</th><th>Units</th></tr>") {
+		t.Fatalf("styled text header over numeric data must be detected:\n%s", xlsxTableHTML(res))
 	}
-	if strings.Contains(res.HTML, "<th>Report Title</th>") {
-		t.Fatalf("title stub must not be the header:\n%s", res.HTML)
+	if strings.Contains(xlsxTableHTML(res), "<th>Report Title</th>") {
+		t.Fatalf("title stub must not be the header:\n%s", xlsxTableHTML(res))
 	}
 }
 
@@ -470,7 +514,7 @@ func TestRenderSheetTables_FarMergeDoesNotBloatDataRows(t *testing.T) {
 	if res.Err != nil {
 		t.Fatalf("ParseWithResult: %v", res.Err)
 	}
-	html := res.HTML
+	html := xlsxTableHTML(res)
 	if !strings.Contains(html, "<tr><th>Name</th><th>Price</th></tr>") {
 		t.Fatalf("want row-2 header detected, got:\n%s", html)
 	}
@@ -509,7 +553,7 @@ func TestRenderSheetTables_MultiSheet(t *testing.T) {
 	if res.Err != nil {
 		t.Fatalf("ParseWithResult: %v", res.Err)
 	}
-	html := res.HTML
+	html := xlsxTableHTML(res)
 	if !strings.Contains(html, "<caption>Sheet1</caption>") {
 		t.Fatalf("want Sheet1 caption, got:\n%s", html)
 	}
@@ -532,7 +576,7 @@ func TestRenderSheetTables_EmptySheet(t *testing.T) {
 	if res.Err != nil {
 		t.Fatalf("ParseWithResult: %v", res.Err)
 	}
-	if res.HTML != "" {
-		t.Fatalf("empty sheet must yield empty HTML, got:\n%s", res.HTML)
+	if len(res.JSON) != 0 {
+		t.Fatalf("empty sheet must yield empty JSON, got:\n%v", res.JSON)
 	}
 }

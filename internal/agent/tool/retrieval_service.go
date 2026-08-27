@@ -53,6 +53,7 @@ type RetrievalRequest struct {
 	DocumentIDs              []string
 	MemoryIDs                []string
 	TopN                     int
+	RerankCandidatesCount    int
 	TopK                     int
 	KeywordsSimilarityWeight *float64
 	UseKG                    bool

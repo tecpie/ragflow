@@ -28,6 +28,7 @@ import Markdown from 'react-markdown';
 import SyntaxHighlighter from 'react-syntax-highlighter';
 import rehypeKatex from 'rehype-katex';
 import rehypeRaw from 'rehype-raw';
+import { RehypeSanitizeAssistantMarkdown } from '@/constants/markdown-rehype-plugins';
 import { visitParents } from 'unist-util-visit-parents';
 
 import { useTranslation } from 'react-i18next';
@@ -84,7 +85,12 @@ const rehypeWrapReference = () => {
   };
 };
 
-const MarkdownRehypePlugins = [rehypeRaw, rehypeWrapReference, rehypeKatex];
+const MarkdownRehypePlugins = [
+  rehypeRaw,
+  RehypeSanitizeAssistantMarkdown,
+  rehypeWrapReference,
+  rehypeKatex,
+];
 
 const MarkdownParagraph = ({ children, ...props }: any) => (
   <p {...props}>{children}</p>
@@ -316,7 +322,7 @@ const MarkdownContent = ({
           <HoverCard key={i}>
             <HoverCardTrigger>
               <bdi className="text-text-secondary bg-bg-card rounded-2xl px-1 mx-1 text-nowrap inline-block">
-                Fig. {chunkIndex + 1}
+                {t('common.figure')} {chunkIndex + 1}
               </bdi>
             </HoverCardTrigger>
             <HoverCardContent className="max-w-3xl">
@@ -328,7 +334,7 @@ const MarkdownContent = ({
 
       return replacedText;
     },
-    [getPopoverContent],
+    [getPopoverContent, t],
   );
 
   const dir = getDirAttribute(content.replace(citationMarkerReg, ''));

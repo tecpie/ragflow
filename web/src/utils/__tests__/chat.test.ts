@@ -64,4 +64,32 @@ describe('replaceThinkToSection', () => {
       '<details class="think"><summary>Thinking...</summary>分析中</details>你好',
     );
   });
+
+  it('drops an empty think section instead of rendering a bare strip', () => {
+    expect(replaceThinkToSection('<think></think>Here is the answer.')).toBe(
+      'Here is the answer.',
+    );
+  });
+
+  it('drops a whitespace-only think section', () => {
+    expect(replaceThinkToSection('<think>  \n </think>answer')).toBe('answer');
+  });
+
+  it('keeps a non-empty think section as a details block', () => {
+    expect(replaceThinkToSection('<think>some reasoning</think>answer')).toBe(
+      '<details class="think"><summary>Thinking...</summary>some reasoning</details>answer',
+    );
+  });
+
+  it('uses the provided summary for non-empty sections', () => {
+    expect(
+      replaceThinkToSection('<think>reasoning</think>', 'Deep thought'),
+    ).toBe(
+      '<details class="think"><summary>Deep thought</summary>reasoning</details>',
+    );
+  });
+
+  it('leaves text without think markers unchanged', () => {
+    expect(replaceThinkToSection('plain answer')).toBe('plain answer');
+  });
 });

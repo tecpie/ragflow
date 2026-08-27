@@ -9,6 +9,7 @@ export default {
       delete: '删除',
       deleteModalTitle: '确定删除吗?',
       deleteThem: '确定要删除吗？',
+      removeModalTitle: '确定移除吗？',
       ok: '确认',
       cancel: '取消',
       yes: '是',
@@ -21,7 +22,9 @@ export default {
       stop: '停止',
       resume: '恢复',
       namePlaceholder: '请输入名称',
+      nameSlashError: '名称不能包含 "/"',
       descriptionPlaceholder: '请输入描述',
+      descriptionMaxLength: '描述最多 {{max}} 个字符。',
       next: '下一步',
       create: '创建',
       edit: '编辑',
@@ -41,6 +44,7 @@ export default {
       viewLess: '收起',
       comingSoon: '即将推出',
       download: '下载',
+      figure: '图',
       close: '关闭',
       preview: '预览',
       move: '移动',
@@ -62,6 +66,7 @@ export default {
       search: '搜索',
       reset: '重置',
       noDataFound: '没有找到数据。',
+      searchOrEnterToAdd: '搜索或输入后回车添加',
       noData: '暂无数据',
       bedrockCredentialsHint:
         '提示：ACCESS KEY / SECRET KEY 可留空，以启用 AWS IAM 自动验证。',
@@ -628,11 +633,12 @@ export default {
       rebuildTip: '从所有已关联的数据源重新下载文件并再次解析。',
       baseInfo: '基础信息',
       globalIndex: '全局索引',
+      globalIndexModel: '索引模型',
+      globalIndexModelTip:
+        '用于生成自动元数据、自动关键词和自动问题。模型性能会影响生成质量。',
       dataSource: '数据源',
       linkSourceSetTip: '管理与此知识库的数据源链接',
       linkDataSource: '链接数据源',
-      tocExtractionTip:
-        '对于已有的 Chunk 生成层级结构的目录信息（每个文件一个目录）。在查询时，激活`PageIndex`后，系统会用大模型去判断用户问题和哪些目录项相关，从而找到相关的 Chunk。',
       deleteGenerateModalContent: `
         <p>删除生成的 <strong class='text-text-primary'>{{type}}</strong> 结果
           将从此知识库中移除所有派生 Entities 和 Relations。
@@ -695,6 +701,12 @@ export default {
         '为帮助您更好地理解，我们提供了相关截图供您参考。',
       dialogueExamplesTitle: '对话示例',
       methodEmpty: '这将显示知识库类别的可视化解释',
+      audio: `<p>支持的文件格式为 <b>WAV、MP3、AAC、FLAC、OGG</b> 及其他常见音频格式。</p>
+<p>本方法使用语音转文本模型将音频文件转录为文本。</p>`,
+      email: `<p>支持的文件格式为 <b>EML</b> 和 <b>MSG</b>。</p>
+<p>本方法解析电子邮件文件，提取头部字段（如发件人、收件人、抄送、主题和日期）、正文内容以及附件。</p>`,
+      knowledgeCompiler: `<p>本 pipeline 先解析文件并分块，然后通过 Knowledge Compiler 组件将分块编译为结构化知识单元（知识图谱、百科、RAPTOR、思维导图或数据集导航）。</p>
+<p>编译后的知识单元以分块形式合并进分块流输出，适合在分块文档之上构建可检索的知识层。</p>`,
       book: `<p>支持的文件格式为<b>DOCX</b>、<b>PDF</b>、<b>TXT</b>。</p><p>
       由于一本书很长，并不是所有部分都有用，如果是 PDF，
       请为每本书设置<i>页面范围</i>，以消除负面影响并节省分析计算时间。</p>`,
@@ -939,13 +951,14 @@ NER：使用 spaCy NER 和基于规则的关键词提取来抽取 Entities 和 R
       emptyResponse: '空回复',
       emptyResponsePlaceholder: '在知识库中未找到您要寻找的答案！',
       emptyResponseTip: `如果在知识库中没有检索到用户的问题，它将使用它作为答案。 如果您希望 LLM 在未检索到任何内容时提出自己的意见，请将此留空。仅在思考模式是简单模式时候生效。`,
-      emptyResponseMessage: `当知识库中未检索到任何相关信息时，将触发空响应。由于未选择任何知识库，因此请清除“空响应”。`,
+      emptyResponseMessage: `当知识库中未检索到任何相关信息时，将触发空回复。由于未选择任何知识库，因此请清除“空回复”。`,
       setAnOpener: '设置开场白',
       setAnOpenerInitial: `你好！ 我是你的助理，有什么可以帮到你的吗？`,
       setAnOpenerTip: '您想如何欢迎您的客户？',
       knowledgeBases: '知识库',
       knowledgeBasesPlaceholder: '请选择',
       knowledgeBasesMessage: '请选择',
+      datasetUnavailable: '所选知识库不可用（已删除或无 chunk），请重新选择',
       knowledgeBasesTip:
         '选择关联的知识库。新建或空知识库不会在下拉菜单中显示。',
       system: '系统提示词',
@@ -961,10 +974,15 @@ NER：使用 spaCy NER 和基于规则的关键词提取来抽取 Entities 和 R
         {knowledge}
         以上是知识库。`,
       systemMessage: '请输入',
+      knowledgePlaceholderMessage:
+        '已选择知识库但系统提示词中缺少 {knowledge} 占位符，检索到的内容将无法注入。请在系统提示词中添加 {knowledge}，或移除已选择的知识库。',
       systemTip:
         '当LLM回答问题时，你需要LLM遵循的说明，比如角色设计、答案长度和答案语言等。如果您的模型原生支持在问答中推理，可以通过 //no_thinking 关闭自动推理。',
       topN: 'Top N',
       topNTip: `并非所有相似度得分高于“相似度阈值”的块都会被提供给大语言模型。 LLM 只能看到这些“Top N”块。`,
+      rerankCandidatesCount: '重排候选数',
+      rerankCandidatesCountTip: '用于重排的候选分块数量。',
+      rerankCandidatesCountValidation: '重排候选数必须大于或等于 Top N。',
       variable: '变量',
       variableTip: `你可以通过对话 API，并配合变量设置来动态调整大模型的系统提示词。
       {knowledge}为系统预留变量，代表从指定知识库召回的文本块。
@@ -1008,19 +1026,20 @@ NER：使用 spaCy NER 和基于规则的关键词提取来抽取 Entities 和 R
       maxTokensInvalidMessage: '请输入有效的最大令牌数。',
       maxTokensMinMessage: '最大令牌数不能小于 0。',
       thinking: '思考中...',
+      thinkingMode: '思考',
       thought: '思考完成',
       thinkingDefault: '系统默认',
       thinkingEnabled: '开启',
       thinkingDisabled: '关闭',
-      thinkingLevelNone: '简单',
-      thinkingLevelLow: '轻度',
-      thinkingLevelLowDescription: '即时响应',
-      thinkingLevelMedium: '中',
+      thinkingLevelNone: 'Naive',
+      thinkingLevelLow: 'Low',
+      thinkingLevelLowDescription: '快速响应',
+      thinkingLevelMedium: 'Medium',
       thinkingLevelMediumDescription: '平衡速度与深度',
-      thinkingLevelHigh: '高',
+      thinkingLevelHigh: 'High',
       thinkingLevelHighDescription: '深度推理',
-      thinkingLevelUltra: '极高',
-      thinkingLevelUltraDescription: '最大认知投入',
+      thinkingLevelUltra: 'Ultra',
+      thinkingLevelUltraDescription: '尽力思考',
       thinkingTip:
         '仅控制官方模型提供商中的 Qwen、Kimi 和 GLM 模型思考模式。系统默认会关闭 Qwen 思考，以避免任务长时间运行。',
       quote: '显示引文',
@@ -1045,6 +1064,9 @@ NER：使用 spaCy NER 和基于规则的关键词提取来抽取 Entities 和 R
       created: '创建于',
       action: '操作',
       embedModalTitle: '嵌入网站',
+      embedUserIdPlaceholder: '例如：user-001',
+      embedUserIdTooltip:
+        '用于标识嵌入页面终端用户的字符串，最长 255 个字符，会作为 userId 参数附加到嵌入链接中。',
       published: '已发布',
       publishedTooltip:
         '在嵌入中使用已发布的版本。启用后，生成的 URL 将包含 release=true。',
@@ -1100,6 +1122,12 @@ NER：使用 spaCy NER 和基于规则的关键词提取来抽取 Entities 和 R
       queritApiKeyTip:
         '选择 Querit 后，将使用 Querit 的网络搜索结果补充知识库检索。',
       queritApiKeyMessage: '请输入你的 Querit API Key',
+      serplyApiKeyTip:
+        '选择 Serply 后，将使用 Serply 的网络搜索结果补充知识库检索。',
+      serplyApiKeyMessage: '请输入你的 Serply API Key',
+      youcomApiKeyTip:
+        '可选。You.com 在限速端点上无需 API Key 即可使用；填写 Key 可解除限速。',
+      youcomApiKeyMessage: '可选 —— 留空则使用免费额度',
       tavilyApiKeyHelp: '如何获取？',
       crossLanguage: '跨语言搜索',
       crossLanguagePlaceholder: '请选择',
@@ -1252,6 +1280,17 @@ NER：使用 spaCy NER 和基于规则的关键词提取来抽取 Entities 和 R
       sharepointSiteUrlTip:
         '要索引的 SharePoint 站点完整 URL，例如 https://contoso.sharepoint.com/sites/MySite。需要具备 Sites.Read.All 与 Files.Read.All 应用权限（管理员同意）的 Azure AD 应用。',
       boxDescription: '连接你的 Box 云盘以同步文件和文件夹。',
+      azureDevOpsPatTip: '需要具有 Code (Read) 权限的个人访问令牌。',
+      azureDevOpsOrganizationTip:
+        '组织名称（例如 contoso），或自托管 Azure DevOps Server 的集合地址（例如 https://tfs.contoso.com/DefaultCollection）。',
+      azureDevOpsProjectsTip:
+        '以逗号分隔的团队项目名称。例如：Project1,Project2',
+      azureDevOpsRepositoriesTip:
+        '以逗号分隔的仓库。可使用 project/repo 形式以区分同名仓库。',
+      azureDevOpsOrganizationScopeTip: '将索引该组织中令牌可见的所有仓库。',
+      azureDevOpsContentTypesTip:
+        '选择要索引的内容：源文件、拉取请求，或两者。',
+      azure_devopsDescription: '连接 Azure DevOps 以同步仓库文件和拉取请求。',
       bitbucketDescription: '连接 Bitbucket，同步 PR 内容。',
       bitbucketTopWorkspaceTip:
         '要索引的 Bitbucket 工作区（例如：https://bitbucket.org/atlassian/workspace 中的 "atlassian"）',
@@ -1380,6 +1419,14 @@ NER：使用 spaCy NER 和基于规则的关键词提取来抽取 Entities 和 R
       dataSourceFieldWikiBaseUrl: 'Wiki 基础 URL',
       dataSourceFieldIsCloud: '是否为云版本',
       dataSourceFieldIndexMode: '索引模式',
+      dataSourceFieldAzureDevOpsPat: 'Azure DevOps 个人访问令牌',
+      dataSourceFieldAzureDevOpsOrganization: 'Azure DevOps 组织',
+      dataSourceFieldAzureDevOpsRepositories: '仓库',
+      dataSourceFieldAzureDevOpsContentTypes: '内容类型',
+      dataSourceOptionOrganization: '组织',
+      dataSourceOptionCode: '代码',
+      dataSourceOptionPullRequests: '拉取请求',
+      dataSourceOptionBoth: '两者',
       dataSourceFieldPageId: '页面 ID',
       dataSourceFieldSpaceKey: '空间标识（Space Key）',
       dataSourceFieldIndexRecursively: '递归索引',
@@ -1699,6 +1746,7 @@ NER：使用 spaCy NER 和基于规则的关键词提取来抽取 Entities 和 R
       instanceNameMessage: '请输入实例名称！',
       instanceNameTip: '用于在同一厂商下唯一标识该实例的名称。',
       instanceNamePlaceholder: '请输入实例名称',
+      instanceNameExists: '实例名称已存在',
       deleteInstance: '删除实例',
       modelName: '模型名称',
       modelID: '模型ID',
@@ -1874,6 +1922,7 @@ NER：使用 spaCy NER 和基于规则的关键词提取来抽取 Entities 和 R
       listModelsEmpty: '暂无可用模型',
       listModelsLoading: '正在加载模型…',
       selectModelBeforeVerify: '请至少选择一个模型后再验证。',
+      selectModelBeforeSave: '请先发现并选择至少一个模型后再保存。',
       addCustomModel: '添加自定义模型',
       addCustomModelTitle: '添加自定义模型',
       batchAddModels: '添加全部模型',
@@ -1918,7 +1967,7 @@ NER：使用 spaCy NER 和基于规则的关键词提取来抽取 Entities 和 R
       fieldRule: '规则',
       addField: '添加字段',
       editField: '编辑字段',
-      selectFieldType: '选择字段类型',
+      selectFieldType: '选择或输入字段类型',
       fieldTypeExists: '该字段类型已存在',
       example: '示例',
       instruction: 'Instruction',
@@ -1955,7 +2004,7 @@ NER：使用 spaCy NER 和基于规则的关键词提取来抽取 Entities 和 R
       processFlowComingSoon: '流程视图预览即将到来',
       compilationTitleSuffix: '的数据集',
       llmWiki: 'Wiki',
-      skills: '技能',
+      skills: 'To Skills',
       navTree: 'PageIndex',
       graph: 'Graph',
       structureMindmap: 'Mindmap',
@@ -2007,6 +2056,8 @@ NER：使用 spaCy NER 和基于规则的关键词提取来抽取 Entities 和 R
       skillDeleteDescription: '确定要删除该 Skill 吗？',
       navTitle: 'PageIndex',
       navEmpty: '暂无导航节点',
+      navLoadFailed: '加载目录树失败',
+      navChildLoadFailed: '加载子节点失败',
       navLoading: '加载中...',
       navSelectNode: '选择子节点以查看详情',
       navNoDescription: '暂无描述',
@@ -2095,7 +2146,6 @@ NER：使用 spaCy NER 和基于规则的关键词提取来抽取 Entities 和 R
         sectionTitle: '章节标题',
       },
       canvasCategory: '画布分类',
-      tags: '标签',
       created: '创建于',
       editTags: '编辑标签',
       editTagsDescription: '添加标签以整理和筛选你的智能体。按回车或逗号添加。',
@@ -2228,6 +2278,9 @@ NER：使用 spaCy NER 和基于规则的关键词提取来抽取 Entities 和 R
       maxRounds: '最大反思轮数',
       delayAfterError: '错误后延迟',
       maxRetries: '最大重试轮数',
+      toolTimeout: '工具调用超时',
+      toolTimeoutTip:
+        '单次工具调用（含 MCP 工具）的超时秒数。长时间运行的工具请调大该值。',
       maxSteps: '最大步数',
       headless: '无头模式',
       useCdp: '使用 CDP 连接',
@@ -2376,6 +2429,17 @@ NER：使用 spaCy NER 和基于规则的关键词提取来抽取 Entities 和 R
       searXNG: 'SearXNG',
       searXNGDescription:
         '该组件通过您提供的 SearXNG 实例地址进行搜索。请设置 Top N 和实例 URL。',
+      youComSearch: 'You.com',
+      youComSearchDescription:
+        '基于 You.com 自有索引的网络搜索组件。每条结果附带从页面提取的多段文本，而不只是一段摘要。默认无需 API Key 即可使用（免密钥免费额度）；配置 Key 可解除限速。',
+      youComFreshness: '时间范围',
+      youComFreshnessTip: '按发布时间的新旧程度筛选结果。',
+      youComFreshnessAny: '不限时间',
+      youComFreshnessDay: '一天内',
+      youComFreshnessWeek: '一周内',
+      youComFreshnessMonth: '一个月内',
+      youComFreshnessYear: '一年内',
+      youComApiKeyTip: '可选。留空则使用免密钥的免费额度。',
       docGenerator: '文档生成器',
       docGeneratorDescription: `从 Markdown 内容生成文件。`,
       browser: 'Browser',
@@ -2954,6 +3018,8 @@ Tokenizer 会根据所选方式将内容存储为对应的数据结构。`,
       questions: '问题',
       metadata: '元数据',
       fieldName: '结果目的地',
+      enableSummary: '启用增强上下文',
+      useBuiltInTemplate: '使用内置模板',
       prompts: {
         system: {
           keywords: `角色
@@ -2963,7 +3029,7 @@ Tokenizer 会根据所选方式将内容存储为对应的数据结构。`,
 从给定的文本内容中提取最重要的关键词/短语。
 
 要求
-- 总结文本内容，并给出最重要的5个关键词/短语。
+- 总结文本内容，并给出最重要的{{ topn }}个关键词/短语。
 - 关键词必须与给定的文本内容使用相同的语言。
 - 关键词之间用英文逗号分隔。
 - 仅输出关键词。`,
@@ -2971,10 +3037,10 @@ Tokenizer 会根据所选方式将内容存储为对应的数据结构。`,
 你是一名文本分析员。
 
 任务
-针对给定的文本内容提出3个问题。
+针对给定的文本内容提出{{ topn }}个问题。
 
 要求
-- 理解并总结文本内容，并提出最重要的3个问题。
+- 理解并总结文本内容，并提出最重要的{{ topn }}个问题。
 - 问题的含义不应重叠。
 - 问题应尽可能涵盖文本的主要内容。
 - 问题必须与给定的文本内容使用相同的语言。

@@ -107,6 +107,8 @@ export function replaceThinkToSection(
   text: string = '',
   summary: string = 'Thinking...',
 ) {
+  // An empty think section (the model replied without reasoning) must not
+  // render as a bare "Thinking..." strip above the answer.
   const withoutEmptyBlocks = stripEmptyThinkBlocks(text);
 
   return withoutEmptyBlocks.replace(

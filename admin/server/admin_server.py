@@ -36,6 +36,7 @@ from config import load_configurations, SERVICE_CONFIGS
 from auth import init_default_admin, setup_auth
 from flask_session import Session
 from common.versions import get_ragflow_version
+from api.db.db_models import close_connection
 
 stop_event = threading.Event()
 
@@ -69,6 +70,17 @@ if __name__ == "__main__":
         if getattr(current_user, "is_authenticated", False):
             user_lang = getattr(current_user, "language", None)
         set_locale(resolve_locale(request.headers.get("Accept-Language"), user_lang, os.environ.get("LANG")))
+
+    @app.teardown_request
+    def _db_close(exception):
+        if settings.DATABASE_TYPE.lower() == "gaussdb":
+            if exception:
+                logging.error(
+                    "Admin request failed: %s",
+                    exception,
+                    exc_info=(type(exception), exception, exception.__traceback__),
+                )
+            close_connection()
 
     settings.init_settings()
     setup_auth(login_manager)

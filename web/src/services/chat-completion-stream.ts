@@ -11,7 +11,7 @@
  */
 import { Authorization } from '@/constants/authorization';
 import { ResponseType } from '@/interfaces/database/base';
-import { IMessage } from '@/interfaces/database/chat';
+import { IMessage, Variable } from '@/interfaces/database/chat';
 import api from '@/utils/api';
 import { getAuthorization } from '@/utils/authorization-util';
 import { EventSourceParserStream } from 'eventsource-parser/stream';
@@ -23,6 +23,7 @@ export type ChatCompletionStreamParams = {
   enableThinking?: string;
   enableInternet?: boolean;
   enableModelThinking?: boolean;
+  llmSetting?: Variable;
 };
 
 export type CompletionChunk = {
@@ -33,10 +34,33 @@ export type CompletionChunk = {
   [key: string]: any;
 };
 
+function normalizeThinkingForRequest(thinking?: Variable['thinking']) {
+  if (thinking === 'enabled' || thinking === 'disabled') return thinking;
+  return undefined;
+}
+
 export function requestChatCompletionStream(
-  { chatId, sessionId, messages, enableThinking, enableInternet, enableModelThinking }: ChatCompletionStreamParams,
+  {
+    chatId,
+    sessionId,
+    messages,
+    enableThinking,
+    enableInternet,
+    enableModelThinking,
+    llmSetting,
+  }: ChatCompletionStreamParams,
   signal: AbortSignal,
 ) {
+  const {
+    temperature,
+    top_p,
+    frequency_penalty,
+    presence_penalty,
+    max_tokens,
+    thinking,
+  } = llmSetting ?? {};
+  const requestThinking = normalizeThinkingForRequest(thinking);
+
   return fetch(api.completionUrl, {
     method: 'POST',
     headers: {
@@ -51,6 +75,12 @@ export function requestChatCompletionStream(
       reasoning: Number(enableThinking),
       enable_thinking: enableModelThinking,
       internet: enableInternet,
+      ...(temperature === undefined ? {} : { temperature }),
+      ...(top_p === undefined ? {} : { top_p }),
+      ...(frequency_penalty === undefined ? {} : { frequency_penalty }),
+      ...(presence_penalty === undefined ? {} : { presence_penalty }),
+      ...(max_tokens === undefined ? {} : { max_tokens }),
+      ...(requestThinking === undefined ? {} : { thinking: requestThinking }),
     }),
     signal,
   });
