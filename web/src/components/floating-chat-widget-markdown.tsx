@@ -236,7 +236,9 @@ const FloatingChatWidgetMarkdown = ({
                         fileExtension,
                         documentUrl,
                       )}
-                      disabled={!documentUrl && fileExtension !== 'pdf'}
+                      disabled={
+                        !documentUrl && !supportsSourceLocate(fileExtension)
+                      }
                       style={{ whiteSpace: 'normal' }}
                     >
                       <span className="truncate">
@@ -245,7 +247,7 @@ const FloatingChatWidgetMarkdown = ({
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
-                    {!documentUrl && fileExtension !== 'pdf'
+                    {!documentUrl && !supportsSourceLocate(fileExtension)
                       ? 'Document link unavailable'
                       : document.doc_name}
                   </TooltipContent>
