@@ -34,16 +34,24 @@ class IterationItem(ComponentBase, ABC):
         super().__init__(canvas, id, param)
         self._idx = 0
         self._emit_end = False
+        self._fixed_item = None
+        self._fixed_index = None
 
-    def _invoke(self, **kwargs):
-        if self.check_if_canceled("IterationItem processing"):
-            return
-
+    def _items(self):
+        if self._fixed_index is not None:
+            return [self._fixed_item]
         parent = self.get_parent()
         arr = self._canvas.get_variable_value(parent._param.items_ref)
         if not isinstance(arr, list):
             self._idx = -1
             raise Exception(parent._param.items_ref + " must be an array, but its type is " + str(type(arr)))
+        return arr
+
+    def _invoke(self, **kwargs):
+        if self.check_if_canceled("IterationItem processing"):
+            return
+
+        arr = self._items()
 
         if self._idx < 0:
             return
@@ -51,7 +59,9 @@ class IterationItem(ComponentBase, ABC):
         if self._idx > 0:
             if self.check_if_canceled("IterationItem processing"):
                 return
-            self.output_collation()
+            # Parallel clones collate once after all items finish.
+            if self._fixed_index is None:
+                self.output_collation()
 
         if self._idx >= len(arr):
             self._idx = -1
@@ -62,11 +72,12 @@ class IterationItem(ComponentBase, ABC):
             return
 
         current_item = arr[self._idx]
+        index = self._fixed_index if self._fixed_index is not None else self._idx
         self.set_output("item", current_item)
         # Keep `result` as a compatibility alias because existing DSL examples
         # and downstream references may still consume IterationItem via `@result`.
         self.set_output("result", current_item)
-        self.set_output("index", self._idx)
+        self.set_output("index", index)
 
         self._idx += 1
 

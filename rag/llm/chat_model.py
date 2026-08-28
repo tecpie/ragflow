@@ -67,6 +67,25 @@ class ReActMode(StrEnum):
 ERROR_PREFIX = "**ERROR**"
 LENGTH_NOTIFICATION_CN = "······\n由于大模型的上下文窗口大小限制，回答已经被大模型截断。"
 LENGTH_NOTIFICATION_EN = "...\nThe answer is truncated by your chosen LLM due to its limitation on context length."
+_MAX_TOOL_QUERY_CHARS = 256
+
+
+def _prepare_tool_args(name, raw_arguments):
+    args = json_repair.loads(raw_arguments)
+    if not isinstance(args, dict):
+        raise TypeError(f"Tool arguments for {name} must be a JSON object, got {type(args).__name__}")
+    query = args.get("query")
+    if isinstance(query, str) and len(query) > _MAX_TOOL_QUERY_CHARS:
+        logging.warning("Truncated tool %s query from %d to %d chars", name, len(query), _MAX_TOOL_QUERY_CHARS)
+        args = {**args, "query": query[:_MAX_TOOL_QUERY_CHARS]}
+    return args
+
+
+def _tool_args_json(args, fallback=""):
+    if isinstance(args, dict):
+        return json.dumps(args, ensure_ascii=False)
+    return fallback or "{}"
+
 
 # Generation parameters that are safe to forward to the underlying completion
 # call. `gen_conf` originates from a chat assistant's `llm_setting`, which can
@@ -451,10 +470,10 @@ class Base(ABC):
                     {
                         "index": getattr(tc, "index", None),
                         "id": tc.id,
-                        "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                        "function": {"name": tc.function.name, "arguments": _tool_args_json(args, tc.function.arguments)},
                         "type": "function",
                     }
-                    for tc, _, _, _, _ in results
+                    for tc, _, args, _, _ in results
                 ],
             }
         )
@@ -548,9 +567,7 @@ class Base(ABC):
                     async def _exec_tool(tc):
                         name = tc.function.name
                         try:
-                            args = json_repair.loads(tc.function.arguments)
-                            if not isinstance(args, dict):
-                                raise TypeError(f"Tool arguments for {name} must be a JSON object, got {type(args).__name__}")
+                            args = _prepare_tool_args(name, tc.function.arguments)
                             if hasattr(self.toolcall_session, "tool_call_async"):
                                 result = await self.toolcall_session.tool_call_async(name, args)
                             else:
@@ -688,9 +705,7 @@ class Base(ABC):
                     async def _exec_tool(tc):
                         name = tc.function.name
                         try:
-                            args = json_repair.loads(tc.function.arguments)
-                            if not isinstance(args, dict):
-                                raise TypeError(f"Tool arguments for {name} must be a JSON object, got {type(args).__name__}")
+                            args = _prepare_tool_args(name, tc.function.arguments)
                             if hasattr(self.toolcall_session, "tool_call_async"):
                                 result = await self.toolcall_session.tool_call_async(name, args)
                             else:
@@ -2159,10 +2174,10 @@ class LiteLLMBase(ABC):
                 {
                     "index": getattr(tc, "index", None),
                     "id": tc.id,
-                    "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                    "function": {"name": tc.function.name, "arguments": _tool_args_json(args, tc.function.arguments)},
                     "type": "function",
                 }
-                for tc, _, _, _, _ in results
+                for tc, _, args, _, _ in results
             ],
         }
         if reasoning_content:
@@ -2263,9 +2278,7 @@ class LiteLLMBase(ABC):
                     async def _exec_tool(tc):
                         name = tc.function.name
                         try:
-                            args = json_repair.loads(tc.function.arguments)
-                            if not isinstance(args, dict):
-                                raise TypeError(f"Tool arguments for {name} must be a JSON object, got {type(args).__name__}")
+                            args = _prepare_tool_args(name, tc.function.arguments)
                             if hasattr(self.toolcall_session, "tool_call_async"):
                                 result = await self.toolcall_session.tool_call_async(name, args)
                             else:
@@ -2425,9 +2438,7 @@ class LiteLLMBase(ABC):
                     async def _exec_tool(tc):
                         name = tc.function.name
                         try:
-                            args = json_repair.loads(tc.function.arguments)
-                            if not isinstance(args, dict):
-                                raise TypeError(f"Tool arguments for {name} must be a JSON object, got {type(args).__name__}")
+                            args = _prepare_tool_args(name, tc.function.arguments)
                             if hasattr(self.toolcall_session, "tool_call_async"):
                                 result = await self.toolcall_session.tool_call_async(name, args)
                             else:

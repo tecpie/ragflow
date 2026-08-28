@@ -191,8 +191,125 @@ class Graph:
                 return n["data"]["name"]
         return ""
 
+    _ITERATION_CLONE_SUFFIX = re.compile(r"__p(\d+)$")
+
     def get_component_name(self, cid):
-        return self._get_component_name(self.dsl, cid)
+        name = self._get_component_name(self.dsl, cid)
+        if name:
+            return name
+        suffix = self._iteration_clone_suffix(cid)
+        if suffix:
+            return self._get_component_name(self.dsl, cid[: -len(suffix)])
+        return ""
+
+    @classmethod
+    def _iteration_clone_suffix(cls, cid: str) -> str | None:
+        m = cls._ITERATION_CLONE_SUFFIX.search(cid or "")
+        return m.group(0) if m else None
+
+    @staticmethod
+    def _rewrite_iteration_refs(value, id_map: dict[str, str]):
+        if isinstance(value, str):
+            for old in sorted(id_map, key=len, reverse=True):
+                if old in value:
+                    value = value.replace(old, id_map[old])
+            return value
+        if isinstance(value, list):
+            return [Graph._rewrite_iteration_refs(v, id_map) for v in value]
+        if isinstance(value, dict):
+            return {k: Graph._rewrite_iteration_refs(v, id_map) for k, v in value.items()}
+        return value
+
+    def _iteration_member_ids(self, iter_id: str) -> list[str]:
+        return [cid for cid, cpn in self.components.items() if cpn.get("parent_id") == iter_id and self._iteration_clone_suffix(cid) is None]
+
+    def _should_run_iteration_parallel(self, iter_obj) -> bool:
+        if iter_obj.component_name.lower() != "iteration":
+            return False
+        if not getattr(iter_obj._param, "parallel", True):
+            return False
+        items = self.get_variable_value(iter_obj._param.items_ref)
+        if not isinstance(items, list) or len(items) <= 1:
+            return False
+        for cid in self._iteration_member_ids(iter_obj._id):
+            if self.get_component_obj(cid).component_name.lower() == "userfillup":
+                return False
+        return True
+
+    def _expand_iteration_parallel(self, iter_obj) -> list[str]:
+        starts = getattr(iter_obj, "_parallel_starts", None)
+        if starts:
+            return starts
+        items = self.get_variable_value(iter_obj._param.items_ref)
+        members = self._iteration_member_ids(iter_obj._id)
+        item_cpn = iter_obj.get_start()
+        starts = []
+        for idx, item in enumerate(items):
+            suffix = f"__p{idx}"
+            id_map = {cid: cid + suffix for cid in members}
+            for cid in members:
+                src = self.components[cid]
+                new_id = id_map[cid]
+                try:
+                    param = deepcopy(src["obj"]._param)
+                except Exception:
+                    param = component_class(src["obj"].component_name + "Param")()
+                    raw = json.loads(str(src["obj"]))
+                    param.update(raw.get("params") or {})
+                for key, val in list(vars(param).items()):
+                    setattr(param, key, self._rewrite_iteration_refs(val, id_map))
+                obj = component_class(src["obj"].component_name)(self, new_id, param)
+                if src["obj"].component_name.lower() == "iterationitem":
+                    obj._fixed_item = item
+                    obj._fixed_index = idx
+                self.components[new_id] = {
+                    "obj": obj,
+                    "parent_id": src.get("parent_id"),
+                    "downstream": self._rewrite_iteration_refs(list(src.get("downstream") or []), id_map),
+                    "upstream": self._rewrite_iteration_refs(list(src.get("upstream") or []), id_map),
+                }
+            starts.append(item_cpn + suffix)
+        iter_obj._parallel_starts = starts
+        iter_obj._parallel_members = members
+        iter_obj._parallel_count = len(items)
+        _logger.info("Iteration %s expanded %d items in parallel (members=%s)", iter_obj._id, len(items), members)
+        return starts
+
+    def _all_parallel_iteration_items_ended(self, iter_obj) -> bool:
+        starts = getattr(iter_obj, "_parallel_starts", None)
+        if not starts:
+            return False
+        return all(self.get_component_obj(cid)._idx == -1 for cid in starts)
+
+    def _merge_parallel_iteration_outputs(self, iter_obj) -> None:
+        members = getattr(iter_obj, "_parallel_members", None) or []
+        n = getattr(iter_obj, "_parallel_count", 0)
+        for cid in members:
+            src_obj = self.get_component_obj(cid)
+            if src_obj.component_name.lower() in ("iterationitem", "categorize", "message", "switch", "userfillup"):
+                continue
+            collected = {}
+            for idx in range(n):
+                clone = self.get_component_obj(f"{cid}__p{idx}")
+                for key, val in clone.output().items():
+                    if key.startswith("_"):
+                        continue
+                    collected.setdefault(key, []).append(val)
+            for key, vals in collected.items():
+                src_obj.set_output(key, vals)
+
+        for key, spec in (getattr(iter_obj._param, "outputs", None) or {}).items():
+            if key.startswith("_") or not isinstance(spec, dict):
+                continue
+            ref = spec.get("ref")
+            if not ref or "@" not in ref:
+                continue
+            src_id, var = ref.split("@", 1)
+            vals = []
+            for idx in range(n):
+                clone = self.get_component(f"{src_id}__p{idx}")
+                vals.append(clone["obj"].output(var) if clone else None)
+            iter_obj.set_output(key, vals)
 
     def run(self, **kwargs):
         raise NotImplementedError()
@@ -555,6 +672,8 @@ class Canvas(Graph):
             loop = asyncio.get_running_loop()
             tasks = []
             max_concurrency = getattr(self._thread_pool, "_max_workers", 5)
+            if any(self._iteration_clone_suffix(self.path[j]) for j in range(f, t)):
+                max_concurrency = max(max_concurrency, 8)
             sem = asyncio.Semaphore(max_concurrency)
 
             async def _invoke_one(cpn_obj, sync_fn, call_kwargs, use_async: bool):
@@ -805,7 +924,10 @@ class Canvas(Graph):
                         yield decorate("message", {"content": ex["default_value"]})
                         yield decorate("message_end", {})
                     else:
-                        self.error = cpn_obj.error()
+                        if self._iteration_clone_suffix(cpn_obj._id):
+                            logging.error("Parallel iteration item error id=%s: %s", cpn_obj._id, cpn_obj.error())
+                        else:
+                            self.error = cpn_obj.error()
 
                 if cpn_obj.component_name.lower() not in ("iteration", "loop"):
                     if isinstance(cpn_obj.output("content"), partial):
@@ -827,8 +949,10 @@ class Canvas(Graph):
 
                 def _extend_path(cpn_ids):
                     nonlocal other_branch
-                    if other_branch:
+                    if other_branch or not cpn_ids:
                         return
+                    if isinstance(cpn_ids, str):
+                        cpn_ids = [cpn_ids]
                     for cpn_id in cpn_ids:
                         _append_path(cpn_id)
 
@@ -843,14 +967,24 @@ class Canvas(Graph):
 
                 if cpn_obj.component_name.lower() in ("iterationitem", "loopitem") and cpn_obj.end():
                     iter = cpn_obj.get_parent()
-                    yield _node_finished(iter)
-                    _extend_path(self.get_component(cpn["parent_id"])["downstream"])
+                    if self._iteration_clone_suffix(cpn_obj._id):
+                        if self._all_parallel_iteration_items_ended(iter) and not getattr(iter, "_parallel_finished", False):
+                            iter._parallel_finished = True
+                            self._merge_parallel_iteration_outputs(iter)
+                            yield _node_finished(iter)
+                            _extend_path(self.get_component(cpn["parent_id"])["downstream"])
+                    else:
+                        yield _node_finished(iter)
+                        _extend_path(self.get_component(cpn["parent_id"])["downstream"])
                 elif cpn_obj.component_name.lower() in ("iterationitem", "loopitem") and cpn_obj._idx < 0:
                     pass
                 elif cpn_obj.component_name.lower() in ["categorize", "switch"]:
                     _extend_path(cpn_obj.output("_next"))
                 elif cpn_obj.component_name.lower() in ("iteration", "loop"):
-                    _append_path(cpn_obj.get_start())
+                    if self._should_run_iteration_parallel(cpn_obj):
+                        _extend_path(self._expand_iteration_parallel(cpn_obj))
+                    else:
+                        _append_path(cpn_obj.get_start())
                 elif cpn_obj.component_name.lower() == "exitloop" and cpn_obj.get_parent().component_name.lower() == "loop":
                     _extend_path(self.get_component(cpn["parent_id"])["downstream"])
                 elif not cpn["downstream"] and cpn_obj.get_parent():
@@ -858,7 +992,13 @@ class Canvas(Graph):
                     if parent.component_name.lower() in ("iteration", "loop") and _iteration_start_finished(parent):
                         pass
                     else:
-                        _append_path(parent.get_start())
+                        start = parent.get_start()
+                        suffix = self._iteration_clone_suffix(cpn_obj._id)
+                        if suffix:
+                            cloned_start = start + suffix
+                            if self.get_component(cloned_start):
+                                start = cloned_start
+                        _append_path(start)
                 else:
                     _extend_path(cpn["downstream"])
 
@@ -1077,7 +1217,10 @@ class Canvas(Graph):
         """Return the last attachment produced by a Message component in this run."""
         attachment = None
         for cpn_id in self.path:
-            cpn_obj = self.get_component_obj(cpn_id)
+            cpn = self.get_component(cpn_id)
+            if not cpn:
+                continue
+            cpn_obj = cpn["obj"]
             if cpn_obj.component_name.lower() != "message":
                 continue
             value = cpn_obj.output("attachment")

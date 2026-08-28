@@ -118,9 +118,30 @@ class Agent(LLM, ToolBase):
             self.chat_mdl.bind_tools(self.toolcall_session, self.tool_meta)
 
     def _fit_messages(self, prompt: str, msg: list[dict]) -> tuple[list[dict] | None, str | None]:
+        # Last-resort guard: never hand the LLM an empty user turn (e.g. "{sys.query}" with query="").
+        if msg and not any(m.get("role") == "user" and str(m.get("content") or "").strip() for m in msg):
+            fallback_user = "请按照系统提示处理当前任务。"
+            for i in range(len(msg) - 1, -1, -1):
+                if msg[i].get("role") == "user":
+                    msg[i] = {"role": "user", "content": fallback_user}
+                    break
+            else:
+                msg.append({"role": "user", "content": fallback_user})
+            _logger.warning(
+                "[Agent] empty user prompt filled with fallback id=%s prompts=%s",
+                self._id,
+                [(p.get("role"), (p.get("content") or "")[:60]) for p in (self._param.prompts or [])],
+            )
         msg_fit, fit_error = LLM.fit_messages(prompt, msg, self.chat_mdl.max_length)
         if fit_error:
-            logging.error("Agent prompt fit error: %s", fit_error)
+            in_roles = [(m.get("role"), len(str(m.get("content") or ""))) for m in msg]
+            _logger.error(
+                "[Agent] prompt fit error id=%s sys_len=%d in_roles=%s err=%s",
+                self._id,
+                len(prompt or ""),
+                in_roles,
+                fit_error,
+            )
             return None, fit_error
         return msg_fit, None
 
@@ -190,6 +211,29 @@ class Agent(LLM, ToolBase):
         _, fmt_msgs = message_fit_in(fmt_msgs, LLM.context_fit_budget(self.chat_mdl.max_length))
         return await self._generate_async(fmt_msgs)
 
+    def _prepare_prompt_variables(self):
+        prompt, msg, user_defined_prompt = LLM._prepare_prompt_variables(self)
+        force = getattr(self, "_force_user_content", None)
+        if force and str(force).strip():
+            before_roles = [(m.get("role"), len(str(m.get("content") or ""))) for m in msg]
+            applied = False
+            for i in range(len(msg) - 1, -1, -1):
+                if msg[i].get("role") == "user":
+                    msg[i] = {"role": "user", "content": force}
+                    applied = True
+                    break
+            if not applied:
+                msg.append({"role": "user", "content": force})
+            after_roles = [(m.get("role"), len(str(m.get("content") or ""))) for m in msg]
+            _logger.info(
+                "[Agent] Forced nested user into msg id=%s force_len=%d before=%s after=%s",
+                self._id,
+                len(force),
+                before_roles,
+                after_roles,
+            )
+        return prompt, msg, user_defined_prompt
+
     def _invoke(self, **kwargs):
         return asyncio.run(self._invoke_async(**kwargs))
 
@@ -200,35 +244,62 @@ class Agent(LLM, ToolBase):
 
         user_prompt = kwargs.get("user_prompt")
         user_prompt_text = "" if user_prompt is None else str(user_prompt)
-        _logger.debug(
-            "[Agent] _invoke_async called. Component: %s, Keys in kwargs: %s, user_prompt_present: %s, user_prompt_length: %d, tools count: %d",
+        reasoning_text = "" if kwargs.get("reasoning") is None else str(kwargs.get("reasoning"))
+        context_text = "" if kwargs.get("context") is None else str(kwargs.get("context"))
+        self._force_user_content = None
+        _logger.info(
+            "[Agent] _invoke_async id=%s kwargs=%s user_prompt_len=%d reasoning_len=%d context_len=%d tools=%d",
             self._id,
             list(kwargs.keys()),
-            bool(user_prompt_text.strip()),
             len(user_prompt_text),
+            len(reasoning_text),
+            len(context_text),
             len(self.tools) if self.tools else 0,
         )
 
-        if kwargs.get("user_prompt"):
+        # Nested tool calls pass reasoning/context/user_prompt. user_prompt may be empty;
+        # still build from reasoning/context — do not fall back to canvas "{sys.query}".
+        if reasoning_text.strip() or context_text.strip() or user_prompt_text.strip():
             usr_pmt = ""
-            if kwargs.get("reasoning"):
-                usr_pmt += "\nREASONING:\n{}\n".format(kwargs["reasoning"])
-            if kwargs.get("context"):
-                usr_pmt += "\nCONTEXT:\n{}\n".format(kwargs["context"])
+            if reasoning_text.strip():
+                reasoning = reasoning_text if len(reasoning_text) <= 2000 else reasoning_text[:2000]
+                usr_pmt += "\nREASONING:\n{}\n".format(reasoning)
+            if context_text.strip():
+                context = context_text if len(context_text) <= 4000 else context_text[:4000]
+                usr_pmt += "\nCONTEXT:\n{}\n".format(context)
             if usr_pmt:
-                usr_pmt += "\nQUERY:\n{}\n".format(str(kwargs["user_prompt"]))
+                usr_pmt += "\nQUERY:\n{}\n".format(user_prompt_text)
             else:
-                usr_pmt = str(kwargs["user_prompt"])
+                usr_pmt = user_prompt_text
             self._param.prompts = [{"role": "user", "content": usr_pmt}]
-            _logger.debug("[Agent] Built user prompt with length=%d, reasoning=%s, context=%s", len(usr_pmt), bool(kwargs.get("reasoning")), bool(kwargs.get("context")))
-
+            self._force_user_content = usr_pmt
+            _logger.info(
+                "[Agent] Built nested user prompt len=%d (reasoning=%s context=%s query_len=%d)",
+                len(usr_pmt),
+                bool(reasoning_text.strip()),
+                bool(context_text.strip()),
+                len(user_prompt_text),
+            )
+        elif "user_prompt" in kwargs or "reasoning" in kwargs or "context" in kwargs:
+            _logger.error(
+                "[Agent] Nested invoke produced empty user prompt. id=%s user_prompt=%r reasoning_len=%d context_len=%d canvas_prompts=%s",
+                self._id,
+                user_prompt_text[:200],
+                len(reasoning_text),
+                len(context_text),
+                self._param.prompts,
+            )
         if not self.tools:
             if self.check_if_canceled("Agent processing"):
                 return
             _logger.debug("[Agent] No tools configured. Delegating to LLM._invoke_async. prompt_count=%d", len(self._param.prompts) if self._param.prompts else 0)
-            return await LLM._invoke_async(self, **kwargs)
+            try:
+                return await LLM._invoke_async(self, **kwargs)
+            finally:
+                self._force_user_content = None
 
         prompt, msg, user_defined_prompt = self._prepare_prompt_variables()
+        self._force_user_content = None
         output_schema = self._get_output_schema()
         schema_prompt = ""
         if output_schema:

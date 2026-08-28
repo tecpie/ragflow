@@ -33,7 +33,7 @@ def test_sys_prompt_and_msg_keeps_consecutive_configured_prompts():
 
 
 @pytest.mark.p1
-def test_validate_fitted_messages_requires_trailing_user():
+def test_validate_fitted_messages_allows_trailing_assistant_when_user_exists():
     err = LLM.validate_fitted_messages(
         [
             {"role": "system", "content": "system"},
@@ -41,12 +41,36 @@ def test_validate_fitted_messages_requires_trailing_user():
             {"role": "assistant", "content": "reply"},
         ]
     )
-    assert err and "empty" in err.lower()
+    assert err is None
+
+
+@pytest.mark.p1
+def test_validate_fitted_messages_allows_trailing_tool_when_user_exists():
+    err = LLM.validate_fitted_messages(
+        [
+            {"role": "system", "content": "system"},
+            {"role": "user", "content": "search cover page"},
+            {"role": "assistant", "content": None, "tool_calls": []},
+            {"role": "tool", "tool_call_id": "c1", "content": "chunk result"},
+        ]
+    )
+    assert err is None
 
 
 @pytest.mark.p1
 def test_validate_fitted_messages_rejects_empty_user():
     err = LLM.validate_fitted_messages([{"role": "system", "content": "system"}, {"role": "user", "content": ""}])
+    assert err and "empty" in err.lower()
+
+
+@pytest.mark.p1
+def test_validate_fitted_messages_rejects_tool_only_without_user():
+    err = LLM.validate_fitted_messages(
+        [
+            {"role": "system", "content": "system"},
+            {"role": "tool", "tool_call_id": "c1", "content": "chunk result"},
+        ]
+    )
     assert err and "empty" in err.lower()
 
 
