@@ -71,11 +71,14 @@ def message_fit_in(msg, max_length=4000):
         logging.debug("message_fit_in normalizing non-positive max_length=%s to 8192", max_length)
         max_length = 8192
 
+    def _content(m):
+        return m.get("content") or ""
+
     def count():
         nonlocal msg
         tks_cnts = []
         for m in msg:
-            tks_cnts.append({"role": m["role"], "count": num_tokens_from_string(m["content"])})
+            tks_cnts.append({"role": m["role"], "count": num_tokens_from_string(_content(m))})
         total = 0
         for m in tks_cnts:
             total += m["count"]
@@ -89,16 +92,40 @@ def message_fit_in(msg, max_length=4000):
     if c < max_length:
         return c, msg
 
-    msg_ = [m for m in msg if m["role"] == "system"]
-    if len(msg) > 1:
-        msg_.append(msg[-1])
+    # Prefer keeping system + the latest user turn (and any trailing tool-call round).
+    # Dropping mid-history but keeping only system+last(tool) leaves no user message.
+    systems = [m for m in msg if m["role"] == "system"]
+    # Prefer the latest *non-empty* user; empty trailing users (e.g. blank sys.query) must not win.
+    last_user_idx = next(
+        (
+            i
+            for i in range(len(msg) - 1, -1, -1)
+            if msg[i].get("role") == "user" and str(msg[i].get("content") or "").strip()
+        ),
+        None,
+    )
+    if last_user_idx is not None:
+        msg_ = systems + msg[last_user_idx:]
+    else:
+        msg_ = systems
+        if len(msg) > 1:
+            msg_.append(msg[-1])
     msg = msg_
     c = count()
     if c < max_length:
         return c, msg
 
-    ll = num_tokens_from_string(msg_[0]["content"])
-    ll2 = num_tokens_from_string(msg_[-1]["content"])
+    # Still over budget: drop trailing tool round, keep system + last user.
+    if last_user_idx is not None and len(msg) > len(systems) + 1:
+        user_msg = next(m for m in msg if m.get("role") == "user")
+        msg = systems + [user_msg]
+        msg_ = msg
+        c = count()
+        if c < max_length:
+            return c, msg
+
+    ll = num_tokens_from_string(_content(msg[0])) if msg else 0
+    ll2 = num_tokens_from_string(_content(msg[-1])) if msg else 0
     total = ll + ll2
     if total <= 0:
         # Don't include the per-message role list in cleartext: CodeQL
@@ -119,20 +146,36 @@ def message_fit_in(msg, max_length=4000):
         return 0, msg
 
     if len(msg) == 1:
-        msg[0]["content"] = trim_content(msg[0]["content"], max_length)
+        msg[0]["content"] = trim_content(_content(msg[0]), max_length)
         return count(), msg
+
+    # Collapse before character-level trimming: never keep system+tool without user.
+    if len(msg) > 2:
+        user_msg = next((m for m in reversed(msg) if m.get("role") == "user"), None)
+        if user_msg is not None:
+            msg = (systems or [msg[0]]) + [user_msg]
+        else:
+            msg = [msg[0], msg[-1]]
+        msg_ = msg
+        ll = num_tokens_from_string(_content(msg[0]))
+        ll2 = num_tokens_from_string(_content(msg[-1]))
+        total = ll + ll2
+        if total <= 0:
+            return 0, msg
+        if total < max_length:
+            return count(), msg
 
     if ll / total > 0.8:
         preserved_last = min(ll2, max_length)
-        msg[-1]["content"] = trim_content(msg_[-1]["content"], preserved_last)
+        msg[-1]["content"] = trim_content(_content(msg_[-1]), preserved_last)
         remaining = max(0, max_length - preserved_last)
-        msg[0]["content"] = trim_content(msg_[0]["content"], remaining)
+        msg[0]["content"] = trim_content(_content(msg_[0]), remaining)
         return count(), msg
 
     preserved_system = min(ll, max_length)
-    msg[0]["content"] = trim_content(msg_[0]["content"], preserved_system)
+    msg[0]["content"] = trim_content(_content(msg_[0]), preserved_system)
     remaining = max(0, max_length - preserved_system)
-    msg[-1]["content"] = trim_content(msg_[-1]["content"], remaining)
+    msg[-1]["content"] = trim_content(_content(msg_[-1]), remaining)
     return count(), msg
 
 

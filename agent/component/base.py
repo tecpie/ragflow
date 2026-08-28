@@ -530,13 +530,23 @@ class ComponentBase(ABC):
         if not parent or parent.component_name.lower() != "iteration":
             return None
 
+        suffix = None
+        m = re.search(r"__p(\d+)$", self._id or "")
+        if m:
+            suffix = m.group(0)
+
+        fallback = None
         for cid, cpn in self._canvas.components.items():
             if cpn.get("parent_id") != parent._id:
                 continue
             if cpn["obj"].component_name.lower() != "iterationitem":
                 continue
-            return f"{cid}@{exp}"
-
+            if suffix and cid.endswith(suffix):
+                return f"{cid}@{exp}"
+            if fallback is None and not re.search(r"__p(\d+)$", cid or ""):
+                fallback = cid
+        if fallback:
+            return f"{fallback}@{exp}"
         return None
 
     def get_input_elements_from_text(self, txt: str) -> dict[str, dict[str, str]]:

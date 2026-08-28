@@ -149,18 +149,39 @@ class LLM(ComponentBase):
     def validate_fitted_messages(msg_fit: list[dict]) -> str | None:
         if len(msg_fit) < 2:
             return "**ERROR**: message_fit_in produced insufficient messages for LLM"
-        last = msg_fit[-1]
-        if last.get("role") != "user" or not str(last.get("content") or "").strip():
-            return "**ERROR**: LLM user message is empty after prompt fitting; check model max_tokens context setting"
+        has_user = any(m.get("role") == "user" and str(m.get("content") or "").strip() for m in msg_fit)
+        if not has_user:
+            return "**ERROR**: LLM user message is empty; pass non-empty query or fix nested-agent user_prompt/sys.query"
+        last_role = msg_fit[-1].get("role")
+        # Tool-calling rounds end with assistant(tool_calls) or tool results; those are valid.
+        if last_role not in ("user", "assistant", "tool"):
+            return "**ERROR**: message_fit_in produced invalid trailing message role for LLM"
+        if last_role == "user" and not str(msg_fit[-1].get("content") or "").strip():
+            return "**ERROR**: LLM user message is empty; pass non-empty query or fix nested-agent user_prompt/sys.query"
         return None
 
     @classmethod
     def fit_messages(cls, system_prompt: str, msg: list[dict], max_length) -> tuple[list[dict], str | None]:
+        budget = cls.context_fit_budget(max_length)
         _, msg_fit = message_fit_in(
             [{"role": "system", "content": system_prompt}, *deepcopy(msg)],
-            cls.context_fit_budget(max_length),
+            budget,
         )
-        return msg_fit, cls.validate_fitted_messages(msg_fit)
+        fit_error = cls.validate_fitted_messages(msg_fit)
+        if fit_error:
+            in_roles = [(m.get("role"), len(str(m.get("content") or ""))) for m in msg]
+            roles = [(m.get("role"), len(str(m.get("content") or ""))) for m in msg_fit]
+            logging.error(
+                "prompt fit detail: cls=%s max_length=%s budget=%s sys_len=%s in_roles=%s out_roles=%s err=%s",
+                cls.__name__,
+                max_length,
+                budget,
+                len(system_prompt or ""),
+                in_roles,
+                roles,
+                fit_error,
+            )
+        return msg_fit, fit_error
 
     @staticmethod
     def _extract_data_images(value) -> list[str]:
@@ -388,9 +409,28 @@ class LLM(ComponentBase):
             yield value
 
     async def _stream_output_async(self, prompt, msg):
+        # Same fallback as _invoke_async: don't stream with an empty user.
+        if msg and not any(m.get("role") == "user" and str(m.get("content") or "").strip() for m in msg):
+            fallback_user = "请按照系统提示处理当前任务。"
+            for i in range(len(msg) - 1, -1, -1):
+                if msg[i].get("role") == "user":
+                    msg[i] = {"role": "user", "content": fallback_user}
+                    break
+            else:
+                msg.append({"role": "user", "content": fallback_user})
+            logging.warning(
+                "LLM streaming empty user prompt filled with fallback id=%s",
+                getattr(self, "_id", None),
+            )
         msg_fit, fit_error = self.fit_messages(prompt, msg, self.chat_mdl.max_length)
         if fit_error:
-            logging.error("LLM streaming prompt fit error: %s", fit_error)
+            logging.error(
+                "LLM streaming prompt fit error id=%s sys_len=%s msg=%s: %s",
+                self._id,
+                len(prompt or ""),
+                [(m.get("role"), len(str(m.get("content") or ""))) for m in msg],
+                fit_error,
+            )
             if self.get_exception_default_value():
                 fallback = self.get_exception_default_value()
                 self.set_output("content", fallback)
@@ -432,6 +472,22 @@ class LLM(ComponentBase):
             return re.sub(r"```\n*$", "", ans, flags=re.DOTALL)
 
         prompt, msg, _ = self._prepare_prompt_variables()
+        # If the user prompt resolved to empty (e.g. query="" with a "{sys.query}" template),
+        # fall back to a minimal task line instead of sending an empty user to the LLM.
+        if msg and not any(m.get("role") == "user" and str(m.get("content") or "").strip() for m in msg):
+            fallback_user = "请按照系统提示处理当前任务。"
+            for i in range(len(msg) - 1, -1, -1):
+                if msg[i].get("role") == "user":
+                    msg[i] = {"role": "user", "content": fallback_user}
+                    break
+            else:
+                msg.append({"role": "user", "content": fallback_user})
+            logging.warning(
+                "LLM empty user prompt filled with fallback id=%s cls=%s prompts=%s",
+                getattr(self, "_id", None),
+                type(self).__name__,
+                [(p.get("role"), (p.get("content") or "")[:60]) for p in (self._param.prompts or [])] if getattr(self, "_param", None) else None,
+            )
         extra_chat_kwargs = self._get_chat_template_kwargs()
         error: str = ""
         output_structure = None

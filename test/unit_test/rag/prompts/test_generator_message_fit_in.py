@@ -170,3 +170,48 @@ def test_message_fit_in_zero_budget_preserves_non_empty_messages(monkeypatch):
     assert used_tokens == expected_total
     assert trimmed[0]["content"] == "s" * system_len
     assert trimmed[-1]["content"] == user_content
+
+
+@pytest.mark.p1
+def test_message_fit_in_keeps_latest_user_turn_with_tool_results(monkeypatch):
+    generator = _load_generator_module(monkeypatch)
+    monkeypatch.setattr(generator, "num_tokens_from_string", lambda text: len(text or ""))
+    monkeypatch.setattr(generator, "encoder", _CharEncoder())
+
+    messages = [
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "old question that should be dropped"},
+        {"role": "assistant", "content": "old reply"},
+        {"role": "user", "content": "search cover"},
+        {"role": "assistant", "content": None, "tool_calls": []},
+        {"role": "tool", "tool_call_id": "c1", "content": "found"},
+    ]
+    # Force drop of early turns; keep system + latest user/tool round.
+    used_tokens, trimmed = generator.message_fit_in(messages, max_length=40)
+
+    roles = [m["role"] for m in trimmed]
+    assert roles[0] == "system"
+    assert "user" in roles
+    assert trimmed[roles.index("user")]["content"] == "search cover"
+    assert used_tokens <= 40
+
+
+@pytest.mark.p1
+def test_message_fit_in_huge_system_keeps_user_instead_of_tool(monkeypatch):
+    generator = _load_generator_module(monkeypatch)
+    monkeypatch.setattr(generator, "num_tokens_from_string", lambda text: len(text or ""))
+    monkeypatch.setattr(generator, "encoder", _CharEncoder())
+
+    messages = [
+        {"role": "system", "content": "S" * 200},
+        {"role": "user", "content": "please search cover"},
+        {"role": "assistant", "content": "", "tool_calls": []},
+        {"role": "tool", "tool_call_id": "c1", "content": "ok"},
+    ]
+    used_tokens, trimmed = generator.message_fit_in(messages, max_length=50)
+
+    roles = [m["role"] for m in trimmed]
+    assert "user" in roles
+    assert "tool" not in roles
+    assert trimmed[roles.index("user")]["content"]
+    assert used_tokens <= 50

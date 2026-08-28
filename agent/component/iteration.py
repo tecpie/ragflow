@@ -34,6 +34,8 @@ class IterationParam(ComponentParamBase):
         super().__init__()
         self.items_ref = ""
         self.variable = {}
+        self.parallel = True
+        self.max_parallel = 8
 
     def get_input_form(self) -> dict[str, dict]:
         return {"items": {"type": "json", "name": "Items"}}
@@ -49,8 +51,11 @@ class Iteration(ComponentBase, ABC):
         for cid in self._canvas.components.keys():
             if self._canvas.get_component(cid)["obj"].component_name.lower() != "iterationitem":
                 continue
-            if self._canvas.get_component(cid)["parent_id"] == self._id:
-                return cid
+            if self._canvas.get_component(cid)["parent_id"] != self._id:
+                continue
+            if self._canvas._iteration_clone_suffix(cid):
+                continue
+            return cid
 
     def _invoke(self, **kwargs):
         if self.check_if_canceled("Iteration processing"):

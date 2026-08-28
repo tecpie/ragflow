@@ -46,7 +46,7 @@ class RetrievalParam(ToolParamBase):
             "parameters": {
                 "query": {
                     "type": "string",
-                    "description": "The keywords to search the dataset. The keywords should be the most important words/terms(includes synonyms) from the original request.",
+                    "description": "Short search keywords that likely appear in the documents. Use 2-8 precise field or entity names. Do not add synonyms and do not repeat terms.",
                     "default": "",
                     "required": True,
                 }

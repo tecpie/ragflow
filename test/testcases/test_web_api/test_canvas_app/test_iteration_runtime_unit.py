@@ -304,7 +304,10 @@ def test_iteration_runtime_processes_all_array_items(monkeypatch):
             "Iteration:1": {
                 "obj": {
                     "component_name": "Iteration",
-                    "params": {"items_ref": "env.items"},
+                    "params": {
+                        "items_ref": "env.items",
+                        "outputs": {"reviewResult": {"ref": "Probe:1@result", "type": "Array"}},
+                    },
                 },
                 "downstream": ["Sink:1"],
                 "upstream": ["begin"],
@@ -356,8 +359,82 @@ def test_iteration_runtime_processes_all_array_items(monkeypatch):
     canvas = canvas_mod.Canvas(json.dumps(dsl))
     events = asyncio.run(_collect_events(canvas.run()))
 
-    assert canvas.globals["probe.calls"] == ["a", "b", "c"]
+    assert sorted(canvas.globals["probe.calls"]) == ["a", "b", "c"]
+    assert "Probe:1__p0" in canvas.components
+    assert "Probe:1#0" not in canvas.components
+    assert sorted(canvas.get_component_obj("Iteration:1").output("reviewResult")) == ["a", "b", "c"]
     assert any(event["event"] == "workflow_finished" for event in events)
+    # Parallel clones should all finish and then emit a single iteration finished.
+    finished_iters = [e for e in events if e["event"] == "node_finished" and (e.get("data") or {}).get("component_id") == "Iteration:1"]
+    assert len(finished_iters) == 1
+
+
+@pytest.mark.p2
+def test_iteration_serial_preserves_item_order(monkeypatch):
+    canvas_mod = _load_canvas_runtime(monkeypatch)
+
+    dsl = {
+        "components": {
+            "begin": {
+                "obj": {"component_name": "Begin", "params": {}},
+                "downstream": ["Iteration:1"],
+                "upstream": [],
+            },
+            "Iteration:1": {
+                "obj": {
+                    "component_name": "Iteration",
+                    "params": {"items_ref": "env.items", "parallel": False},
+                },
+                "downstream": ["Sink:1"],
+                "upstream": ["begin"],
+            },
+            "IterationItem:1": {
+                "obj": {"component_name": "IterationItem", "params": {}},
+                "parent_id": "Iteration:1",
+                "downstream": ["Probe:1"],
+                "upstream": [],
+            },
+            "Probe:1": {
+                "obj": {
+                    "component_name": "Probe",
+                    "params": {"query": "IterationItem:1@result"},
+                },
+                "parent_id": "Iteration:1",
+                "downstream": [],
+                "upstream": ["IterationItem:1"],
+            },
+            "Sink:1": {
+                "obj": {"component_name": "Sink", "params": {}},
+                "downstream": [],
+                "upstream": ["Iteration:1"],
+            },
+        },
+        "graph": {
+            "nodes": [
+                {"id": "begin", "data": {"name": "Begin"}},
+                {"id": "Iteration:1", "data": {"name": "Iteration"}},
+                {"id": "IterationItem:1", "data": {"name": "IterationItem"}},
+                {"id": "Probe:1", "data": {"name": "Probe"}},
+                {"id": "Sink:1", "data": {"name": "Sink"}},
+            ]
+        },
+        "history": [],
+        "path": [],
+        "retrieval": [],
+        "globals": {
+            "sys.query": "",
+            "sys.user_id": "",
+            "sys.conversation_turns": 0,
+            "sys.files": [],
+            "sys.history": [],
+            "sys.date": "",
+            "env.items": ["a", "b", "c"],
+        },
+    }
+
+    canvas = canvas_mod.Canvas(json.dumps(dsl))
+    asyncio.run(_collect_events(canvas.run()))
+    assert canvas.globals["probe.calls"] == ["a", "b", "c"]
 
 
 @pytest.mark.parametrize(
@@ -366,6 +443,8 @@ def test_iteration_runtime_processes_all_array_items(monkeypatch):
         ("{item}", ["a", "b", "c"]),
         ("{index}", ["0", "1", "2"]),
         ("{result}", ["a", "b", "c"]),
+        ("rule={IterationItem:1@item}", ["rule=a", "rule=b", "rule=c"]),
+        ("rule={IterationItem:1@result}", ["rule=a", "rule=b", "rule=c"]),
     ],
 )
 @pytest.mark.p2
@@ -434,7 +513,7 @@ def test_iteration_runtime_supports_bare_iteration_aliases(monkeypatch, query, e
     canvas = canvas_mod.Canvas(json.dumps(dsl))
     asyncio.run(_collect_events(canvas.run()))
 
-    assert canvas.globals["probe.calls"] == expected_calls
+    assert sorted(str(v) for v in canvas.globals["probe.calls"]) == sorted(str(v) for v in expected_calls)
 
 
 @pytest.mark.p2
