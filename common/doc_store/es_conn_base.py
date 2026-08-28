@@ -202,6 +202,20 @@ class ESConnectionBase(DocStoreConnection):
             self.logger.warning(f"ESConnection.replace_meta_fields({index_name}, {doc_id}) failed: {e}")
             return False
 
+    def index_meta_fields(self, index_name: str, doc_id: str, kb_id: str, meta_fields: dict) -> bool:
+        """Replace a metadata row via index API without deleting first."""
+        try:
+            self.es.index(
+                index=index_name,
+                id=doc_id,
+                document={"kb_id": kb_id, "meta_fields": meta_fields},
+                refresh=True,
+            )
+            return True
+        except Exception as e:
+            self.logger.warning(f"ESConnection.index_meta_fields({index_name}, {doc_id}) failed: {e}")
+            return False
+
     def delete_idx(self, index_name: str, dataset_id: str):
         if len(dataset_id) > 0:
             # The index need to be alive after any kb deletion since all kb under this tenant are in one index.

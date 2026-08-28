@@ -284,6 +284,25 @@ class OSConnection(DocStoreConnection):
                 return False
         return False
 
+    def index_meta_fields(self, index_name: str, doc_id: str, kb_id: str, meta_fields: dict) -> bool:
+        """Replace a metadata row via index API without deleting first."""
+        for _ in range(ATTEMPT_TIME):
+            try:
+                self.os.index(
+                    index=index_name,
+                    id=doc_id,
+                    body={"kb_id": kb_id, "meta_fields": meta_fields},
+                    refresh=True,
+                )
+                return True
+            except Exception as e:
+                logger.warning(f"OSConnection.index_meta_fields({index_name}, {doc_id}) failed: {e}")
+                if re.search(r"(timeout|connection)", str(e).lower()):
+                    time.sleep(1)
+                    continue
+                return False
+        return False
+
     def delete_idx(self, indexName: str, knowledgebaseId: str):
         if len(knowledgebaseId) > 0:
             # The index need to be alive after any kb deletion since all kb under this tenant are in one index.

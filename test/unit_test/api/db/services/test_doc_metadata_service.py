@@ -75,3 +75,56 @@ class TestDocMetadataServiceConnectorGetCalls:
                 [],
             )
             assert result == {"author": "alice"}
+
+
+class TestDocMetadataServiceElasticsearchSafety:
+    def test_coerce_and_decode_structured_questions(self):
+        raw = {
+            "questions": [
+                {
+                    "options": {
+                        "A": "option-a",
+                        "B": "option-b",
+                    }
+                }
+            ]
+        }
+        coerced = DocMetadataService._coerce_meta_fields_for_elasticsearch(raw)
+        assert isinstance(coerced["questions"], str)
+
+        decoded = DocMetadataService._extract_metadata({"meta_fields": coerced})
+        assert decoded["questions"][0]["options"]["A"] == "option-a"
+
+    def test_update_document_metadata_does_not_delete_when_index_fails(self):
+        mock_doc = MagicMock()
+        mock_doc.knowledgebase.tenant_id = "tenant_456"
+        mock_doc.kb_id = "kb_123"
+
+        mock_doc_store = MagicMock()
+        mock_doc_store.index_exist.return_value = True
+        mock_doc_store.get.return_value = {"id": "doc_789", "meta_fields": {"author": "alice"}}
+        mock_doc_store.replace_meta_fields.return_value = False
+        mock_doc_store.index_meta_fields.return_value = False
+
+        with (
+            patch("api.db.services.doc_metadata_service.settings") as mock_settings,
+            patch("api.db.services.doc_metadata_service.Document") as mock_document_model,
+            patch("api.db.db_models.DB.connect"),
+            patch("api.db.db_models.DB.connection_context"),
+            patch.object(DocMetadataService, "delete_document_metadata") as mock_delete,
+        ):
+            mock_settings.docStoreConn = mock_doc_store
+            mock_settings.DOC_ENGINE_INFINITY = False
+            mock_settings.DOC_ENGINE_OCEANBASE = False
+            mock_settings.DOC_ENGINE_GAUSSDB = False
+            mock_settings.DOC_ENGINE_SERENEDB = False
+            mock_document_model.select.return_value.join.return_value.where.return_value.first.return_value = mock_doc
+
+            ok = DocMetadataService.update_document_metadata.__wrapped__(
+                "doc_789",
+                {"questions": [{"options": {"A": "a"}}]},
+            )
+
+        assert ok is False
+        mock_delete.assert_not_called()
+        mock_doc_store.index_meta_fields.assert_called_once()

@@ -82,6 +82,51 @@ class DocMetadataService:
         return f"ragflow_doc_meta_{tenant_id}"
 
     @staticmethod
+    def _decode_elasticsearch_meta_value(value: Any) -> Any:
+        """Restore JSON-serialized structured values written for ES compatibility."""
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped.startswith("{") or stripped.startswith("["):
+                try:
+                    return json.loads(stripped)
+                except json.JSONDecodeError:
+                    pass
+            return value
+        if isinstance(value, list):
+            return [DocMetadataService._decode_elasticsearch_meta_value(item) for item in value]
+        if isinstance(value, dict):
+            return {k: DocMetadataService._decode_elasticsearch_meta_value(v) for k, v in value.items()}
+        return value
+
+    @staticmethod
+    def _coerce_meta_fields_for_elasticsearch(meta_fields: dict) -> dict:
+        """Serialize structured values so ES dynamic mappings stay stable."""
+
+        def coerce_value(value: Any) -> Any:
+            if isinstance(value, dict):
+                return json.dumps(value, ensure_ascii=False)
+            if isinstance(value, list):
+                if any(isinstance(item, (dict, list)) for item in value):
+                    return json.dumps(value, ensure_ascii=False)
+                return value
+            return value
+
+        return {key: coerce_value(val) for key, val in meta_fields.items()}
+
+    @staticmethod
+    def _prepare_meta_fields_for_doc_store(meta_fields: dict) -> dict:
+        if not meta_fields:
+            return {}
+        if (
+            not settings.DOC_ENGINE_INFINITY
+            and not settings.DOC_ENGINE_OCEANBASE
+            and not settings.DOC_ENGINE_GAUSSDB
+            and not settings.DOC_ENGINE_SERENEDB
+        ):
+            return DocMetadataService._coerce_meta_fields_for_elasticsearch(meta_fields)
+        return meta_fields
+
+    @staticmethod
     def _extract_metadata(flat_meta: dict) -> dict:
         """
         Extract metadata from ES/Infinity document format.
@@ -101,18 +146,26 @@ class DocMetadataService:
 
         # Parse JSON string if needed
         if isinstance(meta_fields, str):
-            import json
-
             try:
-                return json.loads(meta_fields)
+                meta_fields = json.loads(meta_fields)
             except json.JSONDecodeError:
                 return {}
 
         # Already a dict, return as-is
         if isinstance(meta_fields, dict):
-            return meta_fields
+            return {
+                key: DocMetadataService._decode_elasticsearch_meta_value(val)
+                for key, val in meta_fields.items()
+            }
 
         return {}
+
+    @staticmethod
+    def _index_document_metadata_row(index_name: str, doc_id: str, kb_id: str, meta_fields: dict) -> bool:
+        index_meta_fields = getattr(settings.docStoreConn, "index_meta_fields", None)
+        if callable(index_meta_fields):
+            return index_meta_fields(index_name, doc_id, kb_id, meta_fields)
+        return DocMetadataService.insert_document_metadata(doc_id, meta_fields)
 
     @staticmethod
     def _extract_doc_id(doc: dict, hit: dict = None) -> str:
@@ -396,6 +449,7 @@ class DocMetadataService:
             if meta_fields:
                 # Post-process to split combined values by common delimiters
                 meta_fields = cls._split_combined_values(meta_fields)
+                meta_fields = cls._prepare_meta_fields_for_doc_store(meta_fields)
                 doc_meta["meta_fields"] = meta_fields
             else:
                 doc_meta["meta_fields"] = {}
@@ -481,6 +535,7 @@ class DocMetadataService:
 
             # Post-process to split combined values
             processed_meta = cls._split_combined_values(meta_fields)
+            processed_meta = cls._prepare_meta_fields_for_doc_store(processed_meta)
 
             logging.debug(f"[update_document_metadata] Updating doc_id: {doc_id}, kb_id: {kb_id}, meta_fields: {processed_meta}")
 
@@ -531,12 +586,16 @@ class DocMetadataService:
                         if callable(replace_meta_fields) and replace_meta_fields(index_name, doc_id, processed_meta):
                             logging.debug(f"Successfully updated metadata for document {doc_id} via {type(settings.docStoreConn).__name__}.replace_meta_fields")
                             return True
-                        logging.warning(f"replace_meta_fields unavailable or failed on backend {type(settings.docStoreConn).__name__}; falling back to delete+insert")
-                        # Mirror the Infinity fallback below so a failed scripted
-                        # replace still guarantees full overwrite semantics rather
-                        # than leaking through the "document not found" branch.
-                        cls.delete_document_metadata(doc_id, kb_id, tenant_id)
-                        return cls.insert_document_metadata(doc_id, processed_meta)
+                        logging.warning(
+                            f"replace_meta_fields unavailable or failed on backend {type(settings.docStoreConn).__name__}; "
+                            "falling back to index_meta_fields without deleting existing metadata"
+                        )
+                        if cls._index_document_metadata_row(index_name, doc_id, kb_id, processed_meta):
+                            return True
+                        logging.error(
+                            f"Failed to update metadata for document {doc_id}; existing metadata was preserved"
+                        )
+                        return False
                 except Exception as e:
                     logging.debug(f"Document {doc_id} not found in index, will insert: {e}")
 
@@ -546,7 +605,9 @@ class DocMetadataService:
 
             # For Infinity or as fallback: use delete+insert
             logging.debug(f"[update_document_metadata] Using delete+insert method for doc_id: {doc_id}")
-            cls.delete_document_metadata(doc_id, kb_id, tenant_id)
+            if not cls.delete_document_metadata(doc_id, kb_id, tenant_id):
+                logging.error(f"Failed to delete existing metadata for document {doc_id} before replace")
+                return False
             return cls.insert_document_metadata(doc_id, processed_meta)
 
         except Exception as e:
