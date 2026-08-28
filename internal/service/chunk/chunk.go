@@ -30,6 +30,7 @@ import (
 	"ragflow/internal/entity"
 	"ragflow/internal/entity/models"
 	"ragflow/internal/i18n"
+	"ragflow/internal/service"
 	"strings"
 	"sync"
 	"time"
@@ -44,7 +45,6 @@ import (
 	"ragflow/internal/engine"
 	"ragflow/internal/engine/types"
 	"ragflow/internal/ingestion/knowledge_compile"
-	"ragflow/internal/service"
 	"ragflow/internal/service/document"
 	"ragflow/internal/service/nlp"
 	"ragflow/internal/storage"
@@ -1002,7 +1002,7 @@ func (s *ChunkService) List(ctx context.Context, req *service.ListChunksRequest,
 		"process_duration": doc.ProcessDuration,
 		"content_hash":     doc.ContentHash,
 		"suffix":           doc.Suffix,
-		"run":              chunkDocRunText(doc.Run),
+		"run":              service.ChunkDocRunText(doc.Run),
 		"status":           doc.Status,
 		"create_time":      doc.CreateTime,
 		"create_date":      utility.FormatTimeToString(doc.CreateDate, timeFormat),
@@ -1747,25 +1747,4 @@ func releaseChunkImageMergeLock(key string) {
 	if lock.refs == 0 {
 		delete(chunkImageMergeLocks.locks, key)
 	}
-}
-
-// chunkDocRunText maps the document run code to its text form, mirroring
-// Python's _map_doc run_mapping.
-func chunkDocRunText(run *string) interface{} {
-	if run == nil {
-		return nil
-	}
-	switch *run {
-	case "0":
-		return "UNSTART"
-	case "1":
-		return "RUNNING"
-	case "2":
-		return "CANCEL"
-	case "3":
-		return "DONE"
-	case "4":
-		return "FAIL"
-	}
-	return *run
 }

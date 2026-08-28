@@ -15,16 +15,8 @@ import {
 } from '@/components/rerank-candidates-count-item';
 
 import { TopNFormField } from '@/components/top-n-item';
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from '@/components/ui/form';
+import { Form } from '@/components/ui/form';
 import { Radio } from '@/components/ui/radio';
-import { Textarea } from '@/components/ui/textarea';
 import {
   useRevalidateStaleDatasetIds,
   useStaleDatasetFormSchema,
@@ -57,7 +49,6 @@ export const RetrievalPartialSchema = {
   ...rerankCandidatesCountSchema,
   dataset_ids: z.array(z.string()),
   rerank_id: z.string(),
-  empty_response: z.string(),
   cross_languages: z.array(z.string()),
   ...MetadataFilterSchema,
   memory_ids: z.array(z.string()).optional(),
@@ -215,7 +206,6 @@ function RetrievalForm({ node }: INextOperatorForm) {
                 <MetadataFilter canReference></MetadataFilter>
               </>
             )}
-            <EmptyResponseField></EmptyResponseField>
             {hideKnowledgeGraphField || (
               <>
                 <CrossLanguageFormField name="cross_languages"></CrossLanguageFormField>

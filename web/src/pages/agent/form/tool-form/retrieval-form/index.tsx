@@ -82,7 +82,6 @@ const RetrievalForm = () => {
               </>
             )}
 
-            <EmptyResponseField></EmptyResponseField>
             {hideKnowledgeGraphField || (
               <>
                 <CrossLanguageFormField name="cross_languages"></CrossLanguageFormField>

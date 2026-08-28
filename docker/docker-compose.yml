@@ -26,6 +26,9 @@ services:
       es01:
         condition: service_healthy
         required: false
+      nats:
+        condition: service_healthy
+        required: false
     profiles:
       - cpu
     image: ${RAGFLOW_IMAGE}
@@ -92,6 +95,9 @@ services:
         condition: service_healthy
         required: false
       es01:
+        condition: service_healthy
+        required: false
+      nats:
         condition: service_healthy
         required: false
     profiles:
