@@ -34,8 +34,7 @@ class IterationParam(ComponentParamBase):
         super().__init__()
         self.items_ref = ""
         self.variable = {}
-        self.parallel = True
-        self.max_parallel = 8
+        self.max_concurrency = 0
 
     def get_input_form(self) -> dict[str, dict]:
         return {"items": {"type": "json", "name": "Items"}}

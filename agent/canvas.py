@@ -223,10 +223,17 @@ class Graph:
     def _iteration_member_ids(self, iter_id: str) -> list[str]:
         return [cid for cid, cpn in self.components.items() if cpn.get("parent_id") == iter_id and self._iteration_clone_suffix(cid) is None]
 
+    def _iteration_max_concurrency(self, iter_obj) -> int:
+        try:
+            n = int(getattr(iter_obj._param, "max_concurrency", 0) or 0)
+        except (TypeError, ValueError):
+            return 0
+        return n if n > 0 else 0
+
     def _should_run_iteration_parallel(self, iter_obj) -> bool:
         if iter_obj.component_name.lower() != "iteration":
             return False
-        if not getattr(iter_obj._param, "parallel", True):
+        if self._iteration_max_concurrency(iter_obj) <= 1:
             return False
         items = self.get_variable_value(iter_obj._param.items_ref)
         if not isinstance(items, list) or len(items) <= 1:
@@ -672,8 +679,19 @@ class Canvas(Graph):
             loop = asyncio.get_running_loop()
             tasks = []
             max_concurrency = getattr(self._thread_pool, "_max_workers", 5)
-            if any(self._iteration_clone_suffix(self.path[j]) for j in range(f, t)):
-                max_concurrency = max(max_concurrency, 8)
+            for j in range(f, t):
+                cid = self.path[j]
+                if not self._iteration_clone_suffix(cid):
+                    continue
+                cpn = self.get_component(cid)
+                if not cpn:
+                    continue
+                parent = cpn["obj"].get_parent()
+                if parent and parent.component_name.lower() == "iteration":
+                    n = self._iteration_max_concurrency(parent)
+                    if n > 1:
+                        max_concurrency = n
+                        break
             sem = asyncio.Semaphore(max_concurrency)
 
             async def _invoke_one(cpn_obj, sync_fn, call_kwargs, use_async: bool):
