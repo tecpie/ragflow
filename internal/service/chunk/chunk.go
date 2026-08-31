@@ -442,7 +442,7 @@ func (s *ChunkService) RetrievalTest(ctx context.Context, req *service.Retrieval
 	}
 
 	// Apply retrieval_by_children - aggregate child chunks into parent chunks
-	filteredChunks = nlp.RetrievalByChildren(filteredChunks, tenantIDs, s.docEngine, ctx)
+	filteredChunks = nlp.RetrievalByChildren(filteredChunks, tenantIDs, "aggregate", s.docEngine, ctx)
 
 	// Hydrate: ES returns zero vectors; replace with real vectors from FetchChunkVectors.
 	// Infinity/OceanBase chunks already carry real vectors and are left unchanged.

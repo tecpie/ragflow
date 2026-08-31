@@ -1441,17 +1441,18 @@ func splitByChildren(chunks []schema.ChunkDoc, pattern *regexp.Regexp) []schema.
 			out = append(out, ck)
 			continue
 		}
-		mom := strings.TrimPrefix(ck.Text, "\n")
-		parts := splitDroppingDelim(ck.Text, pattern)
-		for _, p := range parts {
+		var kept []string
+		for _, p := range splitDroppingDelim(ck.Text, pattern) {
 			if strings.TrimSpace(p) == "" {
 				continue
 			}
-			cp := cloneChunkDoc(ck)
-			cp.Text = p
-			cp.Mom = mom
-			out = append(out, cp)
+			kept = append(kept, p)
 		}
+		if len(kept) == 0 {
+			out = append(out, ck)
+			continue
+		}
+		out = append(out, splitOneChunkByChildren(ck, kept)...)
 	}
 	return out
 }
@@ -1484,12 +1485,19 @@ func applyChildrenDelimText(docs []schema.ChunkDoc, pattern *regexp.Regexp) []sc
 		if strings.TrimSpace(t) == "" {
 			continue
 		}
+		var kept []string
 		for _, child := range splitDroppingDelim(t, pattern) {
 			if strings.TrimSpace(child) == "" {
 				continue
 			}
-			out = append(out, schema.ChunkDoc{Text: child, Mom: strings.TrimPrefix(t, "\n")})
+			kept = append(kept, child)
 		}
+		if len(kept) == 0 {
+			continue
+		}
+		parent := d
+		parent.Text = t
+		out = append(out, splitOneChunkByChildren(parent, kept)...)
 	}
 	return out
 }

@@ -932,9 +932,13 @@ class Dealer:
 
         return sorted(chunks, key=lambda x: x["similarity"] * -1)[:topn]
 
-    def retrieval_by_children(self, chunks: list[dict], tenant_ids: list[str]):
+    def retrieval_by_children(self, chunks: list[dict], tenant_ids: list[str], citation_mode: str = "aggregate"):
         if not chunks:
             return []
+        citation_mode = (citation_mode or "aggregate").strip().lower()
+        if citation_mode not in ("aggregate", "child", "dual"):
+            citation_mode = "aggregate"
+
         idx_nms = [index_name(tid) for tid in tenant_ids]
         mom_chunks = defaultdict(list)
         i = 0
@@ -948,6 +952,22 @@ class Dealer:
 
         if not mom_chunks:
             return chunks
+
+        if citation_mode in ("child", "dual"):
+            out = list(chunks)
+            for mom_id, cks in mom_chunks.items():
+                parent = self.dataStore.get(mom_id, idx_nms[0], [ck["kb_id"] for ck in cks])
+                parent_content = ""
+                if parent:
+                    parent_content = parent.get("content_with_weight", "")
+                for ck in cks:
+                    d = dict(ck)
+                    d["chunk_id"] = ck.get("chunk_id") or ck.get("id")
+                    d["mom_id"] = mom_id
+                    if citation_mode == "dual" and parent_content:
+                        d["parent_content"] = parent_content
+                    out.append(d)
+            return sorted(out, key=lambda x: x.get("similarity", 0) * -1)
 
         if not chunks:
             chunks = []

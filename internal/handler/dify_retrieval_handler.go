@@ -287,7 +287,7 @@ func (h *DifyRetrievalHandler) Retrieval(c *gin.Context) {
 	}
 
 	// Enrich with child chunks
-	chunks := nlp.RetrievalByChildren(result.Chunks, []string{kb.TenantID}, h.docEngine, c.Request.Context())
+	chunks := nlp.RetrievalByChildren(result.Chunks, []string{kb.TenantID}, "aggregate", h.docEngine, c.Request.Context())
 
 	// KG retrieval (optional)
 	if req.UseKG {

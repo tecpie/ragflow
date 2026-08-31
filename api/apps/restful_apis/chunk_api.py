@@ -108,6 +108,7 @@ class Chunk(BaseModel):
     doc_type_kwd: str = ""
     available: bool = True
     positions: list[list[int]] = Field(default_factory=list)
+    mom_id: str = ""
 
     @validator("positions")
     def validate_positions(cls, value):
@@ -150,6 +151,28 @@ def _strip_chunk_runtime_fields(chunk):
     for name in [name for name in chunk.keys() if re.search(r"(_vec$|_sm_|_tks|_ltks)", name)]:
         del chunk[name]
     return chunk
+
+
+def _chunk_field_to_api(field: dict, chunk_id: str, content: str | None = None) -> dict:
+    mom_id = field.get("mom_id", "")
+    if mom_id is None:
+        mom_id = ""
+    return {
+        "id": chunk_id,
+        "content": content if content is not None else field.get("content_with_weight", ""),
+        "document_id": field.get("doc_id", field.get("document_id", "")),
+        "docnm_kwd": field.get("docnm_kwd", ""),
+        "important_keywords": field.get("important_kwd", []),
+        "tag_kwd": field.get("tag_kwd", []),
+        "questions": field.get("question_kwd", []),
+        "dataset_id": field.get("kb_id", field.get("dataset_id", "")),
+        "image_id": field.get("img_id", ""),
+        "doc_type_kwd": field.get("doc_type_kwd") if isinstance(field.get("doc_type_kwd"), str) else "text",
+        "available": bool(int(field.get("available_int", "1"))),
+        "positions": field.get("position_int", []),
+        "mom_id": mom_id if isinstance(mom_id, str) else str(mom_id),
+        "tag_feas": field.get("tag_feas", {}),
+    }
 
 
 def _get_dataset_tenant_id(dataset_id):
@@ -529,21 +552,7 @@ async def list_chunks(tenant_id, dataset_id, document_id):
             return get_result(message=f"Chunk not found: {dataset_id}/{req.get('id')}", code=RetCode.DATA_ERROR)
         _strip_chunk_runtime_fields(chunk)
         res["total"] = 1
-        final_chunk = {
-            "id": chunk.get("id", chunk.get("chunk_id")),
-            "content": chunk["content_with_weight"],
-            "document_id": chunk.get("doc_id", chunk.get("document_id")),
-            "docnm_kwd": chunk["docnm_kwd"],
-            "important_keywords": chunk.get("important_kwd", []),
-            "questions": chunk.get("question_kwd", []),
-            "dataset_id": chunk.get("kb_id", chunk.get("dataset_id")),
-            "image_id": chunk.get("img_id", ""),
-            "doc_type_kwd": chunk.get("doc_type_kwd") if isinstance(chunk.get("doc_type_kwd"), str) else "text",
-            "available": bool(chunk.get("available_int", 1)),
-            "positions": chunk.get("position_int", []),
-            "tag_kwd": chunk.get("tag_kwd", []),
-            "tag_feas": chunk.get("tag_feas", {}),
-        }
+        final_chunk = _chunk_field_to_api(chunk, chunk.get("id", chunk.get("chunk_id")))
         res["chunks"].append(final_chunk)
         _ = Chunk(**final_chunk)
     elif settings.docStoreConn.index_exist(search.index_name(dataset_tenant_id), dataset_id):
@@ -556,20 +565,8 @@ async def list_chunks(tenant_id, dataset_id, document_id):
         )
         res["total"] = sres.total
         for chunk_id in sres.ids:
-            d = {
-                "id": chunk_id,
-                "content": (remove_redundant_spaces(sres.highlight[chunk_id]) if question and chunk_id in sres.highlight else sres.field[chunk_id].get("content_with_weight", "")),
-                "document_id": sres.field[chunk_id]["doc_id"],
-                "docnm_kwd": sres.field[chunk_id]["docnm_kwd"],
-                "important_keywords": sres.field[chunk_id].get("important_kwd", []),
-                "tag_kwd": sres.field[chunk_id].get("tag_kwd", []),
-                "questions": sres.field[chunk_id].get("question_kwd", []),
-                "dataset_id": sres.field[chunk_id].get("kb_id", sres.field[chunk_id].get("dataset_id")),
-                "image_id": sres.field[chunk_id].get("img_id", ""),
-                "doc_type_kwd": sres.field[chunk_id].get("doc_type_kwd") if isinstance(sres.field[chunk_id].get("doc_type_kwd"), str) else "text",
-                "available": bool(int(sres.field[chunk_id].get("available_int", "1"))),
-                "positions": sres.field[chunk_id].get("position_int", []),
-            }
+            highlight = remove_redundant_spaces(sres.highlight[chunk_id]) if question and chunk_id in sres.highlight else None
+            d = _chunk_field_to_api(sres.field[chunk_id], chunk_id, highlight)
             res["chunks"].append(d)
             _ = Chunk(**d)
     return get_result(data=res)

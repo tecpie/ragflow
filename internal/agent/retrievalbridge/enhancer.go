@@ -139,5 +139,5 @@ func (e *Enhancer) RetrieveByChildren(
 	if e == nil || e.docEngine == nil {
 		return chunks
 	}
-	return nlp.RetrievalByChildren(chunks, tenantIDs, e.docEngine, ctx)
+	return nlp.RetrievalByChildren(chunks, tenantIDs, "aggregate", e.docEngine, ctx)
 }

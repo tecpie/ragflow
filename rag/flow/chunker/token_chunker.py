@@ -21,6 +21,7 @@ from common.token_utils import num_tokens_from_string
 from rag.flow.base import ProcessBase, ProcessParamBase
 from rag.flow.chunker._sentence_boundary import SENTENCE_BOUNDARY_PATTERN
 from rag.flow.chunker.schema import TokenChunkerFromUpstream
+from rag.flow.chunker.children_positions import split_chunk_by_children
 from rag.flow.parser.pdf_chunk_metadata import (
     PDF_POSITIONS_KEY,
     extract_pdf_positions,
@@ -372,15 +373,11 @@ def _split_chunk_docs_by_children(chunks, pattern):
             continue
 
         split_texts = _split_text_by_pattern(chunk.get("text", ""), pattern)
-
-        mom = chunk.get("text", "").removeprefix("\n")
-        for text in split_texts:
-            if not text.strip():
-                continue
-            child = deepcopy(chunk)
-            child["mom"] = mom
-            child["text"] = text
-            docs.append(child)
+        kept = [text for text in split_texts if text.strip()]
+        if not kept:
+            docs.append(chunk)
+            continue
+        docs.extend(split_chunk_by_children(chunk, kept, remove_tag))
 
     return docs
 

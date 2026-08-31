@@ -819,13 +819,18 @@ func (r *RetrievalSearchRequest) GetFilters() map[string]interface{} {
 	return filters
 }
 
-// RetrievalByChildren aggregates child chunks into parent chunks
-func RetrievalByChildren(chunks []map[string]interface{}, tenantIDs []string, docEngine engine.DocEngine, ctx context.Context) []map[string]interface{} {
+// RetrievalByChildren aggregates child chunks into parent chunks, or keeps child
+// citations when citationMode is child/dual.
+func RetrievalByChildren(chunks []map[string]interface{}, tenantIDs []string, citationMode string, docEngine engine.DocEngine, ctx context.Context) []map[string]interface{} {
 	common.Info("RetrievalByChildren started", zap.Int("chunks", len(chunks)), zap.Strings("tenantIDs", tenantIDs))
 
 	indexNames := buildIndexNames(tenantIDs)
 	if len(chunks) == 0 || len(indexNames) == 0 {
 		return chunks
+	}
+	mode := strings.ToLower(strings.TrimSpace(citationMode))
+	if mode != "child" && mode != "dual" {
+		mode = "aggregate"
 	}
 
 	// Group child chunks by mom_id
@@ -849,6 +854,57 @@ func RetrievalByChildren(chunks []map[string]interface{}, tenantIDs []string, do
 	if len(momChunks) == 0 {
 		common.Info("RetrievalByChildren finished", zap.Int("momChunks", len(momChunks)), zap.Int("resultChunks", len(chunks)))
 		return chunks
+	}
+
+	if mode == "child" || mode == "dual" {
+		out := append([]map[string]interface{}{}, remainingChunks...)
+		for momID, childList := range momChunks {
+			kbIDs := make([]string, 0, len(childList))
+			for _, c := range childList {
+				if c.kbID != "" {
+					kbIDs = append(kbIDs, c.kbID)
+				}
+			}
+			if len(kbIDs) == 0 {
+				kbIDs = append(kbIDs, "")
+			}
+			parentContent := ""
+			parent, err := docEngine.GetChunk(ctx, indexNames[0], momID, kbIDs)
+			if err == nil {
+				if parentMap, ok := parent.(map[string]interface{}); ok {
+					if v, ok := parentMap["content_with_weight"].(string); ok {
+						parentContent = v
+					}
+				}
+			}
+			for _, c := range childList {
+				d := make(map[string]interface{}, len(c.chunk)+3)
+				for k, v := range c.chunk {
+					d[k] = v
+				}
+				if cid, ok := c.chunk["chunk_id"].(string); ok && cid != "" {
+					d["chunk_id"] = cid
+				} else if cid, ok := c.chunk["id"].(string); ok {
+					d["chunk_id"] = cid
+				}
+				d["mom_id"] = momID
+				if mode == "dual" && parentContent != "" {
+					d["parent_content"] = parentContent
+				}
+				out = append(out, d)
+			}
+		}
+		for i := 0; i < len(out); i++ {
+			for j := i + 1; j < len(out); j++ {
+				simI, _ := out[i]["similarity"].(float64)
+				simJ, _ := out[j]["similarity"].(float64)
+				if simJ > simI {
+					out[i], out[j] = out[j], out[i]
+				}
+			}
+		}
+		common.Info("RetrievalByChildren finished", zap.Int("momChunks", len(momChunks)), zap.Int("resultChunks", len(out)))
+		return out
 	}
 
 	// Fetch parent chunks and aggregate

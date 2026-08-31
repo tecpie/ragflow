@@ -72,11 +72,14 @@ class RetrievalParam(ToolParamBase):
         self.toc_enhance = False
         self.meta_data_filter = {}
         self.document_ids = ""
+        self.citation_mode = "aggregate"
 
     def check(self):
         self.check_decimal_float(self.similarity_threshold, "[Retrieval] Similarity threshold")
         self.check_decimal_float(self.keywords_similarity_weight, "[Retrieval] Keyword similarity weight")
         self.check_positive_number(self.top_n, "[Retrieval] Top N")
+        if self.citation_mode not in ("aggregate", "child", "dual"):
+            self.citation_mode = "aggregate"
 
     def get_input_form(self) -> dict[str, dict]:
         return {
@@ -251,7 +254,9 @@ class Retrieval(ToolBase, ABC):
                     return
                 if cks:
                     kbinfos["chunks"] = cks
-            kbinfos["chunks"] = settings.retriever.retrieval_by_children(kbinfos["chunks"], [kb.tenant_id for kb in kbs])
+            kbinfos["chunks"] = settings.retriever.retrieval_by_children(
+                kbinfos["chunks"], [kb.tenant_id for kb in kbs], self._param.citation_mode
+            )
             if self._param.use_kg:
                 tenant_id = self._canvas.get_tenant_id()
                 chat_model_config = get_tenant_default_model_by_type(tenant_id, LLMType.CHAT)

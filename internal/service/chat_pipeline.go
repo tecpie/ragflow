@@ -763,7 +763,7 @@ func (s *ChatPipelineService) AsyncChat(
 
 				// Child chunk retrieval
 				if existingChunks, ok := kbinfos["chunks"].([]map[string]interface{}); ok && len(existingChunks) > 0 {
-					kbinfos["chunks"] = nlp.RetrievalByChildren(existingChunks, kbTenantIDStrings(kbs), engine.Get(), ctx)
+					kbinfos["chunks"] = nlp.RetrievalByChildren(existingChunks, kbTenantIDStrings(kbs), "aggregate", engine.Get(), ctx)
 				}
 
 				// Web search
