@@ -702,9 +702,6 @@ func (s *AgentService) CreateAgentSession(ctx context.Context, req *CreateAgentS
 	}
 
 	messages := req.Messages
-	if len(messages) == 0 {
-		messages = json.RawMessage(`[]`)
-	}
 	reference := json.RawMessage(`{}`)
 
 	var dsl entity.JSONMap
@@ -720,6 +717,9 @@ func (s *AgentService) CreateAgentSession(ctx context.Context, req *CreateAgentS
 			return nil, common.CodeServerError, fmt.Errorf("load canvas dsl: %w", gErr)
 		}
 		dsl = canvas.DSL
+	}
+	if len(req.Messages) == 0 {
+		messages = agentSessionInitialMessages(dsl)
 	}
 
 	name := strings.TrimSpace(req.Name)

@@ -1929,6 +1929,7 @@ func (s *AgentService) buildRunFunc(canvasID string, versionRow *entity.UserCanv
 		}
 
 		startedAt := float64(time.Now().UnixNano()) / 1e9
+		userCreatedAt := time.Now().Unix()
 
 		userInput := root["user_input"]
 
@@ -2200,7 +2201,7 @@ func (s *AgentService) buildRunFunc(canvasID string, versionRow *entity.UserCanv
 				if answer != "" {
 					appendAssistantHistory(state, partialAssistantOutput(answer, downloads))
 				}
-				if persistErr := s.persistAgentRunSession(ctx, canvasID, userID, sessionID, messageID, userInput, answer, thinking, referencePayload, dsl, state, answer != ""); persistErr != nil {
+				if persistErr := s.persistAgentRunSession(ctx, canvasID, userID, sessionID, messageID, userInput, answer, thinking, referencePayload, dsl, state, answer != "", userCreatedAt); persistErr != nil {
 					return nil, canvas.NewInternalRunError(
 						fmt.Errorf("persist interrupted agent session: %w: %w", persistErr, ErrAgentStorageError),
 					)
@@ -2219,7 +2220,7 @@ func (s *AgentService) buildRunFunc(canvasID string, versionRow *entity.UserCanv
 			}
 			if shouldTreatAsCompletedLoopRun(err, answer) {
 				appendAssistantHistory(state, assistantOutput)
-				if persistErr := s.persistAgentRunSession(ctx, canvasID, userID, sessionID, messageID, userInput, answer, thinking, referencePayload, dsl, state, true); persistErr != nil {
+				if persistErr := s.persistAgentRunSession(ctx, canvasID, userID, sessionID, messageID, userInput, answer, thinking, referencePayload, dsl, state, true, userCreatedAt); persistErr != nil {
 					s.markRunFailed(ctx2, runID, "persist session: "+persistErr.Error())
 					return nil, canvas.NewInternalRunError(
 						fmt.Errorf("persist agent session: %w: %w", persistErr, ErrAgentStorageError),
@@ -2257,7 +2258,7 @@ func (s *AgentService) buildRunFunc(canvasID string, versionRow *entity.UserCanv
 
 		// Emit message + message_end (mirrors Python's ans dict).
 		appendAssistantHistory(state, assistantOutput)
-		if persistErr := s.persistAgentRunSession(ctx, canvasID, userID, sessionID, messageID, userInput, answer, thinking, referencePayload, dsl, state, true); persistErr != nil {
+		if persistErr := s.persistAgentRunSession(ctx, canvasID, userID, sessionID, messageID, userInput, answer, thinking, referencePayload, dsl, state, true, userCreatedAt); persistErr != nil {
 			s.markRunFailed(ctx2, runID, "persist session: "+persistErr.Error())
 			return nil, canvas.NewInternalRunError(
 				fmt.Errorf("persist agent session: %w: %w", persistErr, ErrAgentStorageError),
@@ -2307,6 +2308,24 @@ func beginLayoutRecognize(c *canvas.Canvas) string {
 	return ""
 }
 
+// agentSessionInitialMessages builds the initial persisted message list for a
+// new agent session: one assistant prologue with created_at when the DSL defines
+// one, otherwise an empty JSON array.
+func agentSessionInitialMessages(dsl map[string]any) json.RawMessage {
+	prologue, err := dslpkg.ExtractPrologue(dsl)
+	if err != nil || strings.TrimSpace(prologue) == "" {
+		return json.RawMessage(`[]`)
+	}
+	messages := []map[string]interface{}{
+		{"role": "assistant", "content": prologue, "created_at": time.Now().Unix()},
+	}
+	raw, err := json.Marshal(messages)
+	if err != nil {
+		return json.RawMessage(`[]`)
+	}
+	return raw
+}
+
 func (s *AgentService) createAgentRunSession(
 	ctx context.Context,
 	sessionID, userID, agentID string,
@@ -2325,7 +2344,7 @@ func (s *AgentService) createAgentRunSession(
 		DialogID:  agentID,
 		UserID:    userID,
 		ExpUserID: &userID,
-		Message:   json.RawMessage(`[]`),
+		Message:   agentSessionInitialMessages(runDSL),
 		Reference: json.RawMessage(`[]`),
 		Source:    &source,
 		DSL:       entity.JSONMap(runDSL),
@@ -2409,6 +2428,7 @@ func (s *AgentService) persistAgentRunSession(
 	runDSL map[string]any,
 	state *canvas.CanvasState,
 	appendAssistantMessage bool,
+	userCreatedAt int64,
 ) error {
 	if sessionID == "" || s == nil || s.api4ConversationDAO == nil || dao.DB == nil {
 		return nil
@@ -2422,12 +2442,11 @@ func (s *AgentService) persistAgentRunSession(
 		return nil
 	}
 	messages := parseAgentSessionMessages(session.Message)
-	now := time.Now().Unix()
 	if text := stringifyAgentUserInput(userInput); text != "" {
-		messages = append(messages, map[string]interface{}{"role": "user", "content": text, "id": utility.GenerateToken(), "created_at": now})
+		messages = append(messages, map[string]interface{}{"role": "user", "content": text, "id": utility.GenerateToken(), "created_at": userCreatedAt})
 	}
 	if appendAssistantMessage {
-		messages = append(messages, map[string]interface{}{"role": "assistant", "content": agentSessionMessageContent(answer, thinking), "id": messageID, "created_at": now})
+		messages = append(messages, map[string]interface{}{"role": "assistant", "content": agentSessionMessageContent(answer, thinking), "id": messageID, "created_at": time.Now().Unix()})
 	}
 	if raw, err := json.Marshal(messages); err == nil {
 		session.Message = raw

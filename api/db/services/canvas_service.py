@@ -385,7 +385,10 @@ async def completion(tenant_id, agent_id, session_id=None, **kwargs):
         conv = API4Conversation(**conv)
 
     message_id = str(uuid4())
-    conv.message.append({"role": "user", "content": query, "id": message_id, "files": files})
+    user_created_at = time.time()
+    conv.message.append(
+        {"role": "user", "content": query, "id": message_id, "files": files, "created_at": user_created_at}
+    )
     txt = ""
     run_kwargs = {
         "query": query,
