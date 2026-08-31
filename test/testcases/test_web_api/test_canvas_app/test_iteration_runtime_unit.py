@@ -196,6 +196,7 @@ def _load_canvas_runtime(monkeypatch):
         def __init__(self):
             super().__init__()
             self.query = ""
+            self.fail_on = ""
             self.inputs = {"query": {"value": None}}
 
         def get_input_form(self):
@@ -211,6 +212,9 @@ def _load_canvas_runtime(monkeypatch):
             query_text = kwargs.get("query")
             vars_map = self.get_input_elements_from_text(query_text)
             query = self.string_format(query_text, {key: value["value"] for key, value in vars_map.items()})
+            if self._param.fail_on and query == self._param.fail_on:
+                self.set_output("_ERROR", f"probe failed on {query}")
+                return
             calls = self._canvas.globals.setdefault("probe.calls", [])
             calls.append(query)
             self.set_output("result", query)
@@ -435,6 +439,68 @@ def test_iteration_runtime_supports_bare_iteration_aliases(monkeypatch, query, e
     asyncio.run(_collect_events(canvas.run()))
 
     assert [str(v) for v in canvas.globals["probe.calls"]] == [str(v) for v in expected_calls]
+
+
+@pytest.mark.p2
+def test_rewrite_iteration_refs_does_not_clobber_longer_ids(monkeypatch):
+    canvas_mod = _load_canvas_runtime(monkeypatch)
+    id_map = {"Agent:1": "Agent:1__p0", "Agent:10": "Agent:10__p0"}
+    rewritten = canvas_mod.Graph._rewrite_iteration_refs("use {Agent:1@x} and {Agent:10@y}", id_map)
+    assert rewritten == "use {Agent:1__p0@x} and {Agent:10__p0@y}"
+    assert canvas_mod.Graph._rewrite_iteration_refs(["Agent:1", "Agent:10"], id_map) == ["Agent:1__p0", "Agent:10__p0"]
+
+
+@pytest.mark.p2
+def test_iteration_item_end_stays_true_after_finish(monkeypatch):
+    canvas_mod = _load_canvas_runtime(monkeypatch)
+    canvas = canvas_mod.Canvas(json.dumps(_iteration_probe_dsl({"items_ref": "env.items"})))
+    asyncio.run(_collect_events(canvas.run()))
+    item = canvas.get_component_obj("IterationItem:1")
+    assert item.end() is True
+    assert item.end() is True
+
+
+@pytest.mark.p2
+def test_iteration_parallel_item_error_fails_canvas(monkeypatch):
+    canvas_mod = _load_canvas_runtime(monkeypatch)
+    dsl = _iteration_probe_dsl(
+        {
+            "items_ref": "env.items",
+            "max_concurrency": 8,
+            "outputs": {"reviewResult": {"ref": "Probe:1@result", "type": "Array"}},
+        }
+    )
+    dsl["components"]["Probe:1"]["obj"]["params"]["fail_on"] = "b"
+    canvas = canvas_mod.Canvas(json.dumps(dsl))
+    events = asyncio.run(_collect_events(canvas.run()))
+    assert canvas.error
+    assert "probe failed on b" in str(canvas.error)
+    assert not any(event["event"] == "workflow_finished" for event in events)
+
+
+@pytest.mark.p2
+def test_iteration_userfillup_stays_serial_when_max_concurrency_gt_one(monkeypatch):
+    canvas_mod = _load_canvas_runtime(monkeypatch)
+    dsl = _iteration_probe_dsl({"items_ref": "env.items", "max_concurrency": 8})
+    dsl["components"]["UserFillUp:1"] = {
+        "obj": {
+            "component_name": "UserFillUp",
+            "params": {
+                "enable_tips": True,
+                "tips": "Enter value",
+                "inputs": {"value": {"type": "line", "name": "Value"}},
+            },
+        },
+        "parent_id": "Iteration:1",
+        "downstream": [],
+        "upstream": ["Probe:1"],
+    }
+    dsl["components"]["Probe:1"]["downstream"] = ["UserFillUp:1"]
+    canvas = canvas_mod.Canvas(json.dumps(dsl))
+    asyncio.run(_collect_events(canvas.run()))
+    assert "Probe:1__p0" not in canvas.components
+    iter_obj = canvas.get_component_obj("Iteration:1")
+    assert canvas._should_run_iteration_parallel(iter_obj) is False
 
 
 @pytest.mark.p2

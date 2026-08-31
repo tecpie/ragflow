@@ -33,7 +33,6 @@ class IterationItem(ComponentBase, ABC):
     def __init__(self, canvas, id, param: ComponentParamBase):
         super().__init__(canvas, id, param)
         self._idx = 0
-        self._emit_end = False
         self._fixed_item = None
         self._fixed_index = None
 
@@ -65,7 +64,6 @@ class IterationItem(ComponentBase, ABC):
 
         if self._idx >= len(arr):
             self._idx = -1
-            self._emit_end = True
             return
 
         if self.check_if_canceled("IterationItem processing"):
@@ -111,12 +109,7 @@ class IterationItem(ComponentBase, ABC):
                 p.set_output(k, res)
 
     def end(self):
-        # Emit end only once so the path walker does not repeatedly re-enter
-        # a finished IterationItem and hang the canvas.
-        if self._emit_end:
-            self._emit_end = False
-            return True
-        return False
+        return self._idx == -1
 
     def thoughts(self) -> str:
         return "Next turn..."

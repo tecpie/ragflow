@@ -211,8 +211,7 @@ class Graph:
     def _rewrite_iteration_refs(value, id_map: dict[str, str]):
         if isinstance(value, str):
             for old in sorted(id_map, key=len, reverse=True):
-                if old in value:
-                    value = value.replace(old, id_map[old])
+                value = re.sub(rf"(?<![A-Za-z0-9_]){re.escape(old)}(?![A-Za-z0-9_])", id_map[old], value)
             return value
         if isinstance(value, list):
             return [Graph._rewrite_iteration_refs(v, id_map) for v in value]
@@ -297,8 +296,10 @@ class Graph:
                 continue
             collected = {}
             for idx in range(n):
-                clone = self.get_component_obj(f"{cid}__p{idx}")
-                for key, val in clone.output().items():
+                clone = self.get_component(f"{cid}__p{idx}")
+                if not clone:
+                    continue
+                for key, val in clone["obj"].output().items():
                     if key.startswith("_"):
                         continue
                     collected.setdefault(key, []).append(val)
@@ -942,10 +943,7 @@ class Canvas(Graph):
                         yield decorate("message", {"content": ex["default_value"]})
                         yield decorate("message_end", {})
                     else:
-                        if self._iteration_clone_suffix(cpn_obj._id):
-                            logging.error("Parallel iteration item error id=%s: %s", cpn_obj._id, cpn_obj.error())
-                        else:
-                            self.error = cpn_obj.error()
+                        self.error = cpn_obj.error()
 
                 if cpn_obj.component_name.lower() not in ("iteration", "loop"):
                     if isinstance(cpn_obj.output("content"), partial):
