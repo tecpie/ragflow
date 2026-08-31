@@ -1,0 +1,15 @@
+---
+description: Deploy changes to the 172.16.0.31 RAGFlow test server
+alwaysApply: false
+---
+
+# Test Server Deploy
+
+When the user asks to deploy/sync/push to the test environment (测试环境, 测试服务器, 31, debug, stable):
+
+1. Read and follow `.agents/skills/deploy-test-server/SKILL.md`
+2. **Always** run `.\scripts\sync-to-test-server.ps1` — never hand-roll scp/ssh
+3. Default target is **debug**; stable only when explicitly requested
+4. Debug: **incremental** (default) uploads changed files to the mount; **--full** refreshes from Docker image
+5. Frontend: **local** `npm run build` → zip `web/dist` → upload → extract. Never `docker exec ... npm run build`. Use `--build-web` for frontend-only.
+6. Report upload count and restart/build output to the user
