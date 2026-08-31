@@ -504,7 +504,7 @@ async def create_agent_session(agent_id, tenant_id):
         "dialog_id": cvs.id,
         "user_id": tenant_id,
         "exp_user_id": user_id,
-        "message": [{"role": "assistant", "content": canvas.get_prologue()}],
+        "message": [{"role": "assistant", "content": canvas.get_prologue(), "created_at": time.time()}],
         "source": "agent",
         "dsl": cvs.dsl,
         "reference": [],

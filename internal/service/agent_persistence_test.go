@@ -137,7 +137,7 @@ func TestPersistAgentRunSessionPreservesThinking(t *testing.T) {
 	}
 
 	svc := NewAgentService()
-	if err := svc.persistAgentRunSession(context.Background(), "canvas-think", "user-1", "session-think", "msg-think-1", "question", "final answer", "reasoning trace", map[string]interface{}{}, nil, nil, true); err != nil {
+	if err := svc.persistAgentRunSession(context.Background(), "canvas-think", "user-1", "session-think", "msg-think-1", "question", "final answer", "reasoning trace", map[string]interface{}{}, nil, nil, true, 1_700_000_000); err != nil {
 		t.Fatalf("persist: %v", err)
 	}
 
