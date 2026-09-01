@@ -137,20 +137,16 @@ def message_fit_in(msg, max_length=4000):
 
 
 def kb_prompt(kbinfos, max_tokens, hash_id=False):
-    chunks = kbinfos["chunks"]
-    knowledges = [get_value(ck, "content", "content_with_weight") for ck in chunks]
-    kwlg_len = len(knowledges)
-    used_token_count = 0
-    selected_chunks = []
-    for ck, c in zip(chunks, knowledges):
-        if not c:
-            continue
-        chunk_tokens = num_tokens_from_string(c)
-        if max_tokens * 0.97 < used_token_count + chunk_tokens:
-            logging.warning(f"Not all the retrieval into prompt: {len(selected_chunks)}/{kwlg_len}")
-            break
-        used_token_count += chunk_tokens
-        selected_chunks.append(ck)
+    """Format retrieval hits for LLM prompts.
+
+    ``hash_id``:
+    - ``False``: sequential index (chat-style blocks)
+    - ``True``: ``hash_str2int(id, 500)`` (legacy cite keys; collision-prone)
+    - ``\"raw\"`` / ``\"id\"``: real chunk id (agent evidence must use this)
+
+    For parent-child dual citation, each hit may carry ``parent_content``.
+    Print each distinct parent at most once (later hits reference the first ID).
+    """
 
     def draw_node(k, line):
         if line is not None and not isinstance(line, str):
@@ -159,16 +155,54 @@ def kb_prompt(kbinfos, max_tokens, hash_id=False):
             return ""
         return f"\n├── {k}: " + re.sub(r"\n+", " ", line, flags=re.DOTALL)
 
+    def chunk_id_label(ck, index: int) -> str:
+        if hash_id in ("raw", "id"):
+            return str(get_value(ck, "id", "chunk_id") or index)
+        if hash_id:
+            return str(hash_str2int(get_value(ck, "id", "chunk_id"), 500))
+        return str(index)
+
+    chunks = kbinfos.get("chunks") or []
     knowledges = []
-    for i, ck in enumerate(selected_chunks):
-        cnt = "\nID: {}".format(i if not hash_id else hash_str2int(get_value(ck, "id", "chunk_id"), 500))
+    used_token_count = 0
+    seen_parents: dict[str, str] = {}
+
+    for i, ck in enumerate(chunks):
+        content = get_value(ck, "content", "content_with_weight") or ""
+        parent = ck.get("parent_content") or ""
+        label = chunk_id_label(ck, i)
+
+        cnt = f"\nID: {label}"
         cnt += draw_node("Title", get_value(ck, "docnm_kwd", "document_name"))
         cnt += draw_node("URL", ck.get("url", ""))
         meta = ck.get("document_metadata") or {}
         for k, v in meta.items():
             cnt += draw_node(k, v)
-        cnt += "\n└── Content:\n"
-        cnt += get_value(ck, "content", "content_with_weight")
+
+        parent_key = parent.strip()
+        content_key = content.strip()
+        if parent_key and parent_key != content_key:
+            if parent_key in seen_parents:
+                cnt += "\n├── Content:\n"
+                cnt += content
+                cnt += f"\n└── Parent Content: (same as ID {seen_parents[parent_key]})"
+            else:
+                seen_parents[parent_key] = label
+                cnt += "\n├── Content:\n"
+                cnt += content
+                cnt += "\n└── Parent Content:\n"
+                cnt += parent
+        else:
+            cnt += "\n└── Content:\n"
+            cnt += content
+
+        piece_tokens = num_tokens_from_string(cnt)
+        if knowledges and used_token_count + piece_tokens > max_tokens * 0.97:
+            logging.warning(
+                f"Not all the retrieval into prompt: {len(knowledges)}/{len(chunks)}"
+            )
+            break
+        used_token_count += piece_tokens
         knowledges.append(cnt)
 
     return knowledges

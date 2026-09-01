@@ -354,7 +354,7 @@ class Agent(LLM, ToolBase):
     async def _gen_citations_async(self, text):
         retrievals = self._canvas.get_reference()
         retrievals = {"chunks": list(retrievals["chunks"].values()), "doc_aggs": list(retrievals["doc_aggs"].values())}
-        formated_refer = kb_prompt(retrievals, self.chat_mdl.max_length, True)
+        formated_refer = kb_prompt(retrievals, self.chat_mdl.max_length, "raw")
         async for delta_ans in self._generate_streamly([{"role": "system", "content": citation_plus("\n\n".join(formated_refer))}, {"role": "user", "content": text}]):
             yield delta_ans
 
