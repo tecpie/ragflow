@@ -2007,7 +2007,7 @@ NER：使用 spaCy NER 和基于规则的关键词提取来抽取 Entities 和 R
       compilationTitleSuffix: '的数据集',
       llmWiki: 'Wiki',
       skills: 'To Skills',
-      navTree: 'PageIndex',
+      navTree: 'Tree/Page index',
       graph: 'Graph',
       structureMindmap: 'Mindmap',
       structureTimeline: 'Timeline',
@@ -2020,6 +2020,7 @@ NER：使用 spaCy NER 和基于规则的关键词提取来抽取 Entities 和 R
       topics: 'Topic',
       selectArtifact: '从目录中选择一个条目以查看详情',
       searchEntity: '搜索 Entity',
+      graphEntityCount: '实体 {{returned}} / {{total}}',
       sourceDocuments: '来源文档',
       clearWikiTitle: '清空 Wiki',
       clearWikiDescription:
