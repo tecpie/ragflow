@@ -574,6 +574,7 @@ Example: A 1 KB message with 1024-dim embedding uses ~9 KB. The 5 MB default lim
       runningStatus2: 'Cancelled',
       runningStatus3: 'Success',
       runningStatus4: 'Fail',
+      runningStatusQueued: 'Queued',
       pageRanges: 'Page ranges',
       pageRangesTip:
         'Range of pages to be parsed; pages outside this range will not be processed.',
@@ -3418,6 +3419,16 @@ This process aggregates variables from multiple branches into a single variable 
         'Cannot save: "{{name}}" has invalid settings. Please fix them first',
       agentModelMissing:
         'Cannot save: "{{name}}" has no model selected. Please choose one first',
+      retrievalDatasetRequired: 'Please select at least one dataset',
+      retrievalDatasetMissing:
+        'Cannot save: "{{name}}" has no dataset selected. Please choose one first',
+      retrievalTemplateDatasetHint:
+        'This template has {{count}} dataset retrieval step(s) without a dataset. Select a knowledge base below and it will be applied to all of them; you can still fine-tune each retrieval in the canvas afterwards.',
+      retrievalMemoryRequired: 'Please select at least one memory',
+      retrievalMemoryMissing:
+        'Cannot save: "{{name}}" has no memory selected. Please choose one first',
+      retrievalTemplateMemoryHint:
+        'This template has {{count}} memory retrieval step(s) without a memory. Select one below and it will be applied to all of them; you can still fine-tune each retrieval in the canvas afterwards.',
       tokenizerDescription:
         'Transforms text into the required data structure (e.g., vector embeddings for Embedding Search) depending on the chosen search method.',
       tokenChunker: 'Token Chunker',

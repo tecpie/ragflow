@@ -41,6 +41,14 @@ type FileHandler struct {
 	file2DocumentService *document.File2DocumentService
 }
 
+func respondFileServiceError(c *gin.Context, err error) {
+	if errors.Is(err, file.ErrNoAuthorization) {
+		common.ResponseWithCodeData(c, common.CodeDataError, nil, "no authorization")
+		return
+	}
+	jsonInternalError(c, err)
+}
+
 // NewFileHandler create file handler
 func NewFileHandler(fileService *file.FileService, userService *service.UserService) *FileHandler {
 	return &FileHandler{
@@ -173,7 +181,7 @@ func (h *FileHandler) GetParentFolder(c *gin.Context) {
 	// Get parent folder with permission check
 	parentFolder, err := h.fileService.GetParentFolder(ctx, userID, fileID)
 	if err != nil {
-		jsonInternalError(c, err)
+		respondFileServiceError(c, err)
 		return
 	}
 
@@ -208,7 +216,7 @@ func (h *FileHandler) GetAllParentFolders(c *gin.Context) {
 	// Get all parent folders with permission check
 	parentFolders, err := h.fileService.GetAllParentFolders(ctx, userID, fileID)
 	if err != nil {
-		jsonInternalError(c, err)
+		respondFileServiceError(c, err)
 		return
 	}
 
@@ -242,7 +250,7 @@ func (h *FileHandler) GetFileAncestors(c *gin.Context) {
 	// Get all parent folders with permission check
 	parentFolders, err := h.fileService.GetAllParentFolders(ctx, userID, fileID)
 	if err != nil {
-		jsonInternalError(c, err)
+		respondFileServiceError(c, err)
 		return
 	}
 

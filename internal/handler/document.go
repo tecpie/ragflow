@@ -38,6 +38,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 
 	"ragflow/internal/dao"
 	"ragflow/internal/service"
@@ -83,6 +84,7 @@ type documentServiceIface interface {
 	Ingest(ctx context.Context, userID string, req *document.IngestDocumentRequest) (common.ErrorCode, error)
 	RemoveIngestionTasks(ctx context.Context, tasks []string, userID string) ([]map[string]string, error)
 	BatchUpdateDocumentStatus(ctx context.Context, userID, datasetID, status string, DocumentIDs []string) (map[string]interface{}, common.ErrorCode, error)
+	HasActiveIngestionTasks(ctx context.Context, datasetID string) (bool, error)
 }
 
 // fileUploadIface defines the FileService upload methods used by DocumentHandler.
@@ -615,7 +617,14 @@ func (h *DocumentHandler) ListDocuments(c *gin.Context) {
 		docs = append(docs, mapDocumentListItem(doc, metaFields))
 	}
 
-	common.SuccessWithData(c, gin.H{"total": total, "docs": docs}, "success")
+	hasActiveTasks, err := h.documentService.HasActiveIngestionTasks(ctx, datasetID)
+	if err != nil {
+		common.Warn("failed to check active ingestion tasks", zap.Error(err))
+		// Keep polling when the authoritative dataset-wide check is unavailable;
+		// otherwise an active task on another page could be missed.
+		hasActiveTasks = true
+	}
+	common.SuccessWithData(c, gin.H{"total": total, "docs": docs, "has_active_tasks": hasActiveTasks}, "success")
 }
 
 func parseDocumentListOptions(c *gin.Context, datasetID string) (dao.DocumentListOptions, string) {
@@ -1144,6 +1153,9 @@ func mapDocumentListItem(doc *entity.DocumentListItem, metaFields map[string]int
 		"create_date":      "",
 		"update_time":      int64(0),
 		"update_date":      "",
+	}
+	if doc.IngestionStatus != nil {
+		item["ingestion_status"] = *doc.IngestionStatus
 	}
 
 	if doc.CreateTime != nil {
