@@ -987,3 +987,18 @@ def test_normalize_backend_accepts_current_names(monkeypatch):
 
     with pytest.raises(ValueError, match="Invalid MinerU backend"):
         module.normalize_backend("not-a-backend")
+
+
+def test_check_installation_requires_server_url_for_hybrid_http_client(monkeypatch):
+    module = _load_mineru_parser(monkeypatch)
+    parser = module.MinerUParser(mineru_api="http://mineru.local")
+    monkeypatch.setattr(
+        module.MinerUParser,
+        "_is_http_endpoint_valid",
+        staticmethod(lambda url, timeout=5: True),
+    )
+
+    ok, reason = parser.check_installation("hybrid-http-client", server_url=None)
+
+    assert ok is False
+    assert "MINERU_SERVER_URL" in reason
