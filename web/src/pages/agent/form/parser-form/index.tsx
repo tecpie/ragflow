@@ -140,12 +140,10 @@ function ParserItem({ name, index }: ParserItemProps) {
           <Widget prefix={prefix} fileType={fileFormat as FileType}></Widget>
         </div>
       </Collapse>
-      <div className="hidden">
-        <OutputFormatFormField
-          prefix={prefix}
-          fileType={fileFormat as FileType}
-        />
-      </div>
+      <OutputFormatFormField
+        prefix={prefix}
+        fileType={fileFormat as FileType}
+      />
     </Card>
   );
 }

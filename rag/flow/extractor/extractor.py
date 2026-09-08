@@ -19,7 +19,9 @@ from copy import deepcopy
 
 import xxhash
 
-from agent.component.llm import LLMParam, LLM
+from agent.component.llm import LLM, LLMParam
+from api.db.services.doc_metadata_service import DocMetadataService
+from common.metadata_utils import update_metadata_to
 from rag.flow.base import ProcessBase, ProcessParamBase
 from rag.prompts.generator import run_toc_from_text
 
@@ -36,6 +38,20 @@ class ExtractorParam(ProcessParamBase, LLMParam):
 
 class Extractor(ProcessBase, LLM):
     component_name = "Extractor"
+
+    def _persist_document_metadata(self, metadata):
+        doc_id = getattr(self._canvas, "_doc_id", None)
+        if not doc_id:
+            return
+
+        metadata = update_metadata_to({}, metadata)
+        if not metadata:
+            return
+
+        existing = DocMetadataService.get_document_metadata(doc_id)
+        existing = existing if isinstance(existing, dict) else {}
+        if not DocMetadataService.update_document_metadata(doc_id, update_metadata_to(existing, metadata)):
+            raise RuntimeError(f"Failed to persist metadata for document {doc_id}")
 
     async def _build_TOC(self, docs):
         self.callback(0.2, message="Start to generate table of content ...")
@@ -96,6 +112,22 @@ class Extractor(ProcessBase, LLM):
                 if not chunks:
                     chunks = deepcopy(args[k])
                 chunks_key = k
+
+        if self._param.field_name == "metadata":
+            if chunks_key:
+                document_text = []
+                for chunk in chunks:
+                    if not isinstance(chunk, dict):
+                        continue
+                    text = chunk.get("text") or chunk.get("content_with_weight")
+                    if isinstance(text, str) and text:
+                        document_text.append(text)
+                args[chunks_key] = "\n\n".join(document_text)
+            msg, sys_prompt = self._sys_prompt_and_msg([], args)
+            msg.insert(0, {"role": "system", "content": sys_prompt})
+            self._persist_document_metadata(await self._generate_async(msg))
+            self.set_output("chunks", chunks)
+            return
 
         if chunks:
             if self._param.field_name == "toc":
