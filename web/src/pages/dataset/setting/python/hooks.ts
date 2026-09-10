@@ -34,9 +34,17 @@ export const useFetchKnowledgeConfigurationOnMount = (
     useFetchKnowledgeBaseConfiguration();
 
   useEffect(() => {
+    const rawGroupId =
+      knowledgeDetails.parser_config?.compilation_template_group_id;
+    const compilation_template_group_id = Array.isArray(rawGroupId)
+      ? rawGroupId
+      : typeof rawGroupId === 'string' && rawGroupId
+        ? [rawGroupId]
+        : [];
     const parser_config = {
       ...form.formState?.defaultValues?.parser_config,
       ...knowledgeDetails.parser_config,
+      compilation_template_group_id,
     };
     const formValues = {
       ...pick({ ...knowledgeDetails, parser_config: parser_config }, [

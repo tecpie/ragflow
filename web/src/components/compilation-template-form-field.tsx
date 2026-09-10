@@ -15,19 +15,27 @@
  */
 
 import { RAGFlowFormItem } from '@/components/ragflow-form';
+import { MultiSelect } from '@/components/ui/multi-select';
 import { useCompilationTemplateGroupOptions } from '@/hooks/use-compilation-template-group-request';
 import { useNavigatePage } from '@/hooks/logic-hooks/navigate-hooks';
+import { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { SelectWithSearch } from './originui/select-with-search';
 
 type CompilationTemplateFormFieldProps = {
   horizontal?: boolean;
   name?: string;
+  multiple?: boolean;
+  required?: boolean;
+  tooltip?: ReactNode;
 };
 
 export function CompilationTemplateFormField({
   horizontal,
   name = 'parser_config.compilation_template_group_id',
+  multiple = false,
+  required = true,
+  tooltip,
 }: CompilationTemplateFormFieldProps) {
   const { t } = useTranslation();
   const { navigateToAgents } = useNavigatePage();
@@ -37,21 +45,46 @@ export function CompilationTemplateFormField({
     <RAGFlowFormItem
       name={name}
       label={t('knowledgeConfiguration.compilationTemplate')}
+      tooltip={tooltip}
       labelLink={{
         text: t('knowledgeConfiguration.createTemplate'),
         onClick: navigateToAgents,
       }}
       className="pb-4"
       horizontal={horizontal}
-      required
+      required={required}
     >
-      {(field) => (
-        <SelectWithSearch
-          value={field.value}
-          onChange={field.onChange}
-          options={options}
-        />
-      )}
+      {(field) =>
+        multiple ? (
+          <MultiSelect
+            options={options}
+            placeholder={t('common.selectPlaceholder')}
+            maxCount={3}
+            onValueChange={field.onChange}
+            defaultValue={
+              Array.isArray(field.value)
+                ? field.value
+                : field.value
+                  ? [field.value]
+                  : []
+            }
+            value={
+              Array.isArray(field.value)
+                ? field.value
+                : field.value
+                  ? [field.value]
+                  : []
+            }
+            modalPopover
+          />
+        ) : (
+          <SelectWithSearch
+            value={field.value}
+            onChange={field.onChange}
+            options={options}
+          />
+        )
+      }
     </RAGFlowFormItem>
   );
 }

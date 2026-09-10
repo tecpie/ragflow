@@ -1,3 +1,4 @@
+import { CompilationTemplateFormField } from '@/components/compilation-template-form-field';
 import { DataFlowSelect } from '@/components/data-pipeline-select';
 import { Button } from '@/components/ui/button';
 import {
@@ -71,6 +72,7 @@ export default function DatasetSettings() {
         built_in_metadata: [],
         enable_metadata: false,
         llm_id: '',
+        compilation_template_group_id: [],
       },
       pipeline_id: '',
       parse_type: ParseType.BuiltIn,
@@ -249,6 +251,16 @@ export default function DatasetSettings() {
                         line={1}
                         name="chunk_method"
                       ></ChunkMethodItem>
+                    )}
+                    {parseType === ParseType.BuiltIn && (
+                      <CompilationTemplateFormField
+                        horizontal
+                        multiple
+                        required={false}
+                        tooltip={t(
+                          'knowledgeConfiguration.compilationTemplateTip',
+                        )}
+                      />
                     )}
                     {parseType === ParseType.Pipeline && (
                       <DataFlowSelect

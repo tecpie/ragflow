@@ -840,6 +840,8 @@ export default {
       entityTypes: 'Entity 类型',
       compilationTemplate: '算子',
       compilationTemplateRequired: '请选择算子',
+      compilationTemplateTip:
+        '文档解析完成后自动运行所选编译算子（结构类模板）。Wiki 类模板仍需在 Artifacts 页手动生成。',
       createTemplate: '创建模板',
       scopeFile: '文件',
       pageRank: '页面排名',

@@ -928,6 +928,8 @@ Paragraphs:
       entityTypes: 'Entity types',
       compilationTemplate: 'Operator',
       compilationTemplateRequired: 'Please select an operator',
+      compilationTemplateTip:
+        'Selected compilation operators run automatically after document parsing (structure templates). Wiki templates still need manual generation on the Artifacts page.',
       createTemplate: 'Create template',
       scopeFile: 'File',
       vietnamese: 'Vietnamese',

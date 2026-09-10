@@ -56,6 +56,7 @@ export const formSchema = z
           .optional(),
         enable_metadata: z.boolean().optional(),
         llm_id: z.string().optional(),
+        compilation_template_group_id: z.array(z.string()).optional(),
         // Table parser: "auto" = all columns both, "manual" = use column role selector
         table_column_mode: z.enum(['auto', 'manual']).optional(),
         // Table parser: column name -> role (indexing | metadata | both); legacy "vectorize" -> indexing
