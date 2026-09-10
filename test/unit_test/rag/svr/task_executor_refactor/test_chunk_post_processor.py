@@ -21,10 +21,66 @@ import pytest
 
 from rag.svr.task_executor_refactor.chunk_post_processor import (
     _ES_KEYWORD_MAX_TERM_BYTES,
+    _effective_compilation_template_ids,
     _sanitize_keyword_term,
     extract_keywords,
 )
+from rag.advanced_rag.knowlege_compile._common import collapse_child_chunks_to_parents
 from test.unit_test.rag.svr.task_executor_refactor.conftest import make_task_context
+
+
+class TestCollapseChildChunksToParents:
+    def test_collapses_siblings_to_one_parent(self):
+        chunks = [
+            {
+                "id": "c1",
+                "doc_id": "d1",
+                "content_with_weight": "line1",
+                "mom_id": "p1",
+                "mom_with_weight": "line1\nline2",
+                "page_num_int": 1,
+                "top_int": 1,
+            },
+            {
+                "id": "c2",
+                "doc_id": "d1",
+                "content_with_weight": "line2",
+                "mom_id": "p1",
+                "mom_with_weight": "line1\nline2",
+                "page_num_int": 1,
+                "top_int": 2,
+            },
+            {
+                "id": "c3",
+                "doc_id": "d1",
+                "content_with_weight": "solo",
+                "page_num_int": 2,
+                "top_int": 1,
+            },
+        ]
+        out = collapse_child_chunks_to_parents(chunks)
+        assert len(out) == 2
+        assert out[0]["id"] == "p1"
+        assert out[0]["content_with_weight"] == "line1\nline2"
+        assert out[1]["id"] == "c3"
+
+    def test_seen_set_spans_batches(self):
+        seen: set[str] = set()
+        first = collapse_child_chunks_to_parents(
+            [{"id": "c1", "mom_id": "p1", "mom_with_weight": "parent", "content_with_weight": "a"}],
+            seen_mom_ids=seen,
+        )
+        second = collapse_child_chunks_to_parents(
+            [{"id": "c2", "mom_id": "p1", "mom_with_weight": "parent", "content_with_weight": "b"}],
+            seen_mom_ids=seen,
+        )
+        assert len(first) == 1
+        assert second == []
+
+    def test_keeps_child_when_parent_text_missing(self):
+        chunks = [{"id": "c1", "mom_id": "p1", "content_with_weight": "child"}]
+        out = collapse_child_chunks_to_parents(chunks)
+        assert out == chunks
 
 
 class TestSanitizeKeywordTerm:
@@ -140,3 +196,37 @@ class TestExtractKeywords:
         assert len(docs[0]["important_kwd"]) == 1
         assert len(docs[0]["important_kwd"][0].encode("utf-8")) == _ES_KEYWORD_MAX_TERM_BYTES
         mock_tokenize.assert_called_once()
+
+
+class TestEffectiveCompilationTemplateIds:
+    """Doc parser_config takes precedence; KB config is the fallback."""
+
+    def test_prefers_doc_config(self):
+        with patch(
+            "rag.svr.task_executor_refactor.chunk_post_processor."
+            "CompilationTemplateGroupService.resolve_template_ids",
+            side_effect=lambda group_id, _tenant_id: [f"tpl-{group_id}"],
+        ):
+            ids = _effective_compilation_template_ids(
+                {"compilation_template_group_id": ["doc-g"]},
+                {"compilation_template_group_id": ["kb-g"]},
+                "tenant",
+            )
+        assert ids == ["tpl-doc-g"]
+
+    def test_falls_back_to_kb_config(self):
+        with patch(
+            "rag.svr.task_executor_refactor.chunk_post_processor."
+            "CompilationTemplateGroupService.resolve_template_ids",
+            side_effect=lambda group_id, _tenant_id: [f"tpl-{group_id}"],
+        ):
+            ids = _effective_compilation_template_ids(
+                {},
+                {"compilation_template_group_id": ["kb-g1", "kb-g2"]},
+                "tenant",
+            )
+        assert ids == ["tpl-kb-g1", "tpl-kb-g2"]
+
+    def test_empty_when_neither_configured(self):
+        ids = _effective_compilation_template_ids({}, {}, "tenant")
+        assert ids == []

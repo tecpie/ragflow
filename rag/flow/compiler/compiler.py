@@ -36,6 +36,7 @@ from rag.advanced_rag.knowlege_compile.runner import (
     run_structure_compile_over_batches,
     split_tree_templates,
 )
+from rag.advanced_rag.knowlege_compile._common import collapse_child_chunks_to_parents
 from rag.flow.base import ProcessBase, ProcessParamBase
 from rag.nlp import naive_merge
 
@@ -600,8 +601,12 @@ class Compiler(ProcessBase, LLM):
             self.set_output("chunks", chunks)
             return
 
+        chunks = collapse_child_chunks_to_parents(chunks)
+
         for idx, ck in enumerate(chunks):
             ck["doc_id"] = doc_id
+            text = ck.get("text") or ck.get("content_with_weight") or ""
+            ck["text"] = text if isinstance(text, str) else ""
             ck["id"] = xxhash.xxh64(f"{ck['text']}\x00{ck['doc_id']}\x00{idx}".encode()).hexdigest()
 
         if self._canvas._kb_id:

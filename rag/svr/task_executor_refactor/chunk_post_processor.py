@@ -447,6 +447,14 @@ def _parser_config_compilation_template_group_ids(parser_config) -> list[str]:
     return []
 
 
+def _effective_compilation_template_ids(parser_config, kb_parser_config, tenant_id: str) -> list[str]:
+    """Resolve template ids from doc config, falling back to KB config."""
+    template_ids = _parser_config_compilation_template_ids(parser_config, tenant_id)
+    if template_ids:
+        return template_ids
+    return _parser_config_compilation_template_ids(kb_parser_config, tenant_id)
+
+
 def _parser_config_compilation_template_ids(parser_config, tenant_id: str) -> list[str]:
     template_ids: list[str] = []
     seen: set[str] = set()
@@ -645,18 +653,23 @@ async def load_chunks_with_vec(
     """Page through this doc's chunks pulling content + vector +
     chunk_id, in the shape ``RaptorService.build_doc_tree`` expects.
     Mirrors the streaming ``_load_chunks_for_doc`` loader but with the
-    vector field pre-selected."""
+    vector field pre-selected.
+
+    Parent/child documents collapse to one parent row per ``mom_id`` so tree
+    templates compile over parent text (child vectors are averaged).
+    """
     from common.doc_store.doc_store_base import OrderByExpr
+    from rag.advanced_rag.knowlege_compile._common import collapse_child_chunks_to_parents
 
     index_nm = search.index_name(tenant_id)
     if not settings.docStoreConn.index_exist(index_nm, kb_id):
         return []
-    select_fields = ["id", "doc_id", "content_with_weight", "compile_kwd", vctr_nm]
+    select_fields = ["id", "doc_id", "content_with_weight", "compile_kwd", "mom_id", "mom_with_weight", vctr_nm]
     order_by = OrderByExpr()
     order_by.asc("page_num_int")
     order_by.asc("top_int")
 
-    out: list[tuple[str, np.ndarray, str]] = []
+    raw: list[dict] = []
     offset = 0
     PAGE = 500
     while True:
@@ -699,11 +712,50 @@ async def load_chunks_with_vec(
                 continue
             if arr.size == 0:
                 continue
-            out.append((text, arr, str(row_id)))
+            mom_id = row.get("mom_id") or ""
+            if isinstance(mom_id, list):
+                mom_id = mom_id[0] if mom_id else ""
+            mom_text = row.get("mom_with_weight") or ""
+            if isinstance(mom_text, list):
+                mom_text = mom_text[0] if mom_text else ""
+            raw.append(
+                {
+                    "id": row_id,
+                    "doc_id": row.get("doc_id") or doc_id,
+                    "content_with_weight": text,
+                    "mom_id": mom_id if isinstance(mom_id, str) else str(mom_id),
+                    "mom_with_weight": mom_text if isinstance(mom_text, str) else str(mom_text),
+                    "_vec": arr,
+                }
+            )
         if len(field_map) < PAGE:
             break
         offset += PAGE
+
+    vec_by_id: dict[str, list[np.ndarray]] = {}
+    for row in raw:
+        mom_id = row.get("mom_id")
+        mom_text = row.get("mom_with_weight") or ""
+        if isinstance(mom_id, str) and mom_id.strip() and isinstance(mom_text, str) and mom_text.strip():
+            key = mom_id.strip()
+        else:
+            key = row["id"]
+        vec_by_id.setdefault(key, []).append(row["_vec"])
+
+    collapsed = collapse_child_chunks_to_parents(raw)
+    out: list[tuple[str, np.ndarray, str]] = []
+    for row in collapsed:
+        cid = str(row["id"])
+        vectors = vec_by_id.get(cid) or []
+        if not vectors:
+            continue
+        arr = np.mean(np.stack(vectors, axis=0), axis=0).astype(np.float32)
+        text = row.get("content_with_weight") or ""
+        if not text:
+            continue
+        out.append((text, arr, cid))
     return out
+
 
 
 async def rechunk_doc_by_tree(
@@ -1088,7 +1140,9 @@ async def run_document_structure_compile(handler, embedding_model: LLMBundle) ->
     ctx = handler._task_context
     found, document = DocumentService.get_by_id(ctx.doc_id)
     doc_name = document.name if found and document else ""
-    template_ids = _parser_config_compilation_template_ids(ctx.parser_config, ctx.tenant_id)
+    template_ids = _effective_compilation_template_ids(
+        ctx.parser_config, ctx.kb_parser_config, ctx.tenant_id
+    )
     if not template_ids:
         return
 
@@ -1141,6 +1195,7 @@ async def run_document_structure_compile(handler, embedding_model: LLMBundle) ->
             ctx.kb_id,
             ctx.doc_id,
             batch_size=DOC_STRUCTURE_COMPILE_BATCH_CHUNKS,
+            prefer_parents=True,
         ):
             yield batch
 

@@ -763,6 +763,7 @@ class TaskHandler:
         kb_id: str,
         doc_id: str,
         batch_size: int = 500,
+        prefer_parents: bool = False,
     ) -> AsyncIterator[List[Dict]]:
         """Stream a document's chunks from the doc store one batch at a time.
 
@@ -772,10 +773,15 @@ class TaskHandler:
         not need to re-sort. Rows with a ``compile_kwd`` marker (artifact
         pages, structure entities, etc.) are filtered out defensively.
 
+        When ``prefer_parents`` is true, child chunks that carry ``mom_id`` /
+        ``mom_with_weight`` are collapsed to one parent row per mother id
+        (knowledge-compilation path).
+
         Memory is bounded by ``batch_size``: at most one page is materialised
         at a time, so long documents do not balloon the worker's heap.
         """
         from common.doc_store.doc_store_base import OrderByExpr
+        from rag.advanced_rag.knowlege_compile._common import collapse_child_chunks_to_parents
 
         index_nm = search.index_name(tenant_id)
         if not settings.docStoreConn.index_exist(index_nm, kb_id):
@@ -789,12 +795,15 @@ class TaskHandler:
             "top_int",
             "compile_kwd",
         ]
+        if prefer_parents:
+            select_fields.extend(["mom_id", "mom_with_weight"])
         order_by = OrderByExpr()
         order_by.asc("chunk_order_int")
         order_by.asc("page_num_int")
         order_by.asc("top_int")
 
         offset = 0
+        seen_mom_ids: set[str] = set()
         while True:
             try:
                 res = await thread_pool_exec(
@@ -888,15 +897,25 @@ class TaskHandler:
             for row_id, row in field_map.items():
                 if row.get("compile_kwd"):
                     continue
-                batch.append(
-                    {
-                        "id": row_id,
-                        "doc_id": row.get("doc_id") or doc_id,
-                        "content_with_weight": row.get("content_with_weight") or "",
-                        "page_num_int": row.get("page_num_int", 0),
-                        "top_int": row.get("top_int", 0),
-                    }
-                )
+                item = {
+                    "id": row_id,
+                    "doc_id": row.get("doc_id") or doc_id,
+                    "content_with_weight": row.get("content_with_weight") or "",
+                    "page_num_int": row.get("page_num_int", 0),
+                    "top_int": row.get("top_int", 0),
+                }
+                if prefer_parents:
+                    mom_id = row.get("mom_id") or ""
+                    if isinstance(mom_id, list):
+                        mom_id = mom_id[0] if mom_id else ""
+                    item["mom_id"] = mom_id if isinstance(mom_id, str) else str(mom_id)
+                    mom_text = row.get("mom_with_weight") or ""
+                    if isinstance(mom_text, list):
+                        mom_text = mom_text[0] if mom_text else ""
+                    item["mom_with_weight"] = mom_text if isinstance(mom_text, str) else str(mom_text)
+                batch.append(item)
+            if prefer_parents:
+                batch = collapse_child_chunks_to_parents(batch, seen_mom_ids=seen_mom_ids)
             if batch:
                 yield batch
             if len(field_map) < batch_size:
