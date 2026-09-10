@@ -221,6 +221,28 @@ export const initialYouComValues = {
   },
 };
 
+export enum SofyaSearchDepth {
+  Basic = 'basic',
+  Snippets = 'snippets',
+}
+
+export const initialSofyaValues = {
+  api_key: '',
+  query: AgentGlobals.SysQuery,
+  search_depth: SofyaSearchDepth.Basic,
+  top_n: 10,
+  outputs: {
+    formalized_content: {
+      value: '',
+      type: 'string',
+    },
+    json: {
+      value: [],
+      type: 'Array<Object>',
+    },
+  },
+};
+
 export const initialKeenableValues = {
   api_key: '',
   query: AgentGlobals.SysQuery,
@@ -776,6 +798,7 @@ export const RestrictedUpstreamMap = {
   [Operator.SearXNG]: [Operator.Begin, Operator.Retrieval],
   [Operator.KeenableSearch]: [Operator.Begin, Operator.Retrieval],
   [Operator.YouComSearch]: [Operator.Begin, Operator.Retrieval],
+  [Operator.SofyaSearch]: [Operator.Begin, Operator.Retrieval],
   [Operator.ExeSQL]: [Operator.Begin],
   [Operator.Switch]: [Operator.Begin],
   [Operator.WenCai]: [Operator.Begin],
@@ -833,6 +856,7 @@ export const NodeMap = {
   [Operator.SearXNG]: 'ragNode',
   [Operator.KeenableSearch]: 'ragNode',
   [Operator.YouComSearch]: 'ragNode',
+  [Operator.SofyaSearch]: 'ragNode',
   [Operator.ExeSQL]: 'ragNode',
   [Operator.Switch]: 'switchNode',
   [Operator.WenCai]: 'ragNode',

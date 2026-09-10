@@ -40,7 +40,7 @@ class Pdf(PdfParser):
 
         start = timer()
         callback(msg="OCR started")
-        self.__images__(filename if not binary else binary, zoomin, from_page, to_page, callback)
+        self.__images__(filename if binary is None else binary, zoomin, from_page, to_page, callback)
         callback(msg="OCR finished ({:.2f}s)".format(timer() - start))
         logging.debug("OCR: {}".format(timer() - start))
 
@@ -72,7 +72,7 @@ class Docx(DocxParser):
         pass
 
     def __call__(self, filename, binary=None, from_page=0, to_page=MAXIMUM_PAGE_NUMBER, callback=None):
-        self.doc = Document(filename) if not binary else Document(BytesIO(binary))
+        self.doc = Document(filename) if binary is None else Document(BytesIO(binary))
         pn = 0
         last_answer, last_image = "", None
         question_stack, level_stack = [], []

@@ -42,6 +42,7 @@ from api.db.joint_services.tenant_model_service import (
 )
 from api.db.services.llm_service import LLMBundle
 from common.constants import MAXIMUM_PAGE_NUMBER, LLMType
+from deepdoc.parser.monkeyocrv2_parser import MonkeyOCRv2Parser
 from common.float_utils import normalize_overlapped_percent
 from common.parser_config_utils import has_mineru_options, normalize_layout_recognizer
 from common.text_utils import normalize_arabic_presentation_forms
@@ -307,6 +308,15 @@ def by_mineru(
     raise RuntimeError("MinerU model not found or not configured.")
 
 
+def by_monkeyocrv2(filename, binary=None, from_page=0, to_page=MAXIMUM_PAGE_NUMBER, lang="Chinese", callback=None, pdf_cls=None, **kwargs):
+    server_url = kwargs.get("monkeyocrv2_server_url") or os.environ.get("MONKEYOCRV2_SERVER_URL", "")
+    if not server_url:
+        raise RuntimeError("MONKEYOCRV2_SERVER_URL is not configured")
+    parser = MonkeyOCRv2Parser(server_url)
+    sections, tables = parser.parse_pdf(filename, binary=binary, callback=callback, page_from=from_page, page_to=min(to_page, MAXIMUM_PAGE_NUMBER))
+    return sections, tables, parser
+
+
 def by_docling(filename, binary=None, from_page=0, to_page=MAXIMUM_PAGE_NUMBER, lang="Chinese", callback=None, pdf_cls=None, **kwargs):
     pdf_parser = DoclingParser()
     parse_method = kwargs.get("parse_method", "raw")
@@ -557,6 +567,7 @@ def by_plaintext(filename, binary=None, from_page=0, to_page=MAXIMUM_PAGE_NUMBER
 PARSERS = {
     "deepdoc": by_deepdoc,
     "mineru": by_mineru,
+    "monkeyocrv2": by_monkeyocrv2,
     "docling": by_docling,
     "opendataloader": by_opendataloader,
     "tcadp parser": by_tcadp,
@@ -1224,7 +1235,7 @@ def chunk(filename, binary=None, from_page=0, to_page=MAXIMUM_PAGE_NUMBER, lang=
                 sections,
                 tables,
                 image_context_size,
-                section_page_offset=from_page if name == "mineru" else 0,
+                section_page_offset=from_page if name in {"mineru", "monkeyocrv2"} else 0,
             )
 
         if name in ["tcadp", "docling", "mineru", "paddleocr", "opendataloader", "somark", "mistral ocr"]:

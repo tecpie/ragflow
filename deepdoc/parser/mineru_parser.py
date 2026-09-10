@@ -109,6 +109,7 @@ def normalize_backend(backend: str | None) -> str:
         raise ValueError(f"Invalid MinerU backend '{name}'. Allowed: {allowed}") from exc
 
 
+
 class MinerULanguage(StrEnum):
     """MinerU supported languages for OCR (pipeline backend only)."""
 

@@ -989,6 +989,17 @@ def test_normalize_backend_accepts_current_names(monkeypatch):
         module.normalize_backend("not-a-backend")
 
 
+def test_mineru_backend_matches_public_api(monkeypatch):
+    module = _load_mineru_parser(monkeypatch)
+    assert {b.value for b in module.MinerUBackend} == {
+        "pipeline",
+        "vlm-engine",
+        "hybrid-engine",
+        "vlm-http-client",
+        "hybrid-http-client",
+    }
+
+
 def test_check_installation_requires_server_url_for_hybrid_http_client(monkeypatch):
     module = _load_mineru_parser(monkeypatch)
     parser = module.MinerUParser(mineru_api="http://mineru.local")
