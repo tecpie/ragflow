@@ -19,7 +19,13 @@ import logging
 import pytest
 
 from rag.llm import SupportedLiteLLMProvider
-from rag.llm.chat_model import _apply_claude_sampling_policy, _apply_model_family_policies, _claude_version, _move_litellm_provider_body_fields
+from rag.llm.chat_model import (
+    _apply_claude_sampling_policy,
+    _apply_model_family_policies,
+    _claude_version,
+    _move_litellm_provider_body_fields,
+    _should_emit_reasoning,
+)
 
 pytestmark = pytest.mark.p1
 
@@ -35,6 +41,51 @@ def test_qwen3_uses_system_disabled_default():
 
     assert gen_conf == {}
     assert kwargs["extra_body"] == {"chat_template_kwargs": {"enable_thinking": False}}
+
+
+def test_request_reasoning_overrides_node_thinking():
+    """User enable_thinking=false must beat a node saved as thinking=enabled."""
+    gen_conf, kwargs = _apply_model_family_policies(
+        "qwen3-plus",
+        backend="base",
+        gen_conf={"thinking": "enabled", "reasoning": False},
+        request_kwargs={},
+    )
+
+    assert gen_conf == {}
+    assert kwargs["extra_body"]["chat_template_kwargs"]["enable_thinking"] is False
+
+
+def test_base_openai_compat_maps_reasoning_false():
+    gen_conf, kwargs = _apply_model_family_policies(
+        "deepseek-chat",
+        backend="base",
+        gen_conf={"reasoning": False, "temperature": 0.2},
+        request_kwargs={},
+    )
+
+    assert gen_conf == {"temperature": 0.2}
+    assert kwargs["extra_body"]["thinking"] == {"type": "disabled"}
+
+
+def test_base_unspecified_thinking_does_not_add_extra_body():
+    gen_conf, kwargs = _apply_model_family_policies(
+        "deepseek-chat",
+        backend="base",
+        gen_conf={"temperature": 0.2},
+        request_kwargs={},
+    )
+
+    assert gen_conf == {"temperature": 0.2}
+    assert "extra_body" not in kwargs
+
+
+def test_should_emit_reasoning_respects_explicit_disable():
+    assert _should_emit_reasoning({"reasoning": False}) is False
+    assert _should_emit_reasoning({"thinking": "enabled", "reasoning": False}) is False
+    assert _should_emit_reasoning({"thinking": "enabled"}, {"with_reasoning": False}) is False
+    assert _should_emit_reasoning({"thinking": "enabled"}) is True
+    assert _should_emit_reasoning({}) is True
 
 
 def test_qwen3_can_enable_thinking_explicitly():

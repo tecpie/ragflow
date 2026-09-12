@@ -66,15 +66,16 @@ def _make_model():
     return model
 
 
-async def _collect(monkeypatch, model, *, chunks, with_tools=False, with_reasoning=True):
+async def _collect(monkeypatch, model, *, chunks, with_tools=False, with_reasoning=True, gen_conf=None):
     async def fake_acompletion(**_kwargs):
         return _stream(chunks)
 
     monkeypatch.setattr(chat_model.litellm, "acompletion", fake_acompletion)
     history = [{"role": "user", "content": "hello"}]
+    conf = {} if gen_conf is None else gen_conf
     if with_tools:
-        return [event async for event in model.async_chat_streamly_with_tools("", history, {})]
-    return [event async for event in model.async_chat_streamly("", history, {}, with_reasoning=with_reasoning)]
+        return [event async for event in model.async_chat_streamly_with_tools("", history, conf)]
+    return [event async for event in model.async_chat_streamly("", history, conf, with_reasoning=with_reasoning)]
 
 
 @pytest.mark.asyncio
@@ -109,6 +110,22 @@ async def test_reasoning_and_answer_in_same_delta_are_both_emitted(monkeypatch, 
 
     text_events = [event for event in events if isinstance(event, str) and event]
     assert text_events == ["<think>", "reasoning", "</think>", "answer"]
+
+
+@pytest.mark.asyncio
+async def test_reasoning_false_hides_reasoning_content(monkeypatch):
+    events = await _collect(
+        monkeypatch,
+        _make_model(),
+        gen_conf={"reasoning": False},
+        chunks=[
+            _stream_chunk(reasoning="hidden"),
+            _stream_chunk(content="answer", finish_reason="stop"),
+        ],
+    )
+
+    assert [event for event in events if isinstance(event, str) and event] == ["answer"]
+    assert isinstance(events[-1], int)
 
 
 @pytest.mark.asyncio

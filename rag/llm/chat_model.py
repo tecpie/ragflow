@@ -34,7 +34,7 @@ from enum import StrEnum
 from common.aimlapi_utils import attribution_headers
 from common.misc_utils import thread_pool_exec
 from common.llm_request_context import current_llm_user
-from common.model_thinking_utils import THINKING_CONTROL_KEYS, is_qwen3_thinking_model
+from common.model_thinking_utils import THINKING_CONTROL_KEYS, apply_enable_thinking_policy, is_qwen3_thinking_model
 from common.token_utils import num_tokens_from_string, total_token_count_from_response, usage_from_response
 from rag.llm import FACTORY_DEFAULT_BASE_URL, LITELLM_PROVIDER_PREFIX, SupportedLiteLLMProvider
 from rag.llm.key_utils import _normalize_replicate_key
@@ -217,12 +217,14 @@ def _apply_model_family_policies(
         enable_thinking = sanitized_gen_conf.get("enable_thinking")
         reasoning = sanitized_gen_conf.get("reasoning")
 
-        if isinstance(val, str) and val in {"enabled", "disabled"}:
-            return val
+        # Request-level toggles beat node/dialog `thinking`. Otherwise the agent
+        # canvas switch cannot turn off a node that was saved as enabled.
         if isinstance(enable_thinking, bool):
             return "enabled" if enable_thinking else "disabled"
         if isinstance(reasoning, bool):
             return "enabled" if reasoning else "disabled"
+        if isinstance(val, str) and val in {"enabled", "disabled"}:
+            return val
         return None
 
     def _pop_thinking_controls():
@@ -283,6 +285,23 @@ def _apply_model_family_policies(
     if backend == "base":
         sanitized_gen_conf.pop("thinking", None)
         sanitized_gen_conf.pop("enable_thinking", None)
+        # Qwen3 already wrote chat_template_kwargs. Other OpenAI-compatible
+        # families still need an explicit extra_body toggle, otherwise the
+        # provider keeps its default (often thinking on).
+        if "qwen3" not in model_name_lower and thinking_type is not None:
+            provider_name = getattr(provider, "value", provider)
+            if not isinstance(provider_name, str):
+                provider_name = None
+            policy_conf, policy_kwargs = apply_enable_thinking_policy(
+                model_name,
+                provider_name,
+                {"reasoning": thinking_type == "enabled"},
+            )
+            extra = policy_kwargs.get("extra_body")
+            if extra:
+                _merge_extra_body(sanitized_kwargs, extra)
+            if isinstance(policy_conf.get("thinking"), dict):
+                _merge_extra_body(sanitized_kwargs, {"thinking": policy_conf["thinking"]})
         return sanitized_gen_conf, sanitized_kwargs
 
     if backend == "litellm":
@@ -319,6 +338,33 @@ def _apply_model_family_policies(
         return sanitized_gen_conf, sanitized_kwargs
 
     return sanitized_gen_conf, sanitized_kwargs
+
+
+def _explicit_thinking_enabled(gen_conf: dict | None) -> bool | None:
+    """True/False when the caller set a thinking toggle; None if unspecified."""
+    if not gen_conf:
+        return None
+    if isinstance(gen_conf.get("enable_thinking"), bool):
+        return gen_conf["enable_thinking"]
+    if isinstance(gen_conf.get("reasoning"), bool):
+        return gen_conf["reasoning"]
+    val = gen_conf.get("thinking")
+    if isinstance(val, dict):
+        val = val.get("type")
+    if val in {"enabled", "disabled"}:
+        return val == "enabled"
+    return None
+
+
+def _should_emit_reasoning(gen_conf: dict | None, kwargs: dict | None = None) -> bool:
+    """Hide reasoning tokens when the caller explicitly disabled thinking."""
+    kwargs = kwargs or {}
+    if kwargs.get("with_reasoning") is False:
+        return False
+    enabled = _explicit_thinking_enabled(gen_conf)
+    if enabled is False:
+        return False
+    return True
 
 
 def _move_litellm_provider_body_fields(provider: SupportedLiteLLMProvider | str | None, completion_args: dict) -> dict:
@@ -399,6 +445,7 @@ class Base(ABC):
         reasoning_start = False
         answer = ""
         generated_text = ""
+        emit_reasoning = _should_emit_reasoning(gen_conf, kwargs)
 
         gen_conf, extra_request_kwargs = _apply_model_family_policies(
             self.model_name,
@@ -419,7 +466,7 @@ class Base(ABC):
             if not resp.choices[0].delta.content:
                 resp.choices[0].delta.content = ""
             _reasoning = getattr(resp.choices[0].delta, "reasoning_content", None) or getattr(resp.choices[0].delta, "reasoning", None)
-            if kwargs.get("with_reasoning", True) and _reasoning:
+            if emit_reasoning and _reasoning:
                 if not reasoning_start:
                     reasoning_start = True
                     yield "<think>", 0
@@ -636,6 +683,7 @@ class Base(ABC):
     async def async_chat_with_tools(self, system: str, history: list, gen_conf: dict | None = None):
         gen_conf = dict(gen_conf or {})
         gen_conf = self._clean_conf(gen_conf)
+        emit_reasoning = _should_emit_reasoning(gen_conf)
         gen_conf, extra_request_kwargs = _apply_model_family_policies(
             self.model_name,
             backend="base",
@@ -674,7 +722,7 @@ class Base(ABC):
 
                     if not hasattr(response.choices[0].message, "tool_calls") or not response.choices[0].message.tool_calls:
                         _reasoning = getattr(response.choices[0].message, "reasoning_content", None) or getattr(response.choices[0].message, "reasoning", None)
-                        if _reasoning:
+                        if _reasoning and emit_reasoning:
                             ans += "<think>" + _reasoning + "</think>"
 
                         ans += response.choices[0].message.content
@@ -741,6 +789,7 @@ class Base(ABC):
     async def async_chat_streamly_with_tools(self, system: str, history: list, gen_conf: dict | None = None):
         gen_conf = dict(gen_conf or {})
         gen_conf = self._clean_conf(gen_conf)
+        emit_reasoning = _should_emit_reasoning(gen_conf)
         gen_conf, extra_request_kwargs = _apply_model_family_policies(
             self.model_name,
             backend="base",
@@ -813,7 +862,7 @@ class Base(ABC):
                             delta.content = ""
 
                         _reasoning = getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None)
-                        if _reasoning:
+                        if emit_reasoning and _reasoning:
                             generated_text += _reasoning
                             if not reasoning_start:
                                 reasoning_start = True
@@ -868,14 +917,6 @@ class Base(ABC):
 
                     tcs = list(final_tool_calls.values())
                     logging.info(f"[Tool loop] Step {_round + 1}: running {', '.join(tc.function.name for tc in tcs)}...")
-                    for tc in tcs:
-                        try:
-                            args = json_repair.loads(tc.function.arguments)
-                        except Exception:
-                            args = {}
-                        yield "<think>"
-                        yield f"Running the {tc.function.name} tool..."
-                        yield "</think>"
                     results = await asyncio.gather(*[_exec_tool(tc) for tc in tcs])
 
                     # Terminal-tool short-circuit: stream a terminal tool's
@@ -2292,6 +2333,7 @@ class LiteLLMBase(ABC):
             history.insert(0, {"role": "system", "content": system})
         logging.info("[HISTORY STREAMLY]" + json.dumps(history, ensure_ascii=False, indent=4))
         gen_conf = self._clean_conf(gen_conf)
+        emit_reasoning = _should_emit_reasoning(gen_conf, kwargs)
         reasoning_start = False
         total_tokens = 0
         answer = ""
@@ -2332,7 +2374,7 @@ class LiteLLMBase(ABC):
                         delta.content = ""
 
                     _reasoning = getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None)
-                    if kwargs.get("with_reasoning", True) and _reasoning:
+                    if emit_reasoning and _reasoning:
                         if not reasoning_start:
                             reasoning_start = True
                             yield "<think>"
@@ -2514,6 +2556,7 @@ class LiteLLMBase(ABC):
     async def async_chat_with_tools(self, system: str, history: list, gen_conf: dict | None = None):
         gen_conf = dict(gen_conf or {})
         gen_conf = self._clean_conf(gen_conf)
+        emit_reasoning = _should_emit_reasoning(gen_conf)
         if system and history and history[0].get("role") != "system":
             history.insert(0, {"role": "system", "content": system})
 
@@ -2557,7 +2600,7 @@ class LiteLLMBase(ABC):
                         reasoning_content = getattr(message, "reasoning_content", None) or getattr(message, "reasoning", None)
 
                     if not hasattr(message, "tool_calls") or not message.tool_calls:
-                        if reasoning_content:
+                        if reasoning_content and emit_reasoning:
                             ans += f"<think>{reasoning_content}</think>"
                         ans += message.content or ""
                         if response.choices[0].finish_reason == "length":
@@ -2611,6 +2654,7 @@ class LiteLLMBase(ABC):
     async def async_chat_streamly_with_tools(self, system: str, history: list, gen_conf: dict | None = None):
         gen_conf = dict(gen_conf or {})
         gen_conf = self._clean_conf(gen_conf)
+        emit_reasoning = _should_emit_reasoning(gen_conf)
         tools = self.tools
         if system and history and history[0].get("role") != "system":
             history.insert(0, {"role": "system", "content": system})
@@ -2685,7 +2729,7 @@ class LiteLLMBase(ABC):
                             delta.content = ""
 
                         _reasoning = getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None)
-                        if _reasoning:
+                        if emit_reasoning and _reasoning:
                             generated_text += _reasoning
                             if self._need_reasoning_content_back():
                                 reasoning_content += _reasoning
@@ -2758,14 +2802,6 @@ class LiteLLMBase(ABC):
 
                     tcs = list(final_tool_calls.values())
                     logging.info(f"[Tool loop] Step {_round + 1}: running {', '.join(tc.function.name for tc in tcs)}...")
-                    for tc in tcs:
-                        try:
-                            args = json_repair.loads(tc.function.arguments)
-                        except Exception:
-                            args = {}
-                        yield "<think>"
-                        yield f"Running the {tc.function.name} tool..."
-                        yield "</think>"
                     results = await asyncio.gather(*[_exec_tool(tc) for tc in tcs])
 
                     # Terminal-tool short-circuit: a terminal tool already

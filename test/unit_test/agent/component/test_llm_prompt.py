@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 
 from agent.component.llm import LLM, LLMParam
@@ -83,6 +85,32 @@ def test_fit_messages_uses_default_context_when_max_length_zero():
     )
     assert err is None
     assert msg_fit[-1]["content"] == "User query: test"
+
+
+@pytest.mark.p1
+def test_gen_conf_request_switch_overrides_node_thinking():
+    cpn = LLM.__new__(LLM)
+    cpn._param = LLMParam()
+    cpn._param.thinking = "enabled"
+    cpn._canvas = SimpleNamespace(globals={"sys.enable_thinking": False})
+
+    conf = cpn._gen_conf_with_thinking()
+
+    assert conf["reasoning"] is False
+    assert "thinking" not in conf
+
+
+@pytest.mark.p1
+def test_gen_conf_keeps_node_thinking_when_switch_absent():
+    cpn = LLM.__new__(LLM)
+    cpn._param = LLMParam()
+    cpn._param.thinking = "enabled"
+    cpn._canvas = SimpleNamespace(globals={})
+
+    conf = cpn._gen_conf_with_thinking()
+
+    assert conf["thinking"] == "enabled"
+    assert "reasoning" not in conf
 
 
 @pytest.mark.p1

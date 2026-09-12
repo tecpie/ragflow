@@ -412,6 +412,9 @@ class LLM(ComponentBase):
     async def _generate_streamly(self, msg: list[dict], **kwargs) -> AsyncGenerator[str]:
         stream_kwargs = {"images": self.imgs} if self.imgs else {}
         stream_kwargs.update(kwargs)
+        enable_thinking = self._canvas.globals.get("sys.enable_thinking")
+        if enable_thinking is not None:
+            stream_kwargs["with_reasoning"] = bool(enable_thinking)
         stream = self.chat_mdl.async_chat_streamly_delta(
             msg[0]["content"], msg[1:], self._gen_conf_with_thinking(), **stream_kwargs
         )
@@ -453,6 +456,9 @@ class LLM(ComponentBase):
         stream_kwargs = {"images": self.imgs} if self.imgs else {}
         extra_chat_kwargs = self._get_chat_template_kwargs()
         stream_kwargs.update(extra_chat_kwargs)
+        enable_thinking = self._canvas.globals.get("sys.enable_thinking")
+        if enable_thinking is not None:
+            stream_kwargs["with_reasoning"] = bool(enable_thinking)
         stream = self.chat_mdl.async_chat_streamly_delta(
             msg_fit[0]["content"], msg_fit[1:], self._gen_conf_with_thinking(), **stream_kwargs
         )
@@ -595,6 +601,8 @@ class LLM(ComponentBase):
         if enable_thinking is None:
             return self._param.gen_conf()
         gen_conf = dict(self._param.gen_conf())
+        # Request-level switch wins over the node `thinking` field.
+        gen_conf.pop("thinking", None)
         gen_conf["reasoning"] = bool(enable_thinking)
         return gen_conf
 
