@@ -919,15 +919,23 @@ class Canvas(Graph):
                             nonlocal buff_m, _m, in_thinking
                             if not m:
                                 return
+                            suppress_thinking = self.globals.get("sys.enable_thinking") is False
                             if m == "<think>":
-                                await _schedule_tts(buff_m)
                                 in_thinking = True
+                                if suppress_thinking:
+                                    return
+                                await _schedule_tts(buff_m)
                                 buff_m = ""
                                 return decorate("message", {"content": "", "start_to_think": True})
 
                             elif m == "</think>":
                                 in_thinking = False
+                                if suppress_thinking:
+                                    return
                                 return decorate("message", {"content": "", "end_to_think": True})
+
+                            if in_thinking and suppress_thinking:
+                                return
 
                             _m += m
                             if in_thinking:
@@ -977,7 +985,11 @@ class Canvas(Graph):
                             yield ev
                         streamed_message_content = _m
                     else:
-                        yield decorate("message", {"content": cpn_obj.output("content")})
+                        content = cpn_obj.output("content")
+                        if self.globals.get("sys.enable_thinking") is False and isinstance(content, str):
+                            content = re.sub(r"<think>[\s\S]*?</think>", "", content)
+                            content = re.sub(r"<think>[\s\S]*$", "", content)
+                        yield decorate("message", {"content": content})
 
                 other_branch = False
                 component_error = cpn_obj.error()
