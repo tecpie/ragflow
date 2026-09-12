@@ -30,16 +30,19 @@ from test.unit_test.rag.svr.task_executor_refactor.conftest import make_task_con
 
 
 class TestCollapseChildChunksToParents:
-    def test_collapses_siblings_to_one_parent(self):
+    def test_drops_children_keeps_parents(self):
         chunks = [
+            {
+                "id": "p1",
+                "doc_id": "d1",
+                "content_with_weight": "line1\nline2",
+            },
             {
                 "id": "c1",
                 "doc_id": "d1",
                 "content_with_weight": "line1",
                 "mom_id": "p1",
                 "mom_with_weight": "line1\nline2",
-                "page_num_int": 1,
-                "top_int": 1,
             },
             {
                 "id": "c2",
@@ -47,40 +50,22 @@ class TestCollapseChildChunksToParents:
                 "content_with_weight": "line2",
                 "mom_id": "p1",
                 "mom_with_weight": "line1\nline2",
-                "page_num_int": 1,
-                "top_int": 2,
             },
             {
-                "id": "c3",
+                "id": "solo",
                 "doc_id": "d1",
                 "content_with_weight": "solo",
-                "page_num_int": 2,
-                "top_int": 1,
             },
         ]
         out = collapse_child_chunks_to_parents(chunks)
-        assert len(out) == 2
-        assert out[0]["id"] == "p1"
-        assert out[0]["content_with_weight"] == "line1\nline2"
-        assert out[1]["id"] == "c3"
+        assert [c["id"] for c in out] == ["p1", "solo"]
 
-    def test_seen_set_spans_batches(self):
-        seen: set[str] = set()
-        first = collapse_child_chunks_to_parents(
-            [{"id": "c1", "mom_id": "p1", "mom_with_weight": "parent", "content_with_weight": "a"}],
-            seen_mom_ids=seen,
-        )
-        second = collapse_child_chunks_to_parents(
-            [{"id": "c2", "mom_id": "p1", "mom_with_weight": "parent", "content_with_weight": "b"}],
-            seen_mom_ids=seen,
-        )
-        assert len(first) == 1
-        assert second == []
-
-    def test_keeps_child_when_parent_text_missing(self):
-        chunks = [{"id": "c1", "mom_id": "p1", "content_with_weight": "child"}]
-        out = collapse_child_chunks_to_parents(chunks)
-        assert out == chunks
+    def test_keeps_all_when_no_children(self):
+        chunks = [
+            {"id": "a", "content_with_weight": "x"},
+            {"id": "b", "content_with_weight": "y"},
+        ]
+        assert collapse_child_chunks_to_parents(chunks) == chunks
 
 
 class TestSanitizeKeywordTerm:
@@ -203,8 +188,7 @@ class TestEffectiveCompilationTemplateIds:
 
     def test_prefers_doc_config(self):
         with patch(
-            "rag.svr.task_executor_refactor.chunk_post_processor."
-            "CompilationTemplateGroupService.resolve_template_ids",
+            "rag.svr.task_executor_refactor.chunk_post_processor.CompilationTemplateGroupService.resolve_template_ids",
             side_effect=lambda group_id, _tenant_id: [f"tpl-{group_id}"],
         ):
             ids = _effective_compilation_template_ids(
@@ -216,8 +200,7 @@ class TestEffectiveCompilationTemplateIds:
 
     def test_falls_back_to_kb_config(self):
         with patch(
-            "rag.svr.task_executor_refactor.chunk_post_processor."
-            "CompilationTemplateGroupService.resolve_template_ids",
+            "rag.svr.task_executor_refactor.chunk_post_processor.CompilationTemplateGroupService.resolve_template_ids",
             side_effect=lambda group_id, _tenant_id: [f"tpl-{group_id}"],
         ):
             ids = _effective_compilation_template_ids(

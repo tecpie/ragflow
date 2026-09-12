@@ -655,8 +655,8 @@ async def load_chunks_with_vec(
     Mirrors the streaming ``_load_chunks_for_doc`` loader but with the
     vector field pre-selected.
 
-    Parent/child documents collapse to one parent row per ``mom_id`` so tree
-    templates compile over parent text (child vectors are averaged).
+    Parent/child documents drop child rows (``mom_id`` set) and keep parent
+    chunks; child vectors are averaged onto each parent id for tree templates.
     """
     from common.doc_store.doc_store_base import OrderByExpr
     from rag.advanced_rag.knowlege_compile._common import collapse_child_chunks_to_parents
@@ -664,7 +664,7 @@ async def load_chunks_with_vec(
     index_nm = search.index_name(tenant_id)
     if not settings.docStoreConn.index_exist(index_nm, kb_id):
         return []
-    select_fields = ["id", "doc_id", "content_with_weight", "compile_kwd", "mom_id", "mom_with_weight", vctr_nm]
+    select_fields = ["id", "doc_id", "content_with_weight", "compile_kwd", "mom_id", vctr_nm]
     order_by = OrderByExpr()
     order_by.asc("page_num_int")
     order_by.asc("top_int")
@@ -680,7 +680,7 @@ async def load_chunks_with_vec(
                 [],
                 {
                     "doc_id": [doc_id],
-                    "available_int": 1,
+                    # Include disabled-doc chunks so tree compile works before approval.
                     "must_not": {"exists": "compile_kwd"},
                 },
                 [],
@@ -703,50 +703,47 @@ async def load_chunks_with_vec(
             if row.get("compile_kwd"):
                 continue
             text = row.get("content_with_weight") or ""
-            vec = row.get(vctr_nm)
-            if not text or vec is None:
-                continue
-            try:
-                arr = np.asarray(vec, dtype=np.float32)
-            except Exception:
-                continue
-            if arr.size == 0:
+            if not text:
                 continue
             mom_id = row.get("mom_id") or ""
             if isinstance(mom_id, list):
                 mom_id = mom_id[0] if mom_id else ""
-            mom_text = row.get("mom_with_weight") or ""
-            if isinstance(mom_text, list):
-                mom_text = mom_text[0] if mom_text else ""
-            raw.append(
-                {
-                    "id": row_id,
-                    "doc_id": row.get("doc_id") or doc_id,
-                    "content_with_weight": text,
-                    "mom_id": mom_id if isinstance(mom_id, str) else str(mom_id),
-                    "mom_with_weight": mom_text if isinstance(mom_text, str) else str(mom_text),
-                    "_vec": arr,
-                }
-            )
+            entry = {
+                "id": row_id,
+                "doc_id": row.get("doc_id") or doc_id,
+                "content_with_weight": text,
+                "mom_id": mom_id if isinstance(mom_id, str) else str(mom_id),
+            }
+            vec = row.get(vctr_nm)
+            if vec is not None:
+                try:
+                    arr = np.asarray(vec, dtype=np.float32)
+                except Exception:
+                    arr = None
+                else:
+                    if arr.size:
+                        entry["_vec"] = arr
+            raw.append(entry)
         if len(field_map) < PAGE:
             break
         offset += PAGE
 
-    vec_by_id: dict[str, list[np.ndarray]] = {}
+    # Child rows carry vectors; parent (mother) rows usually do not. Average
+    # child vectors onto each parent id so tree compile still has embeddings.
+    child_vecs: dict[str, list[np.ndarray]] = {}
     for row in raw:
         mom_id = row.get("mom_id")
-        mom_text = row.get("mom_with_weight") or ""
-        if isinstance(mom_id, str) and mom_id.strip() and isinstance(mom_text, str) and mom_text.strip():
-            key = mom_id.strip()
-        else:
-            key = row["id"]
-        vec_by_id.setdefault(key, []).append(row["_vec"])
+        if isinstance(mom_id, str) and mom_id.strip() and "_vec" in row:
+            child_vecs.setdefault(mom_id.strip(), []).append(row["_vec"])
 
-    collapsed = collapse_child_chunks_to_parents(raw)
+    parents = collapse_child_chunks_to_parents(raw)
     out: list[tuple[str, np.ndarray, str]] = []
-    for row in collapsed:
+    for row in parents:
         cid = str(row["id"])
-        vectors = vec_by_id.get(cid) or []
+        vectors = child_vecs.get(cid) or []
+        own = row.get("_vec")
+        if own is not None:
+            vectors = [*vectors, own]
         if not vectors:
             continue
         arr = np.mean(np.stack(vectors, axis=0), axis=0).astype(np.float32)
@@ -755,7 +752,6 @@ async def load_chunks_with_vec(
             continue
         out.append((text, arr, cid))
     return out
-
 
 
 async def rechunk_doc_by_tree(
@@ -1140,9 +1136,7 @@ async def run_document_structure_compile(handler, embedding_model: LLMBundle) ->
     ctx = handler._task_context
     found, document = DocumentService.get_by_id(ctx.doc_id)
     doc_name = document.name if found and document else ""
-    template_ids = _effective_compilation_template_ids(
-        ctx.parser_config, ctx.kb_parser_config, ctx.tenant_id
-    )
+    template_ids = _effective_compilation_template_ids(ctx.parser_config, ctx.kb_parser_config, ctx.tenant_id)
     if not template_ids:
         return
 

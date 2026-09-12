@@ -406,48 +406,9 @@ def _default_label(position_in_batch: int) -> str:
     return f"C{position_in_batch + 1}"
 
 
-def collapse_child_chunks_to_parents(
-    chunks: list[dict],
-    *,
-    seen_mom_ids: set[str] | None = None,
-) -> list[dict]:
-    """Collapse parent/child chunks to one parent row per ``mom_id``.
-
-    Knowledge compilation should reason over parent chunks when children are
-    present: fine-grained children inflate entity extraction without adding
-    semantic coverage. Chunks without ``mom_id``, or without parent text on
-    ``mom_with_weight`` / ``mom``, pass through unchanged.
-    """
-    if seen_mom_ids is None:
-        seen_mom_ids = set()
-    out: list[dict] = []
-    for chunk in chunks:
-        if not isinstance(chunk, dict):
-            continue
-        mom_id = chunk.get("mom_id")
-        if not isinstance(mom_id, str) or not mom_id.strip():
-            out.append(chunk)
-            continue
-        mom_id = mom_id.strip()
-        if mom_id in seen_mom_ids:
-            continue
-        parent_text = chunk.get("mom_with_weight") or chunk.get("mom") or ""
-        if not isinstance(parent_text, str) or not parent_text.strip():
-            out.append(chunk)
-            continue
-        seen_mom_ids.add(mom_id)
-        parent = {
-            "id": mom_id,
-            "doc_id": chunk.get("doc_id"),
-            "content_with_weight": parent_text,
-            "text": parent_text,
-            "page_num_int": chunk.get("page_num_int", 0),
-            "top_int": chunk.get("top_int", 0),
-        }
-        if chunk.get("kb_id") is not None:
-            parent["kb_id"] = chunk.get("kb_id")
-        out.append(parent)
-    return out
+def collapse_child_chunks_to_parents(chunks: list[dict]) -> list[dict]:
+    """Drop child rows (those with ``mom_id``); keep parent / ordinary chunks."""
+    return [chunk for chunk in chunks if isinstance(chunk, dict) and not (isinstance(chunk.get("mom_id"), str) and chunk["mom_id"].strip())]
 
 
 def build_chunk_batches(

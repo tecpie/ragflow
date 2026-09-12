@@ -1564,6 +1564,8 @@ def _struct_rebuild_doc_storage_doc(
     for kwd in ("from_entity_kwd", "to_entity_kwd"):
         if kwd in base_doc and base_doc[kwd]:
             new_doc[kwd] = base_doc[kwd]
+    if "available_int" in base_doc:
+        new_doc["available_int"] = base_doc["available_int"]
     return new_doc
 
 
@@ -3328,6 +3330,21 @@ async def merge_compiled_structures(
 
     if callable(cancel_check) and cancel_check():
         raise TaskCanceledException("Task was cancelled after chain validation")
+
+    # Match source-chunk availability: disabled docs (pending approval) write
+    # compile rows as available_int=0; enabling the document flips them.
+    from api.db.services.document_service import DocumentService
+
+    avail_by_doc: dict[str, int] = {}
+    for row in deduped:
+        did = str(row.get("doc_id") or "")
+        if not did:
+            continue
+        if did not in avail_by_doc:
+            ok, document = DocumentService.get_by_id(did)
+            avail_by_doc[did] = 0 if ok and document is not None and str(getattr(document, "status", "1")) == "0" else 1
+        row["available_int"] = avail_by_doc[did]
+
     graph_keys = {
         (
             str(d.get("doc_id")),

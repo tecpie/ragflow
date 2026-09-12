@@ -773,9 +773,10 @@ class TaskHandler:
         not need to re-sort. Rows with a ``compile_kwd`` marker (artifact
         pages, structure entities, etc.) are filtered out defensively.
 
-        When ``prefer_parents`` is true, child chunks that carry ``mom_id`` /
-        ``mom_with_weight`` are collapsed to one parent row per mother id
-        (knowledge-compilation path).
+        When ``prefer_parents`` is true, rows with ``mom_id`` (children) are
+        dropped so only parent / ordinary chunks remain. That path also ignores
+        ``available_int`` so mother rows (always ``available_int=0``) and
+        disabled-document chunks are visible to knowledge compilation.
 
         Memory is bounded by ``batch_size``: at most one page is materialised
         at a time, so long documents do not balloon the worker's heap.
@@ -796,29 +797,31 @@ class TaskHandler:
             "compile_kwd",
         ]
         if prefer_parents:
-            select_fields.extend(["mom_id", "mom_with_weight"])
+            select_fields.extend(["mom_id"])
         order_by = OrderByExpr()
         order_by.asc("chunk_order_int")
         order_by.asc("page_num_int")
         order_by.asc("top_int")
 
         offset = 0
-        seen_mom_ids: set[str] = set()
         while True:
             try:
+                condition = {
+                    "doc_id": [doc_id],
+                    # Compilation writes its output back to the same
+                    # document index. Exclude those rows in the query so
+                    # they cannot change offset pagination while this
+                    # task is still streaming source chunks.
+                    "must_not": {"exists": "compile_kwd"},
+                }
+                # Knowledge compile must see disabled-doc source chunks.
+                if not prefer_parents:
+                    condition["available_int"] = 1
                 res = await thread_pool_exec(
                     settings.docStoreConn.search,
                     select_fields,
                     [],
-                    {
-                        "doc_id": [doc_id],
-                        "available_int": 1,
-                        # Compilation writes its output back to the same
-                        # document index. Exclude those rows in the query so
-                        # they cannot change offset pagination while this
-                        # task is still streaming source chunks.
-                        "must_not": {"exists": "compile_kwd"},
-                    },
+                    condition,
                     [],
                     order_by,
                     offset,
@@ -843,11 +846,14 @@ class TaskHandler:
                     recovery_offset = 0
                     recovery_page_size = 1000
                     while True:
+                        recovery_condition = {"doc_id": [doc_id]}
+                        if not prefer_parents:
+                            recovery_condition["available_int"] = 1
                         recovery_res = await thread_pool_exec(
                             settings.docStoreConn.search,
                             recovery_fields,
                             [],
-                            {"doc_id": [doc_id], "available_int": 1},
+                            recovery_condition,
                             [],
                             order_by,
                             recovery_offset,
@@ -909,13 +915,9 @@ class TaskHandler:
                     if isinstance(mom_id, list):
                         mom_id = mom_id[0] if mom_id else ""
                     item["mom_id"] = mom_id if isinstance(mom_id, str) else str(mom_id)
-                    mom_text = row.get("mom_with_weight") or ""
-                    if isinstance(mom_text, list):
-                        mom_text = mom_text[0] if mom_text else ""
-                    item["mom_with_weight"] = mom_text if isinstance(mom_text, str) else str(mom_text)
                 batch.append(item)
             if prefer_parents:
-                batch = collapse_child_chunks_to_parents(batch, seen_mom_ids=seen_mom_ids)
+                batch = collapse_child_chunks_to_parents(batch)
             if batch:
                 yield batch
             if len(field_map) < batch_size:

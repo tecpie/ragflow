@@ -167,8 +167,11 @@ def update_document_status_only(status: int, doc, kb):
         try:
             if not DocumentService.update_by_id(doc.id, {"status": str(status)}):
                 return get_error_data_result(message="Database error (Document update)!")
+            # Flip source chunks and knowledge-compilation rows together so
+            # artifacts produced while the document was disabled become
+            # retrievable on approval/enable.
             settings.docStoreConn.update(
-                {"doc_id": doc.id, "must_not": {"exists": "compile_kwd"}},
+                {"doc_id": doc.id},
                 {"available_int": status},
                 search.index_name(kb.tenant_id),
                 doc.kb_id,
