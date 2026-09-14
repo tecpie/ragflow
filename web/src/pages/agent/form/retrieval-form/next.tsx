@@ -134,34 +134,6 @@ export function useHideKnowledgeGraphField(form: UseFormReturn<any>) {
   return retrievalFrom === RetrievalFrom.Memory;
 }
 
-export function EmptyResponseField() {
-  const { t } = useTranslation();
-  const form = useFormContext();
-
-  return (
-    <FormField
-      control={form.control}
-      name="empty_response"
-      render={({ field }) => (
-        <FormItem>
-          <FormLabel tooltip={t('chat.emptyResponseTip')}>
-            {t('chat.emptyResponse')}
-          </FormLabel>
-          <FormControl>
-            <Textarea
-              placeholder={t('common.namePlaceholder')}
-              {...field}
-              autoComplete="off"
-              rows={4}
-            />
-          </FormControl>
-          <FormMessage />
-        </FormItem>
-      )}
-    />
-  );
-}
-
 export function DocumentIdsFormField() {
   const { t } = useTranslation();
 

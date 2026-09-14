@@ -23,7 +23,6 @@ import { DescriptionField } from '../../components/description-field';
 import { FormWrapper } from '../../components/form-wrapper';
 import {
   DocumentIdsFormField,
-  EmptyResponseField,
   MemoryDatasetForm,
   RetrievalPartialSchema,
   useHideKnowledgeGraphField,
