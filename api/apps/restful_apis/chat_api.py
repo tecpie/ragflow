@@ -1294,6 +1294,18 @@ async def session_completion(chat_id_in_arg=""):
         else:
             dia = _build_default_completion_dialog()
 
+        # Request-scoped KB override: does not persist to the chat assistant.
+        if "dataset_ids" in req or "kb_ids" in req:
+            raw_kb_ids = req.pop("dataset_ids", None)
+            if raw_kb_ids is None:
+                raw_kb_ids = req.pop("kb_ids", None)
+            else:
+                req.pop("kb_ids", None)
+            validated_kb_ids = await _validate_dataset_ids(raw_kb_ids, current_user.id)
+            if isinstance(validated_kb_ids, str):
+                return get_data_error_result(message=validated_kb_ids)
+            dia.kb_ids = validated_kb_ids
+
         req.pop("messages", None)
         req.pop("question", None)
 

@@ -1265,12 +1265,20 @@ class Canvas(Graph):
 
         return asyncio.run(self.get_files_async(files, layout_recognize))
 
+    def _tool_trace_log_key(self) -> str:
+        # Front-end polls GET /agents/<canvas_id>/logs/<message_id> (and shared
+        # bots use the same canvas/agent id). task_id is usually session_id and
+        # must not be used as the Redis key prefix.
+        prefix = self._id or self.task_id
+        return f"{prefix}-{self.message_id}-logs"
+
     def tool_use_callback(self, agent_id: str, func_name: str, params: dict, result: Any, elapsed_time=None):
         agent_ids = agent_id.split("-->")
         agent_name = self.get_component_name(agent_ids[0])
         path = agent_name if len(agent_ids) < 2 else agent_name + "-->" + "-->".join(agent_ids[1:])
         try:
-            bin = REDIS_CONN.get(f"{self.task_id}-{self.message_id}-logs")
+            log_key = self._tool_trace_log_key()
+            bin = REDIS_CONN.get(log_key)
             if bin:
                 obj = json.loads(bin.encode("utf-8"))
                 if obj[-1]["component_id"] == agent_ids[0]:
@@ -1279,7 +1287,7 @@ class Canvas(Graph):
                     obj.append({"component_id": agent_ids[0], "trace": [{"path": path, "tool_name": func_name, "arguments": params, "result": result, "elapsed_time": elapsed_time}]})
             else:
                 obj = [{"component_id": agent_ids[0], "trace": [{"path": path, "tool_name": func_name, "arguments": params, "result": result, "elapsed_time": elapsed_time}]}]
-            REDIS_CONN.set_obj(f"{self.task_id}-{self.message_id}-logs", obj, 60 * 10)
+            REDIS_CONN.set_obj(log_key, obj, 60 * 10)
         except Exception as e:
             logging.exception(e)
 

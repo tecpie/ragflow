@@ -360,6 +360,10 @@ class Agent(LLM, ToolBase):
         artifact_md = self._collect_tool_artifact_markdown(existing_text=ans)
         if artifact_md:
             ans += "\n\n" + artifact_md
+        if self._param.cite and self._id.find("-->") < 0 and self._canvas.get_reference().get("chunks"):
+            st = timer()
+            ans = await self._apply_citation_grounding(ans)
+            self.callback("gen_citations", {}, ans, elapsed_time=timer() - st)
         _logger.debug("[Agent] Final output. content_length=%d, has_artifact=%s", len(ans), bool(artifact_md))
         self.set_output("content", ans)
         return ans
@@ -383,11 +387,13 @@ class Agent(LLM, ToolBase):
                 yield fit_error
             return
 
-        need2cite = self._param.cite and self._canvas.get_reference()["chunks"] and self._id.find("-->") < 0
-        cited = False
-        if need2cite and len(msg) < 7:
+        # Always stream live (tool_call / think / draft). Do not await a
+        # post-stream citation rewrite here: Message waits for this generator
+        # to finish, so grounding would delay message_end / reference by tens
+        # of seconds and any grounded full text on message_end gets re-shown.
+        can_cite = bool(self._param.cite) and self._id.find("-->") < 0
+        if can_cite and self._canvas.get_reference().get("chunks"):
             self._append_system_prompt(msg, citation_prompt())
-            cited = True
 
         answer = ""
         async for delta in self._generate_streamly(msg):
@@ -403,40 +409,79 @@ class Agent(LLM, ToolBase):
                     self.set_output("content", delta)
                     yield delta
                 return
-            # Citation rewrite may buffer the first pass, but frontends render
-            # <tool_call> from the SSE body — always forward those chunks.
-            if (not need2cite or cited) or "<tool_call>" in delta:
-                yield delta
+            yield delta
             answer += delta
 
-        if not need2cite or cited:
-            artifact_md = self._collect_tool_artifact_markdown(existing_text=answer)
-            if artifact_md:
-                yield "\n\n" + artifact_md
-                answer += "\n\n" + artifact_md
-            self.set_output("content", answer)
-            return
-
-        st = timer()
-        cited_answer = ""
-        async for delta in self._gen_citations_async(answer):
-            if self.check_if_canceled("Agent streaming"):
-                return
-            yield delta
-            cited_answer += delta
-        artifact_md = self._collect_tool_artifact_markdown(existing_text=cited_answer)
+        artifact_md = self._collect_tool_artifact_markdown(existing_text=answer)
         if artifact_md:
             yield "\n\n" + artifact_md
-            cited_answer += "\n\n" + artifact_md
-        self.callback("gen_citations", {}, cited_answer, elapsed_time=timer() - st)
-        self.set_output("content", cited_answer)
+            answer += "\n\n" + artifact_md
 
-    async def _gen_citations_async(self, text):
+        self.set_output("content", answer)
+
+    @staticmethod
+    def _split_structural_prefix(text: str) -> tuple[str, str]:
+        """Keep leading <think>/<tool_call> blocks; return (prefix, trailing answer)."""
+        last_end = 0
+        for m in re.finditer(r"<tool_call>[\s\S]*?</tool_call>|<think>[\s\S]*?</think>", text):
+            last_end = m.end()
+        if last_end <= 0:
+            return "", text
+        return text[:last_end], text[last_end:]
+
+    async def _apply_citation_grounding(self, text: str) -> str:
+        prefix, body = self._split_structural_prefix(text)
+        body_stripped = body.strip()
+        if not body_stripped:
+            return text
+        grounded = await self._gen_citations_async(body_stripped)
+        if not grounded or not grounded.strip():
+            return text
+        if prefix:
+            sep = "" if prefix.endswith(("\n", "\r")) or grounded.startswith("\n") else "\n"
+            return prefix + sep + grounded.strip()
+        return grounded.strip()
+
+    async def _gen_citations_async(self, text: str) -> str:
+        # Grounding input must not re-feed tool traces or think fences.
+        text = re.sub(r"<tool_call>[\s\S]*?</tool_call>", "", text)
+        text = re.sub(r"<think>[\s\S]*?</think>", "", text)
+        text = re.sub(r"</?think>", "", text).strip()
+        if not text:
+            return ""
         retrievals = self._canvas.get_reference()
         retrievals = {"chunks": list(retrievals["chunks"].values()), "doc_aggs": list(retrievals["doc_aggs"].values())}
         formated_refer = kb_prompt(retrievals, self.chat_mdl.max_length, True)
-        async for delta_ans in self._generate_streamly([{"role": "system", "content": citation_plus("\n\n".join(formated_refer))}, {"role": "user", "content": text}]):
-            yield delta_ans
+        cite_msg = [
+            {"role": "system", "content": citation_plus("\n\n".join(formated_refer))},
+            {"role": "user", "content": text},
+        ]
+        mdl = getattr(self.chat_mdl, "mdl", None)
+        saved_bundle_tools = getattr(self.chat_mdl, "is_tools", False)
+        saved_mdl_tools = getattr(mdl, "tools", None) if mdl is not None else None
+        saved_mdl_is_tools = getattr(mdl, "is_tools", False) if mdl is not None else False
+        grounded = ""
+        try:
+            self.chat_mdl.is_tools = False
+            if mdl is not None:
+                mdl.tools = []
+                mdl.is_tools = False
+            async for delta_ans in self._generate_streamly(cite_msg, with_reasoning=False):
+                if self.check_if_canceled("Agent citation grounding"):
+                    return text
+                if delta_ans.find("**ERROR**") >= 0:
+                    return text
+                grounded += delta_ans
+        except Exception:
+            _logger.exception("[Agent] citation grounding failed id=%s", self._id)
+            return text
+        finally:
+            self.chat_mdl.is_tools = saved_bundle_tools
+            if mdl is not None:
+                mdl.tools = saved_mdl_tools if saved_mdl_tools is not None else []
+                mdl.is_tools = saved_mdl_is_tools
+        grounded = grounded.strip()
+        return grounded if grounded else text
 
     def _collect_tool_artifact_markdown(self, existing_text: str = "") -> str:
         md_parts = []
