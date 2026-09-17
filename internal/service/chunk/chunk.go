@@ -75,13 +75,14 @@ func searchConfigMap(value interface{}) (map[string]interface{}, bool) {
 
 // ChunkService chunk service
 type ChunkService struct {
-	docEngine      engine.DocEngine
-	embeddingCache *utility.EmbeddingLRU
-	kbDAO          *dao.KnowledgebaseDAO
-	userTenantDAO  *dao.UserTenantDAO
-	documentDAO    *dao.DocumentDAO
-	taskDAO        *dao.TaskDAO
-	searchService  *service.SearchService
+	docEngine        engine.DocEngine
+	embeddingCache   *utility.EmbeddingLRU
+	kbDAO            *dao.KnowledgebaseDAO
+	userTenantDAO    *dao.UserTenantDAO
+	documentDAO      *dao.DocumentDAO
+	taskDAO          *dao.TaskDAO
+	ingestionTaskDAO *dao.IngestionTaskDAO
+	searchService    *service.SearchService
 
 	accessibleFunc           func(string, string) bool
 	getKnowledgebaseByIDFunc func(string) (*entity.Knowledgebase, error)
@@ -106,13 +107,14 @@ type ChunkService struct {
 // NewChunkService creates chunk service
 func NewChunkService() *ChunkService {
 	return &ChunkService{
-		docEngine:      engine.Get(),
-		embeddingCache: utility.NewEmbeddingLRU(1000), // default capacity
-		kbDAO:          dao.NewKnowledgebaseDAO(),
-		userTenantDAO:  dao.NewUserTenantDAO(),
-		documentDAO:    dao.NewDocumentDAO(),
-		taskDAO:        dao.NewTaskDAO(),
-		searchService:  service.NewSearchService(),
+		docEngine:        engine.Get(),
+		embeddingCache:   utility.NewEmbeddingLRU(1000), // default capacity
+		kbDAO:            dao.NewKnowledgebaseDAO(),
+		userTenantDAO:    dao.NewUserTenantDAO(),
+		documentDAO:      dao.NewDocumentDAO(),
+		taskDAO:          dao.NewTaskDAO(),
+		ingestionTaskDAO: dao.NewIngestionTaskDAO(),
+		searchService:    service.NewSearchService(),
 	}
 }
 
@@ -659,9 +661,8 @@ func (s *ChunkService) StopParsing(ctx context.Context, userID, datasetID string
 			return nil, common.CodeServerError, err
 		}
 		// CancelDocParse (inside cancelAllTasksOfDoc) already issues
-		// RequestStop (STOPPING) and updates doc.run=CANCEL. Defer
-		// destruction (chunk deletion, counter reset) until the worker
-		// detects STOPPING and reaches a terminal state.
+		// RequestStop (STOPPING). Defer destruction (chunk deletion, counter
+		// reset) until the worker detects STOPPING and reaches a terminal state.
 
 		successCount++
 	}
@@ -752,12 +753,6 @@ func (s *ChunkService) Parse(ctx context.Context, userID, datasetID string, req 
 	}
 	if len(notFound) > 0 {
 		return nil, common.CodeDataError, fmt.Errorf("documents not found: %v", notFound)
-	}
-	for _, docID := range docIDs {
-		doc := docByID[docID]
-		if doc.Run != nil && *doc.Run == string(entity.TaskStatusRunning) {
-			return nil, common.CodeDataError, fmt.Errorf("can't parse document that is currently being processed")
-		}
 	}
 
 	// Batch pre-check: refuse the whole request if any document's ingestion
@@ -861,10 +856,13 @@ func (s *ChunkService) List(ctx context.Context, req *service.ListChunksRequest,
 			Asc("top_int").
 			Desc("create_timestamp_flt")
 	} else {
-		matchExprs = append(matchExprs, &types.MatchTextExpr{
-			MatchingText: keywords,
-			TopN:         size,
-		})
+		queryBuilder := nlp.GetQueryBuilder()
+		if queryBuilder == nil {
+			queryBuilder = nlp.NewQueryBuilder()
+		}
+		if matchText, _ := queryBuilder.Question(keywords, "", 0.3); matchText != nil {
+			matchExprs = append(matchExprs, matchText)
+		}
 	}
 
 	// Build search request - same as retrieval test but filtered by doc_id
@@ -983,9 +981,22 @@ func (s *ChunkService) List(ctx context.Context, req *service.ListChunksRequest,
 		chunks = append(chunks, result)
 	}
 
+	ingestionStatus := "UNSTART"
+	taskDAO := s.ingestionTaskDAO
+	if taskDAO == nil {
+		taskDAO = dao.NewIngestionTaskDAO()
+	}
+	task, err := taskDAO.GetByDocumentID(ctx, dao.DB, doc.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get ingestion task for document %s: %w", doc.ID, err)
+	}
+	if task != nil && task.Status != "" {
+		ingestionStatus = task.Status
+	}
+
 	// Build document info, mirroring Python's _map_doc key renames:
 	// kb_id→dataset_id, parser_id→chunk_method, token_num→token_count,
-	// chunk_num→chunk_count, run→text status.
+	// chunk_num→chunk_count.
 	timeFormat := "2006-01-02T15:04:05"
 	docInfo := map[string]interface{}{
 		"id":               doc.ID,
@@ -1008,7 +1019,7 @@ func (s *ChunkService) List(ctx context.Context, req *service.ListChunksRequest,
 		"process_duration": doc.ProcessDuration,
 		"content_hash":     doc.ContentHash,
 		"suffix":           doc.Suffix,
-		"run":              service.ChunkDocRunText(doc.Run),
+		"ingestion_status": ingestionStatus,
 		"status":           doc.Status,
 		"create_time":      doc.CreateTime,
 		"create_date":      utility.FormatTimeToString(doc.CreateDate, timeFormat),

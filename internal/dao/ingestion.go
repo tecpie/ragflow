@@ -25,6 +25,7 @@ import (
 	"ragflow/internal/utility"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type IngestionTaskDAO struct{}
@@ -59,9 +60,13 @@ func (dao *IngestionTaskDAO) Create(ctx context.Context, db *gorm.DB, ingestionT
 	return ingestionTask, nil
 }
 
-func (dao *IngestionTaskDAO) UpdateStatusIfCurrent(ctx context.Context, db *gorm.DB, taskID, fromStatus, toStatus string) (bool, error) {
+// UpdateStatusIfCurrent updates the task status if its current status matches any of the given fromStatuses.
+func (dao *IngestionTaskDAO) UpdateStatusIfCurrent(ctx context.Context, db *gorm.DB, taskID string, fromStatuses []string, toStatus string) (bool, error) {
+	if len(fromStatuses) == 0 {
+		return false, nil
+	}
 	result := db.WithContext(ctx).Model(&entity.IngestionTask{}).
-		Where("id = ? AND status = ?", taskID, fromStatus).
+		Where("id = ? AND status IN (?)", taskID, fromStatuses).
 		Update("status", toStatus)
 	if result.Error != nil {
 		return false, result.Error
@@ -73,6 +78,14 @@ func (dao *IngestionTaskDAO) UpdateStatusIfCurrent(ctx context.Context, db *gorm
 // graph. It is the authoritative denominator for progress percentage.
 func (dao *IngestionTaskDAO) UpdateComponentTotal(ctx context.Context, db *gorm.DB, taskID string, total int) error {
 	return db.WithContext(ctx).Model(&entity.IngestionTask{}).Where("id = ?", taskID).Update("component_total", total).Error
+}
+
+// UpdatePipelineLogID binds the task to the pipeline_operation_log row its
+// current run owns. The terminal writer updates exactly that row, so a
+// superseded run whose row was deleted or replaced cannot adopt the
+// replacement run's row.
+func (dao *IngestionTaskDAO) UpdatePipelineLogID(ctx context.Context, db *gorm.DB, taskID, logID string) error {
+	return db.WithContext(ctx).Model(&entity.IngestionTask{}).Where("id = ?", taskID).Update("pipeline_log_id", logID).Error
 }
 
 type TaskInfo struct {
@@ -197,6 +210,18 @@ func (dao *IngestionTaskDAO) GetByID(ctx context.Context, db *gorm.DB, id string
 	return task, err
 }
 
+// GetByIDForUpdate fetches and locks a task for a short ownership-establishment
+// transaction. Callers must pass a transaction and keep metadata lookups and
+// message publishing outside the lock.
+func (dao *IngestionTaskDAO) GetByIDForUpdate(ctx context.Context, db *gorm.DB, id string) (*entity.IngestionTask, error) {
+	var task *entity.IngestionTask
+	err := db.WithContext(ctx).
+		Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("id = ?", id).
+		First(&task).Error
+	return task, err
+}
+
 // GetByDocumentID returns the latest ingestion task for a document. Historical
 // retries are ordered by create_time and then ID to match document-list state.
 func (dao *IngestionTaskDAO) GetByDocumentID(ctx context.Context, db *gorm.DB, documentId string) (*entity.IngestionTask, error) {
@@ -214,6 +239,29 @@ func (dao *IngestionTaskDAO) GetByDocumentID(ctx context.Context, db *gorm.DB, d
 		return nil, nil
 	}
 	return tasks[0], nil
+}
+
+// GetLatestByDocumentIDs returns a map of documentID -> latest IngestionTask.
+func (dao *IngestionTaskDAO) GetLatestByDocumentIDs(ctx context.Context, db *gorm.DB, documentIDs []string) (map[string]*entity.IngestionTask, error) {
+	if len(documentIDs) == 0 {
+		return map[string]*entity.IngestionTask{}, nil
+	}
+	var tasks []*entity.IngestionTask
+	err := db.WithContext(ctx).
+		Where("document_id IN ?", documentIDs).
+		Order("COALESCE(create_time, 0) DESC").
+		Order("id DESC").
+		Find(&tasks).Error
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string]*entity.IngestionTask, len(documentIDs))
+	for _, task := range tasks {
+		if _, exists := result[task.DocumentID]; !exists {
+			result[task.DocumentID] = task
+		}
+	}
+	return result, nil
 }
 
 // CountActiveByDatasetID returns the number of ingestion tasks for the
@@ -236,7 +284,7 @@ func (dao *IngestionTaskDAO) CountActiveByDatasetID(ctx context.Context, db *gor
 						AND newer_ingestion_task.id > ingestion_task.id
 					)
 				  )
-			)`, datasetID, []string{common.CREATED, common.SCHEDULED, common.RUNNING, common.STOPPING}).
+			)`, datasetID, common.ActiveTaskStatuses).
 		Count(&count).Error
 	return count, err
 }

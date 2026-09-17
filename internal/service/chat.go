@@ -80,7 +80,7 @@ type ListChatsResponse struct {
 }
 
 // ListChats list chats for a user
-func (s *ChatService) ListChats(ctx context.Context, userID, status, keywords string, page, pageSize int, orderBy string, desc bool, ownerIDs []string) (*ListChatsResponse, error) {
+func (s *ChatService) ListChats(ctx context.Context, userID, status, keywords string, page, pageSize int, terms []dao.OrderTerm, ownerIDs []string) (*ListChatsResponse, error) {
 	var chats []*entity.ChatListItem
 	var total int64
 	var err error
@@ -93,8 +93,7 @@ func (s *ChatService) ListChats(ctx context.Context, userID, status, keywords st
 			userID,
 			page,
 			pageSize,
-			orderBy,
-			desc,
+			terms,
 			keywords,
 		)
 		if err != nil {
@@ -113,7 +112,7 @@ func (s *ChatService) ListChats(ctx context.Context, userID, status, keywords st
 			}, nil
 		}
 
-		chats, total, err = s.chatDAO.ListByOwnerIDs(ctx, dao.DB, filterOwnerIDs, userID, orderBy, desc, keywords)
+		chats, total, err = s.chatDAO.ListByOwnerIDs(ctx, dao.DB, filterOwnerIDs, userID, terms, keywords)
 		if err != nil {
 			return nil, err
 		}

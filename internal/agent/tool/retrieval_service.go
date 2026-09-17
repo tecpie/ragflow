@@ -69,6 +69,7 @@ type RetrievalRequest struct {
 	DisableVectorLeg    bool
 	UseKG               bool
 	SimilarityThreshold *float64
+	AllowDenseFallback  *bool
 	RerankID            string
 	CrossLanguages      []string
 	TOCEnhance          bool

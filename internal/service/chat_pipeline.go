@@ -94,8 +94,51 @@ type AsyncChatResult struct {
 	Final        bool                   `json:"final"`
 	StartToThink bool                   `json:"start_to_think,omitempty"`
 	EndToThink   bool                   `json:"end_to_think,omitempty"`
+	// ThinkEvent is one STRUCTURED reasoning step (the machine-readable twin of
+	// the think-block sentence), forwarded so a client can render steps —
+	// tool, status, counts, sources, duration — instead of paragraphs.
+	ThinkEvent *ThinkEvent `json:"think_event,omitempty"`
 	// Internal-only: accumulated answer for building the decorated final result.
 	accumulatedAnswer string
+}
+
+// ThinkEvent is one structured agentic-RAG reasoning step as it goes over the
+// wire (the SSE `think_event` field). This is the ONE definition: the harness
+// that produces the step aliases it (harness.ThinkEvent), because the dependency
+// runs this way only — the harness imports this package for its exploration
+// providers, so this package cannot import the harness back.
+//
+// The two sides used to carry two identical structs bridged field by field in
+// cmd. That shape compiles for as long as one side stays a subset, so a field
+// added on the harness side and not mirrored here reached the client as nothing
+// at all. The JSON tags below ARE the client contract; TestThinkEventWireKeys
+// pins them.
+type ThinkEvent struct {
+	Kind string `json:"kind"`
+	// Stage is the bracketed tag the step belongs to ("Function tool",
+	// "RAGAgent", ...). It is the grouping key.
+	Stage string `json:"stage,omitempty"`
+	// Tool is the tool name for tool_call / tool_result events.
+	Tool string `json:"tool,omitempty"`
+	// Args is the tool call's arguments, rendered for display.
+	Args string `json:"args,omitempty"`
+	// Status and Reason mirror the harness ToolOutcome.
+	Status string `json:"status,omitempty"`
+	Reason string `json:"reason,omitempty"`
+	// Cause is the tool's own explanation of a failure: a bare reason such as
+	// "infra" tells a client nothing about what actually broke.
+	Cause string `json:"cause,omitempty"`
+	// Results is how many results the step returned; Documents how many
+	// distinct documents they came from.
+	Results   int `json:"results,omitempty"`
+	Documents int `json:"documents,omitempty"`
+	// Sources are the evidence anchors the step produced (capped).
+	Sources []string `json:"sources,omitempty"`
+	// DurationMS is the wall time of a tool call; 0 for a stage step.
+	DurationMS int64 `json:"duration_ms,omitempty"`
+	// Summary is the human sentence for this step, exactly what the think
+	// block shows.
+	Summary string `json:"summary"`
 }
 
 // AsyncChat is the Go equivalent of Python's async_chat() in
@@ -153,7 +196,7 @@ type AsyncChatResult struct {
 //
 // Parameters:
 //   - chat: the chat/chat entity with KBs, prompt_config, etc.
-//   - messages: pre-filtered user/assistant messages (system already stripped).
+//   - messages: saved user/assistant history, or the full payload for non-storing model tests.
 //   - stream: if true, yields content deltas as they arrive.
 //   - kwargs: extra parameters (doc_ids, knowledge, quote, etc.).
 func (s *ChatPipelineService) AsyncChat(
@@ -197,6 +240,9 @@ func (s *ChatPipelineService) AsyncChat(
 
 	if !hasKBs && !useWebSearch {
 		return s.AsyncChatSolo(ctx, userID, chat, messages, stream, kwargs)
+	}
+	if kwargs == nil {
+		kwargs = make(map[string]interface{})
 	}
 
 	// Spawn goroutine for the async pipeline. All remaining phases run inside.
@@ -332,7 +378,7 @@ func (s *ChatPipelineService) AsyncChat(
 		// Whether the message carried image attachments before the
 		// vision gate (read by the empty-response fallback below).
 		var hasImageAttachments bool
-		// Joined text attachments (appended to system prompt).
+		// Joined text attachments (appended to the last user message).
 		var attachments string
 		// When files are file dicts, splitFileAttachments fetches blobs
 		// from storage. When plain strings, falls back to string splitting;
@@ -479,6 +525,7 @@ func (s *ChatPipelineService) AsyncChat(
 		// - "knowledge" is always skipped (system-injected, not caller-supplied).
 		// - Missing non-optional param => return error immediately.
 		// - Missing optional param => replace "{key}" placeholder with space.
+		kwargs["date"] = time.Now().UTC().Format(time.RFC3339)
 		systemPrompt, _ := promptConfig["system"].(string)
 		for _, p := range parameters {
 			pMap, ok := p.(map[string]interface{})
@@ -732,6 +779,7 @@ func (s *ChatPipelineService) AsyncChat(
 						})
 					}
 				}
+				thinkSink := harnessThinkSink(ctx, out)
 				// Python dialog_service.py:2077 — the web provider is handed to
 				// RAGTools only when the internet flag enables web search;
 				// otherwise web_search stays off the agentic tool surface.
@@ -743,20 +791,29 @@ func (s *ChatPipelineService) AsyncChat(
 				// dialog, prompt_config, kwargs) to RAGTools
 				// (dialog_service.py:2084): the dialog system prompt rendered
 				// with the caller kwargs, a UTC date, and {knowledge} defaulted
-				// to "" — the agentic graph supplies evidence itself.
+				// to the BOUND DATASET NAMES — the agentic graph supplies the
+				// evidence itself, but an empty binding made the outer model
+				// read the prompt as "the dataset is empty" and answer the
+				// canned "not found in the dataset!" line without calling the
+				// terminal `rag` tool (first-turn short-circuit, observed
+				// 2026-09-14: answer_chars=59, zero graph LLM calls).
 				harnessSystemPrompt := ""
 				if sp, ok := chat.PromptConfig["system"].(string); ok && sp != "" {
 					kws := make(map[string]interface{}, len(kwargs)+2)
 					for k, v := range kwargs {
 						kws[k] = v
 					}
-					kws["date"] = time.Now().UTC().Format("2006-01-02 15:04:05")
+					kws["date"] = time.Now().UTC().Format(time.RFC3339)
 					if _, ok := kws["knowledge"]; !ok {
-						kws["knowledge"] = ""
+						kws["knowledge"] = harnessBoundDatasetNames(kbs)
 					}
 					harnessSystemPrompt = s.formatPrompt(sp, kws)
 				}
-				hk, harnessAnswer, hErr := s.retrieveViaHarness(ctx, question, kbs, docIDs, imageFiles, attachments, thinkingMode, chat.TenantID, chat.LLMID, chat.ID, webSearch, sink, harnessSystemPrompt)
+				var history []map[string]interface{}
+				if kwargs["store_history_messages"] == false {
+					history = messages
+				}
+				hk, slotCites, harnessAnswer, hErr := s.retrieveViaHarness(ctx, question, kbs, docIDs, imageFiles, attachments, thinkingMode, chat.TenantID, chat.LLMID, chat.ID, webSearch, sink, thinkSink, harnessSystemPrompt, history)
 				// The harness streams think-then-answer inside ONE compose call.
 				// Close the block here, once that call (and its trailing
 				// narration line) has returned: a reasoning-only run would
@@ -771,7 +828,7 @@ func (s *ChatPipelineService) AsyncChat(
 					if harnessAnswer != "" {
 						common.Info("harness produced final cited answer; short-circuiting",
 							zap.Int("answer_chars", len(harnessAnswer)))
-						final := s.decorateHarnessAnswer(harnessAnswer, kbinfos)
+						final := s.decorateHarnessAnswer(harnessAnswer, kbinfos, slotCites)
 						final.Final = true
 						out <- final
 						return
@@ -947,7 +1004,7 @@ func (s *ChatPipelineService) AsyncChat(
 		// must reach a vision model instead of being swallowed by the
 		// canned response. In that case we skip the early return and fall
 		// through to the normal LLM call where attachments are appended to
-		// the system prompt.
+		// the last user message.
 		//
 		// Two results are yielded (mirroring Python dialog_service.py):
 		//   1. Final=false — carries the answer text so streaming consumers
@@ -983,7 +1040,7 @@ func (s *ChatPipelineService) AsyncChat(
 		}
 		systemPrompt = ""
 		if sp, ok := promptConfig["system"].(string); ok {
-			systemPrompt = s.formatPrompt(sp, kwargs) + attachments
+			systemPrompt = s.formatPrompt(sp, kwargs)
 			// If knowledge was retrieved but the template has no {knowledge}
 			// placeholder, auto-append it so the LLM still sees the context.
 			if len(knowledges) > 0 && !strings.Contains(sp, "{knowledge}") {
@@ -1033,7 +1090,7 @@ func (s *ChatPipelineService) AsyncChat(
 		}
 		for _, m := range messages {
 			role, _ := m["role"].(string)
-			if role == "system" {
+			if role == "system" && kwargs["store_history_messages"] != false {
 				continue
 			}
 			llmMessage := normalizeLLMMessage(m)
@@ -1043,6 +1100,11 @@ func (s *ChatPipelineService) AsyncChat(
 			}
 			llmMessage["content"] = content
 			llmMessages = append(llmMessages, llmMessage)
+		}
+		if attachments != "" && len(llmMessages) > 0 {
+			if lastContent, ok := llmMessages[len(llmMessages)-1]["content"].(string); ok {
+				llmMessages[len(llmMessages)-1]["content"] = lastContent + attachments
+			}
 		}
 
 		// Fit messages within token budget.
@@ -1441,7 +1503,7 @@ func (s *ChatPipelineService) AsyncChatSolo(
 		promptConfig := chat.PromptConfig
 		systemPrompt := ""
 		if sp, ok := promptConfig["system"].(string); ok {
-			systemPrompt = sp
+			systemPrompt = strings.ReplaceAll(sp, "{date}", time.Now().UTC().Format(time.RFC3339))
 		}
 
 		// 1b. Resolve LLM model config (needed early for model_type dispatch).
@@ -1480,11 +1542,11 @@ func (s *ChatPipelineService) AsyncChatSolo(
 			}
 		}
 
-		// 3. Strip citation markers and drop system messages from history.
+		// 3. Strip citation markers; non-storing model tests retain payload system messages.
 		var msg []map[string]interface{}
 		for _, m := range messages {
 			role, _ := m["role"].(string)
-			if role == "system" {
+			if role == "system" && config["store_history_messages"] != false {
 				continue
 			}
 			llmMessage := normalizeLLMMessage(m)
@@ -3079,7 +3141,7 @@ func (s *ChatPipelineService) decorateAnswer(
 // here. We only resolve the existing markers, repair bad formats, filter
 // doc_aggs to the cited docs, and build the reference from the harness citation
 // pool (chunks stripped of their vectors). Prompt stays empty, matching Python.
-func (s *ChatPipelineService) decorateHarnessAnswer(answer string, kbinfos map[string]interface{}) AsyncChatResult {
+func (s *ChatPipelineService) decorateHarnessAnswer(answer string, kbinfos map[string]interface{}, slotCitations map[string][]string) AsyncChatResult {
 	think := ""
 	ans := answer
 	if strings.Contains(answer, "</think>") {
@@ -3090,6 +3152,18 @@ func (s *ChatPipelineService) decorateHarnessAnswer(answer string, kbinfos map[s
 	}
 
 	chunksRaw, _ := kbinfos["chunks"].([]map[string]interface{})
+
+	// Slot-table markers ("[ID:Slot 0]") are internal references the compose
+	// model leaks from the Research Summary's slot draft — they index the slot
+	// table, not any chunk the user can open. Rewrite them into citations of
+	// the chunk that filled the slot (or drop them) BEFORE the marker scan, so
+	// they resolve like any other citation.
+	ans = RepairSlotCitations(ans, slotCitations, chunksRaw)
+
+	// Range-merged citations ("[ID:1-3]") are the model compressing
+	// consecutive individual citations on its own; expand them back so every
+	// marker resolves to exactly one chunk (out-of-range ranges are dropped).
+	ans = ExpandRangeCitations(ans, len(chunksRaw))
 
 	// Collect existing [ID:N] markers from the harness answer. Python runs
 	// normalize_arabic_digits then CITATION_MARKER_PATTERN (dialog_service.py:
@@ -3197,7 +3271,8 @@ func (s *ChatPipelineService) extractVisibleAnswer(text string) string {
 // Mirrors Python's citation_prompt() in rag/prompts/generator.py.
 func citationPrompt() string {
 	return "\n\n### Citation\nWhen answering, please cite sources using the format [ID:N] " +
-		"(where N is the chunk number) after each sentence where the information from that chunk is used."
+		"(where N is the chunk number) after each sentence where the information from that chunk is used. " +
+		"Cite each source individually ([ID:1][ID:2]); never merge consecutive citations into a range such as [ID:1-3]."
 }
 
 // -----------------------------------------------------------------------
@@ -4657,11 +4732,31 @@ func getChunkValue(chunk map[string]interface{}, k1, k2 string) interface{} {
 	return chunk[k2]
 }
 
+// harnessBoundDatasetNames renders the {knowledge} default for the agentic
+// (reasoning) system prompt: the comma-joined names of the chat's bound
+// datasets. Python parity: dialog_service._render_reasoning_system_prompt /
+// _bound_dataset_names. The agentic graph supplies the retrieved evidence
+// itself, but the prompt must still NAME the bound datasets — defaulting the
+// placeholder to "" left the web UI's default template rendering as
+// "derived solely from this dataset: “", which the outer model read as an
+// empty dataset and answered the canned "not found in the dataset!" line
+// without ever calling the terminal `rag` tool.
+func harnessBoundDatasetNames(kbs []*entity.Knowledgebase) string {
+	names := make([]string, 0, len(kbs))
+	for _, kb := range kbs {
+		if kb != nil && kb.Name != "" {
+			names = append(names, kb.Name)
+		}
+	}
+	return strings.Join(names, ", ")
+}
+
 // HarnessRequest carries the minimal inputs the chat pipeline hands to the
 // agentic-RAG harness for evidence collection.
 type HarnessRequest struct {
 	Question   string
 	DatasetIDs []string
+	Messages   []map[string]interface{}
 	// DocIDs scopes the agentic search to these document ids (Python
 	// dialog_service.py doc_scope). chat_pipeline folds the chat-level
 	// meta_data_filter into docIDs before calling, so forwarding this alone
@@ -4679,6 +4774,10 @@ type HarnessRequest struct {
 	// tools.answer_sink), so the caller can stream instead of waiting for the
 	// whole answer. Nil disables streaming; the full answer is still returned.
 	AnswerSink func(delta string, isThink bool)
+	// ThinkSink receives the structured form of each reasoning step (the twin
+	// of what AnswerSink narrates as think text). Nil disables it; the text
+	// narration is unaffected.
+	ThinkSink func(ThinkEvent)
 	// Images are vision-gated base64 data URIs (Python image_attachments) that
 	// survive gateImageAttachments. They ride the last user message into the
 	// outer react loop so a vision model can see them. chat_pipeline drops them
@@ -4714,6 +4813,10 @@ type HarnessResult struct {
 	// it directly as the reply instead of re-generating via a second model pass —
 	// mirroring Python's terminal `rag` tool.
 	Answer string
+	// SlotCitations maps a slot-table id ("0", ...) to the evidence chunk ids
+	// that filled it (RunResponse.SlotCitations). The citation decoration uses
+	// it to rewrite leaked "[ID:Slot N]" markers into locatable chunk citations.
+	SlotCitations map[string][]string
 }
 
 // harnessRetriever is wired at server bootstrap (cmd/ragflow_server.go:889) to
@@ -4738,48 +4841,58 @@ func SetHarnessRetriever(fn func(ctx context.Context, req HarnessRequest) (Harne
 //
 // thinkingMode is "naive" (reasoning disabled) or one of the agentic levels
 // ("low"/"medium"/"high"/"ultra", reasoning enabled).
-// toolLoopLine forwards one Python "[Tool loop]" line into the chat think
-// block. Mirrors rag/llm/chat_model.py:689 ("Deciding what to do next
-// (step N); available tools: ..."), :782 ("Step N: running X...") and
-// :799/:804 ("The X tool produced the final answer, done." / "produced an
-// observation for step N."), which Python forwarded via the
-// "rag.llm.chat_model" namespace in _SCOPED_PREFIXES.
 //
-// ARCHITECTURAL NOTE. Python's outer model calls rag() as a @tool inside a
-// for-loop, and those lines narrate that loop. Go's chat pipeline invokes the
-// harness DIRECTLY (there is no outer tool-calling loop for it; the only
-// ReAct loop in Go is the canvas Agent component, which drives different
-// tools). So the faithful Go equivalent is to bracket the single harness
-// invocation here rather than to instrument a loop that does not exist.
+// answerSink and thinkSink are the request's two narration sinks, both optional:
+// answerSink receives the streamed answer plus think TEXT, thinkSink the structured
+// step events. They are parameters rather than something built in here because only
+// the streaming caller owns the channel they write to.
 //
-// Python emitted "<br>" + msg for its HTML think block (think_log.py:69); the
-// chat UI renders the block as HTML/markdown, where a bare "\n" collapses into
-// a space and the stage lines merge. Keep the same separator here. The literal
-// is spelled out instead of reusing advanced_rag.ThinkLineBreak because
-// advanced_rag/harness imports this package (import cycle).
-const thinkLineBreak = "<br>"
-
-func toolLoopLine(sink func(delta string, isThink bool), line string) {
-	if sink == nil {
-		return
+// The reasoning NARRATION ("[Tool loop] Deciding what to do next ...", the tool
+// calls and their results, the research stages) is not produced here: the
+// harness reports each step from where it happens, over the sinks this request
+// carries (AnswerSink for the think text, ThinkSink for the structured form).
+// The pipeline used to synthesize the "[Tool loop]" lines around its single
+// harness call, which made every non-naive run read as if an outer tool loop had
+// run — including the ones the direct graph answered.
+//
+// harnessThinkSink forwards the harness' STRUCTURED reasoning steps (the twin of
+// the think text) onto the pipeline's own channel, so the client can render
+// steps — tool, status, reason, counts, sources, duration — instead of
+// paragraphs.
+//
+// Unlike think TEXT, a late event is not dropped after the answer: text would
+// reopen a stray "Thought" block, while an event is a record a client may still
+// want. No mutex is needed either: this path touches neither the think-framing
+// state machine nor anything but the channel, which is safe for the concurrent
+// research goroutines that emit most of the events.
+func harnessThinkSink(ctx context.Context, out chan<- AsyncChatResult) func(ThinkEvent) {
+	return func(ev ThinkEvent) {
+		e := ev
+		select {
+		case out <- AsyncChatResult{
+			ThinkEvent: &e,
+			Reference:  map[string]interface{}{},
+			CreatedAt:  float64(time.Now().Unix()),
+			Final:      false,
+		}:
+		case <-ctx.Done():
+		}
 	}
-	sink(line+thinkLineBreak, true)
 }
 
-func (s *ChatPipelineService) retrieveViaHarness(ctx context.Context, question string, kbs []*entity.Knowledgebase, docIDs []string, images []string, textAttachments string, thinkingMode, tenantID, modelID, sessionID string, webSearch func(context.Context, []string) ([]string, error), answerSink func(delta string, isThink bool), dialogSystemPrompt string) (map[string]interface{}, string, error) {
+func (s *ChatPipelineService) retrieveViaHarness(ctx context.Context, question string, kbs []*entity.Knowledgebase, docIDs []string, images []string, textAttachments string, thinkingMode, tenantID, modelID, sessionID string, webSearch func(context.Context, []string) ([]string, error), answerSink func(delta string, isThink bool), thinkSink func(ThinkEvent), dialogSystemPrompt string, messages []map[string]interface{}) (map[string]interface{}, map[string][]string, string, error) {
 	if harnessRetriever == nil {
-		return nil, "", fmt.Errorf("harness retriever not wired at bootstrap")
+		return nil, nil, "", fmt.Errorf("harness retriever not wired at bootstrap")
 	}
 	kbIDs := kbIDStrings(kbs)
-	// Only non-naive modes run the agentic loop these lines describe, and only
-	// reasoning chats stream a think block at all.
-	narrate := thinkingMode != "naive"
-	if narrate {
-		toolLoopLine(answerSink, "[Tool loop] Deciding what to do next (step 1); available tools: rag")
-		toolLoopLine(answerSink, "[Tool loop] Step 1: running rag...")
-	}
+	// The "[Tool loop]" narration is NOT synthesized here. The outer react loop
+	// reports its own steps from where it runs (advanced_rag.runOuterReact*), so
+	// the trace describes a loop only when one actually ran — the pipeline used
+	// to emit those lines for every non-naive run, including the ones the direct
+	// graph answered, which read as a loop that had not happened.
 	res, err := harnessRetriever(ctx, HarnessRequest{
 		Question:        question,
+		Messages:        messages,
 		DatasetIDs:      kbIDs,
 		DocIDs:          docIDs,
 		ThinkingMode:    thinkingMode,
@@ -4787,22 +4900,14 @@ func (s *ChatPipelineService) retrieveViaHarness(ctx context.Context, question s
 		ModelID:         modelID,
 		SessionID:       sessionID,
 		AnswerSink:      answerSink,
+		ThinkSink:       thinkSink,
 		Images:          images,
 		TextAttachments: textAttachments,
 		WebSearch:       webSearch,
 		SystemPrompt:    dialogSystemPrompt,
 	})
 	if err != nil {
-		return nil, "", err
-	}
-	if narrate {
-		// Python distinguishes the terminal tool from an observation: an answer
-		// ends the loop, otherwise the result feeds the next round.
-		if res.Answer != "" {
-			toolLoopLine(answerSink, "[Tool loop] The rag tool produced the final answer, done.")
-		} else {
-			toolLoopLine(answerSink, "[Tool loop] The rag tool produced an observation for step 1.")
-		}
+		return nil, nil, "", err
 	}
 
 	kbinfos := map[string]interface{}{
@@ -4816,7 +4921,7 @@ func (s *ChatPipelineService) retrieveViaHarness(ctx context.Context, question s
 	if res.PreSummary != "" {
 		kbinfos["pre_summary"] = res.PreSummary
 	}
-	return kbinfos, res.Answer, nil
+	return kbinfos, res.SlotCitations, res.Answer, nil
 }
 
 // toAnySlice widens a []map[string]any to []interface{} so the doc_aggs field

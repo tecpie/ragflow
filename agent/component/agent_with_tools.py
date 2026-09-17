@@ -391,8 +391,12 @@ class Agent(LLM, ToolBase):
         # post-stream citation rewrite here: Message waits for this generator
         # to finish, so grounding would delay message_end / reference by tens
         # of seconds and any grounded full text on message_end gets re-shown.
-        can_cite = bool(self._param.cite) and self._id.find("-->") < 0
-        if can_cite and self._canvas.get_reference().get("chunks"):
+        # Snapshot as bool: `and` would keep the live chunks dict, which tool
+        # calls mutate mid-stream, flipping this condition after the opening
+        # <think> marker was already emitted and swallowing the closing one.
+        ref = self._canvas.get_reference()
+        need2cite = bool(self._param.cite and ref.get("chunks") and self._id.find("-->") < 0)
+        if need2cite:
             self._append_system_prompt(msg, citation_prompt())
 
         answer = ""

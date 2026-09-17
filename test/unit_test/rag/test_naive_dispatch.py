@@ -206,7 +206,13 @@ def naive_module():
         _stub("deepdoc.parser.tcadp_parser", TCADPParser=_Parser)
         _stub("deepdoc.parser.utils", extract_pdf_outlines=lambda *a, **k: [])
 
-        _stub("common.parser_config_utils", normalize_layout_recognizer=normalize_layout_recognizer, MINERU_OPTION_KEYS=MINERU_OPTION_KEYS, has_mineru_options=has_mineru_options, is_tenant_model_id=is_tenant_model_id)
+        _stub(
+            "common.parser_config_utils",
+            normalize_layout_recognizer=normalize_layout_recognizer,
+            MINERU_OPTION_KEYS=MINERU_OPTION_KEYS,
+            has_mineru_options=has_mineru_options,
+            is_tenant_model_id=is_tenant_model_id,
+        )
         _stub("common.float_utils", normalize_overlapped_percent=lambda x: x)
         _stub("common.text_utils", normalize_arabic_presentation_forms=lambda x: x)
         _stub("common.token_utils", num_tokens_from_string=lambda s: len((s or "").split()))
@@ -374,7 +380,8 @@ def test_dispatch_does_not_fall_back_to_mineru_for_vision_composite_name(naive_m
     )
     assert name == vision_ref.lower()
     assert lr == vision_ref
-    assert parser is _ByPlaintext
+    # Unknown layout names use the by_plaintext default (not PARSERS["plaintext"]).
+    assert parser is naive_module.by_plaintext
 
 
 # CodeRabbit review #4: layout_recognize_override preserves parser_model_name.
