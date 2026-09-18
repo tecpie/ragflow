@@ -61,7 +61,6 @@ type retrievalArgs struct {
 	KBIDs                    []string       `json:"kb_ids,omitempty"`
 	DocumentIDs              []string       `json:"document_ids,omitempty"`
 	MemoryIDs                []string       `json:"memory_ids,omitempty"`
-	DocumentIDs              []string       `json:"document_ids,omitempty"`
 	UserID                   string         `json:"user_id,omitempty"`
 	TopN                     int            `json:"top_n,omitempty"`
 	RerankCandidatesCount    int            `json:"rerank_candidates_count,omitempty"`
@@ -332,9 +331,6 @@ func (r *RetrievalTool) mergeDefaults(args retrievalArgs) retrievalArgs {
 	}
 	if len(args.MemoryIDs) == 0 && len(r.defaults.MemoryIDs) != 0 {
 		args.MemoryIDs = append([]string(nil), r.defaults.MemoryIDs...)
-	}
-	if len(args.DocumentIDs) == 0 && len(r.defaults.DocumentIDs) != 0 {
-		args.DocumentIDs = append([]string(nil), r.defaults.DocumentIDs...)
 	}
 	if args.TopN <= 0 {
 		args.TopN = r.defaults.TopN
