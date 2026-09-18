@@ -41,6 +41,34 @@ def is_kimi_k2_model(model_name: str) -> bool:
     return any(hint in name for hint in KIMI_K2_MODEL_HINTS)
 
 
+def is_deepseek_hybrid_thinking_model(model_name: str) -> bool:
+    """True for DeepSeek hybrids that accept a per-request thinking toggle.
+
+    DashScope-hosted ``deepseek-v4-flash`` / ``deepseek-v4-pro`` (and v3.1/v3.2)
+    default to thinking on and take ``enable_thinking``. Native DeepSeek uses
+    ``thinking: {type: enabled|disabled}``. R1 variants are thinking-only and
+    are excluded.
+    """
+    name = (model_name or "").lower()
+    if "/" in name:
+        name = name.rsplit("/", 1)[-1]
+    if "deepseek" not in name:
+        return False
+    if "deepseek-r1" in name or name.endswith("-r1"):
+        return False
+    return any(
+        hint in name
+        for hint in (
+            "v4-flash",
+            "v4-pro",
+            "v3.2",
+            "v3.1",
+            "deepseek-flash",
+            "deepseek-pro",
+        )
+    )
+
+
 def detect_thinking_family(provider: str | None = None) -> str:
     provider = provider or ""
 

@@ -34,7 +34,12 @@ from enum import StrEnum
 from common.aimlapi_utils import attribution_headers
 from common.misc_utils import thread_pool_exec
 from common.llm_request_context import current_llm_user
-from common.model_thinking_utils import THINKING_CONTROL_KEYS, apply_enable_thinking_policy, is_qwen3_thinking_model
+from common.model_thinking_utils import (
+    THINKING_CONTROL_KEYS,
+    apply_enable_thinking_policy,
+    is_deepseek_hybrid_thinking_model,
+    is_qwen3_thinking_model,
+)
 from common.token_utils import num_tokens_from_string, total_token_count_from_response, usage_from_response
 from rag.llm import FACTORY_DEFAULT_BASE_URL, LITELLM_PROVIDER_PREFIX, SupportedLiteLLMProvider
 from rag.llm.key_utils import _normalize_replicate_key, _resolve_bedrock_credentials
@@ -89,7 +94,6 @@ def _tool_args_json(args, fallback=""):
     return fallback or "{}"
 
 
-
 # Generation parameters that are safe to forward to the underlying completion
 # call. `gen_conf` originates from a chat assistant's `llm_setting`, which can
 # also carry RAGFlow-internal metadata (e.g. `model_type`). Anything outside
@@ -123,10 +127,14 @@ ALLOWED_GEN_CONF_KEYS = frozenset(
 # LiteLLM additionally understands reasoning-control parameters that must
 # survive configuration cleaning until model-family policies are applied at
 # the final request-construction boundary.
+# ``reasoning`` is the dialog/chat request-level toggle (bool) written by
+# dialog_service from ``enable_thinking``; without it, DashScope-hosted
+# deepseek-v4-flash keeps its default CoT on and still streams think tokens.
 LITELLM_ALLOWED_GEN_CONF_KEYS = ALLOWED_GEN_CONF_KEYS | frozenset(
     {
         "thinking",
         "enable_thinking",
+        "reasoning",
         "reasoning_effort",
         "extra_body",
     }
@@ -310,6 +318,21 @@ def _apply_model_family_policies(
             sanitized_gen_conf.pop("reasoning_effort", None)
             sanitized_kwargs.pop("reasoning_effort", None)
             _merge_extra_body(sanitized_gen_conf, {"thinking": {"type": thinking_type or "disabled"}})
+        elif (
+            provider
+            in {
+                SupportedLiteLLMProvider.Tongyi_Qianwen,
+                SupportedLiteLLMProvider.Dashscope,
+            }
+            and is_deepseek_hybrid_thinking_model(model_name)
+            and thinking_type is not None
+        ):
+            # DashScope-hosted deepseek-v4-flash defaults to thinking on and
+            # only honors enable_thinking (not DeepSeek-native thinking.type).
+            # Without this, enable_thinking=false from chat is dropped and the
+            # model keeps CoT on.
+            _pop_thinking_controls()
+            sanitized_gen_conf["enable_thinking"] = thinking_type == "enabled"
         elif provider in {SupportedLiteLLMProvider.OpenAI, SupportedLiteLLMProvider.Azure_OpenAI} and "gpt-5" in model_name_lower:
             for key in ("temperature", "top_p", "logprobs", "top_logprobs"):
                 sanitized_gen_conf.pop(key, None)
@@ -2239,21 +2262,25 @@ class LiteLLMBase(ABC):
         # DashScope SDK instead, which rejects the request format with a
         # generic 102. Both the default and any user-supplied alternative
         # that targets the OpenAI-compatible endpoint must therefore skip
-        # the prefix; only requests to the native endpoint
-        # (``/api/v1``) keep it.
+        # the dashscope/ prefix.
         #
-        # Restrict the prefix-skip to the two DashScope-family
+        # Use ``openai/`` (not a bare model name) so LiteLLM still has an
+        # explicit provider for models outside its built-in registry
+        # (e.g. DashScope-hosted ``deepseek-v4-flash``). The openai-compatible
+        # client then hits ``api_base`` as intended.
+        #
+        # Restrict the prefix rewrite to the two DashScope-family
         # providers — a non-DashScope provider with a custom URL ending
         # in ``/compatible-mode/v1`` would lose its required LiteLLM
         # prefix and send an invalid model name.
         self.base_url = (base_url or FACTORY_DEFAULT_BASE_URL.get(self.provider, "")).rstrip("/")
         if self._is_dashscope_family_provider() and self._targets_openai_compatible_endpoint(self.base_url):
             logger.debug(
-                "DashScope-family provider=%s targeting OpenAI-compatible endpoint — dropping dashscope/ prefix on model_name=%s",
+                "DashScope-family provider=%s targeting OpenAI-compatible endpoint — using openai/ prefix on model_name=%s",
                 self.provider,
                 model_name,
             )
-            self.prefix = ""
+            self.prefix = "openai/"
         else:
             self.prefix = LITELLM_PROVIDER_PREFIX.get(self.provider, "")
         self.model_name = f"{self.prefix}{model_name}"
@@ -2315,9 +2342,10 @@ class LiteLLMBase(ABC):
         endpoint (``*/compatible-mode/v1``).
 
         Issue #19262: the Tongyi-Qianwen / Dashscope factory default base
-        URL is the OpenAI-compatible endpoint, so the bare model name
-        (e.g. ``qwen-turbo``) must reach LiteLLM. The native DashScope
-        SDK path (``dashscope/...`` to ``*/api/v1``) keeps the prefix.
+        URL is the OpenAI-compatible endpoint, so the model must reach
+        LiteLLM as ``openai/<name>`` (OpenAI-compatible client + api_base),
+        not ``dashscope/<name>`` (native SDK). The native DashScope SDK
+        path (``dashscope/...`` to ``*/api/v1``) keeps the dashscope/ prefix.
         """
         if not base_url:
             return True

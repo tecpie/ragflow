@@ -16,6 +16,7 @@
 from common.model_thinking_utils import (
     apply_enable_thinking_policy,
     detect_thinking_family,
+    is_deepseek_hybrid_thinking_model,
     is_qwen3_thinking_model,
 )
 
@@ -35,16 +36,37 @@ def test_is_qwen3_thinking_model():
     assert not is_qwen3_thinking_model("qwq-32b")
 
 
+def test_is_deepseek_hybrid_thinking_model():
+    assert is_deepseek_hybrid_thinking_model("deepseek-v4-flash")
+    assert is_deepseek_hybrid_thinking_model("DeepSeek-V4-Flash")
+    assert is_deepseek_hybrid_thinking_model("openai/deepseek-v4-pro")
+    assert is_deepseek_hybrid_thinking_model("deepseek-v3.2")
+    assert is_deepseek_hybrid_thinking_model("deepseek-flash")
+    assert not is_deepseek_hybrid_thinking_model("deepseek-r1")
+    assert not is_deepseek_hybrid_thinking_model("deepseek-v3")
+    assert not is_deepseek_hybrid_thinking_model("qwen3-32b")
+
+
 def test_apply_enable_thinking_policy_qwen():
     conf, kwargs = apply_enable_thinking_policy("qwen3-32b", "Tongyi-Qianwen", {"reasoning": False})
     assert "reasoning" not in conf
     assert kwargs["extra_body"]["enable_thinking"] is False
 
 
+def test_apply_enable_thinking_policy_dashscope_deepseek_v4():
+    conf, kwargs = apply_enable_thinking_policy("deepseek-v4-flash", "Tongyi-Qianwen", {"reasoning": False})
+    assert "reasoning" not in conf
+    assert kwargs["extra_body"]["enable_thinking"] is False
+
+
+def test_apply_enable_thinking_policy_native_deepseek_v4():
+    conf, kwargs = apply_enable_thinking_policy("deepseek-v4-flash", "DeepSeek", {"reasoning": False})
+    assert "reasoning" not in conf
+    assert kwargs["extra_body"]["thinking"] == {"type": "disabled"}
+
+
 def test_apply_enable_thinking_policy_qwen3_thinking_skip_disable():
-    conf, kwargs = apply_enable_thinking_policy(
-        "qwen3-235b-a22b-thinking-2507", "Tongyi-Qianwen", {"reasoning": False}
-    )
+    conf, kwargs = apply_enable_thinking_policy("qwen3-235b-a22b-thinking-2507", "Tongyi-Qianwen", {"reasoning": False})
     assert conf == {}
     assert kwargs == {}
 
@@ -70,8 +92,6 @@ def test_apply_enable_thinking_policy_gpustack():
 
 
 def test_apply_enable_thinking_policy_gpustack_qwen3_thinking_skip_disable():
-    conf, kwargs = apply_enable_thinking_policy(
-        "qwen3-235b-a22b-thinking-2507", "GPUStack", {"reasoning": False}
-    )
+    conf, kwargs = apply_enable_thinking_policy("qwen3-235b-a22b-thinking-2507", "GPUStack", {"reasoning": False})
     assert conf == {}
     assert kwargs == {}

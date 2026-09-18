@@ -119,6 +119,13 @@ def test_litellm_preserves_thinking_param():
     assert cleaned["thinking"] == {"type": "enabled"}
 
 
+def test_litellm_preserves_request_level_reasoning_toggle():
+    """dialog_service maps enable_thinking onto ``reasoning``; LiteLLM must keep it."""
+    cleaned = _make_litellm()._clean_conf({"reasoning": False, "temperature": 0.5})
+    assert cleaned["reasoning"] is False
+    assert cleaned["temperature"] == 0.5
+
+
 def test_litellm_preserves_provider_mapped_thinking_param():
     """Provider-mapped ``thinking`` must survive the LiteLLM whitelist."""
     cleaned = _make_litellm(

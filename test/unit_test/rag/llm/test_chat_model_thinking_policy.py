@@ -316,6 +316,62 @@ def test_deepseek_thinking_disabled_via_extra_body():
         assert gen_conf["extra_body"]["thinking"] == {"type": "disabled"}
 
 
+@pytest.mark.parametrize(
+    "provider",
+    [SupportedLiteLLMProvider.Tongyi_Qianwen, SupportedLiteLLMProvider.Dashscope],
+)
+def test_dashscope_deepseek_v4_maps_reasoning_false_to_enable_thinking(provider):
+    """DashScope-hosted deepseek-v4-flash defaults to CoT on; honor enable_thinking=false."""
+    gen_conf, kwargs = _apply_model_family_policies(
+        "deepseek-v4-flash",
+        backend="litellm",
+        provider=provider,
+        gen_conf={"reasoning": False},
+        request_kwargs={},
+    )
+
+    assert kwargs == {}
+    assert gen_conf["enable_thinking"] is False
+    assert "thinking" not in gen_conf
+
+
+@pytest.mark.parametrize(
+    "provider",
+    [SupportedLiteLLMProvider.Tongyi_Qianwen, SupportedLiteLLMProvider.Dashscope],
+)
+def test_dashscope_deepseek_v4_maps_reasoning_true_to_enable_thinking(provider):
+    gen_conf, kwargs = _apply_model_family_policies(
+        "openai/deepseek-v4-flash",
+        backend="litellm",
+        provider=provider,
+        gen_conf={"reasoning": True},
+        request_kwargs={},
+    )
+
+    assert kwargs == {}
+    assert gen_conf["enable_thinking"] is True
+
+
+@pytest.mark.parametrize(
+    "provider",
+    [SupportedLiteLLMProvider.Tongyi_Qianwen, SupportedLiteLLMProvider.Dashscope],
+)
+def test_dashscope_deepseek_v4_unspecified_does_not_force_toggle(provider):
+    """Leave DashScope's default (thinking on) alone when the caller did not toggle."""
+    gen_conf, kwargs = _apply_model_family_policies(
+        "deepseek-v4-flash",
+        backend="litellm",
+        provider=provider,
+        gen_conf={"temperature": 0.5},
+        request_kwargs={},
+    )
+
+    assert kwargs == {}
+    assert "enable_thinking" not in gen_conf
+    assert "thinking" not in gen_conf
+    assert gen_conf == {"temperature": 0.5}
+
+
 def test_deepseek_thinking_enabled_via_extra_body():
     gen_conf, kwargs = _apply_model_family_policies(
         "deepseek-v4-flash",
