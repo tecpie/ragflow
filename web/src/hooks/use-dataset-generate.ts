@@ -151,6 +151,8 @@ const TraceTypeMap: Record<GenerateType, TraceType> = {
   [GenerateType.Artifact]: TraceType.Artifact,
   [GenerateType.ToSkills]: TraceType.Skill,
   [GenerateType.MindMap]: TraceType.MindMap,
+  [GenerateType.StructureGraph]: TraceType.StructureGraph,
+  [GenerateType.StructureMindMap]: TraceType.StructureMindMap,
   [GenerateType.Timeline]: TraceType.Timeline,
   [GenerateType.SessionEssence]: TraceType.SessionEssence,
   [GenerateType.SessionGraph]: TraceType.SessionGraph,

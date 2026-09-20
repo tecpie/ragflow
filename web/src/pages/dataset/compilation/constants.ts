@@ -41,7 +41,9 @@ export const ViewModeGenerateTypeMap: Record<GenerableViewMode, GenerateType> =
   {
     [ViewMode.LlmWiki]: GenerateType.Artifact,
     [ViewMode.Skills]: GenerateType.ToSkills,
-    [ViewMode.Graph]: GenerateType.KnowledgeGraph,
-    [ViewMode.MindMap]: GenerateType.MindMap,
+    // Artifacts Graph/MindMap read artifacts/structure; generate must hit
+    // structure_* merge (not classic GraphRAG type=graph / placeholder mindmap).
+    [ViewMode.Graph]: GenerateType.StructureGraph,
+    [ViewMode.MindMap]: GenerateType.StructureMindMap,
     [ViewMode.Timeline]: GenerateType.Timeline,
   };

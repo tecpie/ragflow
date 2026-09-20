@@ -155,6 +155,10 @@ export enum ProcessingType {
   artifact = 'wiki',
   skill = 'Skill',
   mindmap = 'Mindmap',
+  /** Artifacts Graph: KB-wide structure merge (not classic GraphRAG). */
+  structureGraph = 'structure_graph',
+  /** Artifacts MindMap: KB-wide structure merge. */
+  structureMindmap = 'structure_mindmap',
   timeline = 'Timeline',
   sessionEssence = 'Session_Essence',
   sessionGraph = 'Session_Graph',
@@ -166,6 +170,8 @@ export const ProcessingTypeMap = {
   [ProcessingType.artifact]: 'Artifact',
   [ProcessingType.skill]: 'Skill',
   [ProcessingType.mindmap]: 'Mind Map',
+  [ProcessingType.structureGraph]: 'Structure Graph',
+  [ProcessingType.structureMindmap]: 'Structure Mind Map',
   [ProcessingType.timeline]: 'Timeline',
   [ProcessingType.sessionEssence]: 'Session Essence',
   [ProcessingType.sessionGraph]: 'Session Graph',
@@ -185,6 +191,10 @@ export enum GenerateType {
   Artifact = 'Artifact',
   ToSkills = 'ToSkills',
   MindMap = 'MindMap',
+  /** Artifacts page Graph view — structure_graph merge. */
+  StructureGraph = 'StructureGraph',
+  /** Artifacts page MindMap view — structure_mindmap merge. */
+  StructureMindMap = 'StructureMindMap',
   Timeline = 'Timeline',
   SessionEssence = 'SessionEssence',
   SessionGraph = 'SessionGraph',
@@ -196,6 +206,8 @@ export enum TraceType {
   Artifact = 'wiki',
   Skill = 'skill',
   MindMap = 'mindmap',
+  StructureGraph = 'structure_graph',
+  StructureMindMap = 'structure_mindmap',
   Timeline = 'timeline',
   SessionEssence = 'session_essence',
   SessionGraph = 'session_graph',
@@ -207,6 +219,8 @@ export const GenerateTypeMap = {
   [GenerateType.Artifact]: ProcessingType.artifact,
   [GenerateType.ToSkills]: ProcessingType.skill,
   [GenerateType.MindMap]: ProcessingType.mindmap,
+  [GenerateType.StructureGraph]: ProcessingType.structureGraph,
+  [GenerateType.StructureMindMap]: ProcessingType.structureMindmap,
   [GenerateType.Timeline]: ProcessingType.timeline,
   [GenerateType.SessionEssence]: ProcessingType.sessionEssence,
   [GenerateType.SessionGraph]: ProcessingType.sessionGraph,
