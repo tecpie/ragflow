@@ -38,7 +38,6 @@ from common.constants import LLMType
 from common.llm_request_context import set_llm_request_context, reset_llm_request_context
 from common.exceptions import TaskCanceledException
 from common.misc_utils import get_uuid, hash_str2int
-from common.reference_utils import filter_reference_by_answer_citations
 from common.token_utils import token_usage_sink, langfuse_run_attrs
 from rag.prompts.generator import chunks_format
 from rag.utils.redis_conn import REDIS_CONN
@@ -1342,9 +1341,7 @@ class Canvas(Graph):
         if isinstance(downloads, list) and downloads:
             message_end["downloads"] = downloads
         if self._has_reference():
-            content = cpn_obj.output("content")
-            answer_text = content if isinstance(content, str) else ("" if content is None else str(content))
-            message_end["reference"] = filter_reference_by_answer_citations(answer_text, self.get_reference())
+            message_end["reference"] = self.get_reference()
         # NOTE: aggregated run token usage is intentionally NOT attached here.
         # _build_message_end runs once per Message component, so a multi-Message graph
         # would emit cumulative usage repeatedly and double count. The run total is

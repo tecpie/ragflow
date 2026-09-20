@@ -43,7 +43,6 @@ from api.utils.reference_metadata_utils import (
 )
 from api.db.joint_services.tenant_model_service import get_tenant_default_model_by_type, resolve_model_config, resolve_model_type, get_model_config_by_id
 from common.time_utils import current_timestamp, datetime_format
-from common.reference_utils import filter_reference_by_answer_citations
 from common.text_utils import normalize_arabic_digits
 from rag.advanced_rag.knowlege_compile.mind_map_extractor import MindMapExtractor
 from rag.app.tag import label_question
@@ -665,9 +664,7 @@ async def async_chat(dialog, messages, stream=True, **kwargs):
             pass
 
     check_langfuse_tracer_ts = timer()
-    kbs, embd_mdl, rerank_mdl, chat_mdl, tts_mdl = get_models(
-        dialog, trace_context=trace_context, langfuse_session_id=session_id, user_id=user_id
-    )
+    kbs, embd_mdl, rerank_mdl, chat_mdl, tts_mdl = get_models(dialog, trace_context=trace_context, langfuse_session_id=session_id, user_id=user_id)
     toolcall_session, tools = kwargs.get("toolcall_session"), kwargs.get("tools")
     if toolcall_session and tools:
         chat_mdl.bind_tools(toolcall_session, tools)
@@ -918,7 +915,6 @@ async def async_chat(dialog, messages, stream=True, **kwargs):
             for c in refs["chunks"]:
                 if c.get("vector"):
                     del c["vector"]
-            refs = filter_reference_by_answer_citations(answer, refs)
 
         if answer.lower().find("invalid key") >= 0 or answer.lower().find("invalid api") >= 0:
             answer += " Please set LLM API-Key in 'User Setting -> Model providers -> API-Key'"
@@ -1910,7 +1906,6 @@ async def async_ask(question, kb_ids, tenant_id, chat_llm_name=None, search_conf
         for c in refs["chunks"]:
             if c.get("vector"):
                 del c["vector"]
-        refs = filter_reference_by_answer_citations(answer, refs)
 
         if answer.lower().find("invalid key") >= 0 or answer.lower().find("invalid api") >= 0:
             answer += " Please set LLM API-Key in 'User Setting -> Model Providers -> API-Key'"

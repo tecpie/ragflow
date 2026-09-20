@@ -131,10 +131,6 @@ def _load_canvas_runtime(monkeypatch):
     llm_request_context.reset_llm_request_context = lambda *_a, **_kw: None
     monkeypatch.setitem(sys.modules, "common.llm_request_context", llm_request_context)
 
-    reference_utils = ModuleType("common.reference_utils")
-    reference_utils.filter_reference_by_answer_citations = lambda *_a, **_kw: {}
-    monkeypatch.setitem(sys.modules, "common.reference_utils", reference_utils)
-
     token_utils = ModuleType("common.token_utils")
     token_utils.token_usage_sink = contextvars.ContextVar("token_usage_sink", default=None)
     token_utils.langfuse_run_attrs = contextvars.ContextVar("langfuse_run_attrs", default=None)

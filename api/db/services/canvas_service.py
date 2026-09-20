@@ -27,7 +27,6 @@ from api.db.services.common_service import CommonService
 from api.db.services.user_canvas_version import UserCanvasVersionService
 from common.misc_utils import get_uuid, thread_pool_exec
 from common.constants import StatusEnum
-from common.reference_utils import filter_reference_by_answer_citations
 from api.utils.api_utils import get_data_openai
 import tiktoken
 from peewee import fn
@@ -381,15 +380,23 @@ async def completion(tenant_id, agent_id, session_id=None, **kwargs):
         canvas.reset()
         # Get the version title based on release_mode
         version_title = await thread_pool_exec(UserCanvasVersionService.get_latest_version_title, cvs.id, release_mode=release_mode == "true")
-        conv = {"id": session_id, "dialog_id": cvs.id, "name": kwargs.get("name", "New conversation"), "user_id": user_id, "message": [], "source": "agent", "dsl": dsl, "reference": [], "version_title": version_title}
+        conv = {
+            "id": session_id,
+            "dialog_id": cvs.id,
+            "name": kwargs.get("name", "New conversation"),
+            "user_id": user_id,
+            "message": [],
+            "source": "agent",
+            "dsl": dsl,
+            "reference": [],
+            "version_title": version_title,
+        }
         await thread_pool_exec(API4ConversationService.save, **conv)
         conv = API4Conversation(**conv)
 
     message_id = str(uuid4())
     user_created_at = time.time()
-    conv.message.append(
-        {"role": "user", "content": query, "id": message_id, "files": files, "created_at": user_created_at}
-    )
+    conv.message.append({"role": "user", "content": query, "id": message_id, "files": files, "created_at": user_created_at})
     txt = ""
     run_kwargs = {
         "query": query,
@@ -428,7 +435,7 @@ async def completion(tenant_id, agent_id, session_id=None, **kwargs):
     if attachment:
         assistant_msg["attachment"] = attachment
     conv.message.append(assistant_msg)
-    current_reference = filter_reference_by_answer_citations(txt, canvas.get_reference())
+    current_reference = canvas.get_reference()
     if not isinstance(current_reference, dict):
         current_reference = {}
     if not conv.reference:
