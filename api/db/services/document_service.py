@@ -71,6 +71,7 @@ class DocumentService(CommonService):
             cls.model.suffix,
             cls.model.run,
             cls.model.status,
+            cls.model.content_hash,
             cls.model.create_time,
             cls.model.create_date,
             cls.model.update_time,
