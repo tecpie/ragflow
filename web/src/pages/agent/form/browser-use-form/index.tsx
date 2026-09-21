@@ -1,8 +1,8 @@
 import { NextLLMSelect } from '@/components/llm-select/next';
+import { SelectWithSearch } from '@/components/originui/select-with-search';
 import { RAGFlowFormItem } from '@/components/ragflow-form';
 import { Form } from '@/components/ui/form';
 import { Input, NumberInput } from '@/components/ui/input';
-import { RAGFlowSelect } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { memo } from 'react';
@@ -109,10 +109,10 @@ function BrowserForm({ node }: INextOperatorForm) {
               name="remote_upload_mode"
             >
               {(field) => (
-                <RAGFlowSelect
+                <SelectWithSearch
                   {...field}
                   options={remoteUploadModeOptions}
-                ></RAGFlowSelect>
+                ></SelectWithSearch>
               )}
             </RAGFlowFormItem>
             <RAGFlowFormItem
