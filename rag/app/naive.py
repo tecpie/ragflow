@@ -42,7 +42,6 @@ from api.db.joint_services.tenant_model_service import (
 )
 from api.db.services.llm_service import LLMBundle
 from common.constants import MAXIMUM_PAGE_NUMBER, LLMType
-from deepdoc.parser.monkeyocrv2_parser import MonkeyOCRv2Parser
 from common.float_utils import normalize_overlapped_percent
 from common.parser_config_utils import has_mineru_options, is_tenant_model_id, normalize_layout_recognizer
 from common.text_utils import normalize_arabic_presentation_forms
@@ -55,6 +54,7 @@ from deepdoc.parser.figure_parser import (
     vision_figure_parser_docx_wrapper_naive,
     vision_figure_parser_pdf_wrapper,
 )
+from deepdoc.parser.monkeyocrv2_parser import MonkeyOCRv2Parser
 from deepdoc.parser.pdf_parser import PlainParser, VisionParser
 from deepdoc.parser.tcadp_parser import TCADPParser
 from rag.nlp import (
@@ -616,7 +616,6 @@ def _is_toc_paragraph(text: str, style_name: str, paragraph=None) -> bool:
 class Docx(DocxParser):
     def __init__(self):
         """Initialize the naive DOCX parser."""
-        pass
 
     def __clean(self, line):
         line = re.sub(r"\u3000", " ", line).strip()

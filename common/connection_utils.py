@@ -14,7 +14,6 @@
 #  limitations under the License.
 #
 
-import os
 import queue
 import threading
 from typing import Any, Callable, Coroutine, Optional, Type, Union
@@ -23,6 +22,7 @@ from functools import wraps
 from quart import make_response, jsonify
 from common.constants import RetCode
 from common.i18n import t
+from common.misc_utils import env_flag
 
 TimeoutException = Union[Type[BaseException], BaseException]
 OnTimeoutCallback = Union[Callable[..., Any], Coroutine[Any, Any, Any]]
@@ -50,7 +50,7 @@ def timeout(seconds: float | int | str = None, attempts: int = 2, *, exception: 
 
             for a in range(attempts):
                 try:
-                    if os.environ.get("ENABLE_TIMEOUT_ASSERTION"):
+                    if env_flag("ENABLE_TIMEOUT_ASSERTION", False):
                         result = result_queue.get(timeout=seconds)
                     else:
                         result = result_queue.get()
@@ -68,7 +68,7 @@ def timeout(seconds: float | int | str = None, attempts: int = 2, *, exception: 
 
             for a in range(attempts):
                 try:
-                    if os.environ.get("ENABLE_TIMEOUT_ASSERTION"):
+                    if env_flag("ENABLE_TIMEOUT_ASSERTION", False):
                         return await asyncio.wait_for(func(*args, **kwargs), timeout=seconds)
                     else:
                         return await func(*args, **kwargs)
