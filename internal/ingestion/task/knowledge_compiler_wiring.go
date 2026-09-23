@@ -126,6 +126,170 @@ func compileDirtyWikiDocument(ctx context.Context, request knowledge_compile.Wik
 	return replaceDirtyWikiProducts(ctx, request, compiled, uniqueStrings(affectedSlugs), uniqueStrings(removedSlugs), activeStates, false)
 }
 
+// CompileDocumentFromSourceChunks re-runs KnowledgeCompiler for a document from
+// existing source chunks without re-parsing the file. Old compile_kwd rows are
+// replaced; source chunks are kept. Mirrors Python task_handler._run_document_compile.
+func CompileDocumentFromSourceChunks(ctx context.Context, tenantID, datasetID, documentID string) error {
+	if tenantID == "" || datasetID == "" || documentID == "" {
+		return fmt.Errorf("doc compile: tenant, dataset, and document ids are required")
+	}
+	doc, err := dao.NewDocumentDAO().GetByID(ctx, dao.DB, documentID)
+	if err != nil {
+		return fmt.Errorf("doc compile: load document: %w", err)
+	}
+	if doc.KbID != datasetID {
+		return fmt.Errorf("doc compile: document %s does not belong to dataset %s", documentID, datasetID)
+	}
+	if doc.Status != nil && *doc.Status == "0" {
+		return fmt.Errorf("doc compile: document %s is disabled", documentID)
+	}
+
+	compilerParams, err := loadWikiCompilerParams(ctx, doc)
+	if err != nil {
+		return err
+	}
+	templateIDs, err := resolveAllTemplateIDs(ctx, tenantID, compilerParams)
+	if err != nil {
+		return err
+	}
+	if len(templateIDs) == 0 {
+		kb, kbErr := dao.NewKnowledgebaseDAO().GetByID(ctx, dao.DB, datasetID)
+		if kbErr != nil {
+			return fmt.Errorf("doc compile: load dataset: %w", kbErr)
+		}
+		if kb != nil {
+			if kbParams := findCompilerParams(map[string]any(kb.ParserConfig)); kbParams != nil {
+				compilerParams = kbParams
+				templateIDs, err = resolveAllTemplateIDs(ctx, tenantID, compilerParams)
+				if err != nil {
+					return err
+				}
+			}
+		}
+	}
+	if len(templateIDs) == 0 {
+		return fmt.Errorf("No knowledge compilation template configured.")
+	}
+
+	request := knowledge_compile.WikiDirtyRequest{
+		TenantID:   tenantID,
+		DatasetID:  datasetID,
+		DocumentID: documentID,
+	}
+	sourceChunks, err := loadActiveSourceChunks(ctx, request)
+	if err != nil {
+		return err
+	}
+	if len(sourceChunks) == 0 {
+		return fmt.Errorf("No source chunks found. Finish document parsing before knowledge compile.")
+	}
+
+	docEngine := engine.Get()
+	if docEngine == nil {
+		return fmt.Errorf("doc compile: document engine is unavailable")
+	}
+	indexName := fmt.Sprintf("ragflow_%s", tenantID)
+	if _, err := docEngine.DeleteChunks(ctx, map[string]any{
+		"doc_id": documentID,
+		"exists": "compile_kwd",
+	}, indexName, datasetID); err != nil {
+		return fmt.Errorf("doc compile: clear previous products: %w", err)
+	}
+
+	compiled := make([]map[string]any, 0)
+	activeStates := make([]kc.WikiMapActiveState, 0)
+	for _, templateID := range templateIDs {
+		params := copyStringAnyMap(compilerParams)
+		delete(params, "compilation_template_group_id")
+		delete(params, "compilation_template_group_ids")
+		params["compilation_template_id"] = templateID
+		component, err := knowledgecompiler.NewKnowledgeCompilerComponent("Compiler", params)
+		if err != nil {
+			return err
+		}
+		output, err := component.Invoke(ctx, dao.DB, map[string]any{
+			"chunks":     sourceChunks,
+			"tenant_id":  tenantID,
+			"dataset_id": datasetID,
+			"kb_id":      datasetID,
+			"doc_id":     documentID,
+		})
+		if err != nil {
+			return fmt.Errorf("doc compile document %s template %s: %w", documentID, templateID, err)
+		}
+		compiled = append(compiled, allCompiledRows(output)...)
+		states, err := wikiActiveStates(output)
+		if err != nil {
+			return fmt.Errorf("doc compile document %s: %w", documentID, err)
+		}
+		activeStates = append(activeStates, states...)
+	}
+
+	if len(compiled) > 0 {
+		if _, err := docEngine.InsertChunks(ctx, compiled, indexName, datasetID); err != nil {
+			return fmt.Errorf("doc compile: write products: %w", err)
+		}
+	}
+	if err := putWikiActiveStates(ctx, docEngine, activeStates); err != nil {
+		return err
+	}
+
+	eventVariants := compiledVariants(compiled)
+	eventTaskTypes := compiledTaskTypes(compiled)
+	if len(eventVariants) == 0 {
+		return nil
+	}
+	return knowledge_compile.PublishCompleted(ctx, tenantID, datasetID, documentID, eventVariants, eventTaskTypes)
+}
+
+func resolveAllTemplateIDs(ctx context.Context, tenantID string, params map[string]any) ([]string, error) {
+	// Same resolution as wiki, but keep every valid template kind (not wiki-only).
+	ids := make([]string, 0)
+	if templateID, ok := params["compilation_template_id"].(string); ok && strings.TrimSpace(templateID) != "" {
+		ids = append(ids, strings.TrimSpace(templateID))
+	}
+	groupIDs := stringValues(params["compilation_template_group_id"])
+	groupIDs = append(groupIDs, stringValues(params["compilation_template_group_ids"])...)
+	if len(groupIDs) > 0 {
+		resolved, err := dao.NewCompilationTemplateDAO().ResolveGroupTemplateIDs(ctx, dao.DB, tenantID, uniqueStrings(groupIDs))
+		if err != nil {
+			return nil, err
+		}
+		ids = append(ids, resolved...)
+	}
+	ids = uniqueStrings(ids)
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var templates []entity.CompilationTemplate
+	if err := dao.DB.WithContext(ctx).
+		Where("id IN ? AND status = ?", ids, string(entity.StatusValid)).Find(&templates).Error; err != nil {
+		return nil, err
+	}
+	kept := make([]string, 0, len(templates))
+	for _, tpl := range templates {
+		kept = append(kept, tpl.ID)
+	}
+	return uniqueStrings(kept), nil
+}
+
+func allCompiledRows(output map[string]any) []map[string]any {
+	rows := make([]map[string]any, 0)
+	items, _ := output["chunks"].([]any)
+	for _, item := range items {
+		row, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if strings.TrimSpace(anyString(row["compile_kwd"])) == "" {
+			continue
+		}
+		row["available_int"] = 0
+		rows = append(rows, row)
+	}
+	return rows
+}
+
 func loadWikiCompilerParams(ctx context.Context, doc *entity.Document) (map[string]any, error) {
 	if params := findCompilerParams(map[string]any(doc.ParserConfig)); params != nil {
 		return params, nil

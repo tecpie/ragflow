@@ -475,6 +475,11 @@ func (e *Ingestor) handleAndExecute(handle common.TaskHandle) {
 		return
 	}
 
+	if taskMessage.TaskType == common.TaskTypeDocCompile {
+		e.executeDocCompileTask(e.ctx, taskMessage.TaskID, hb, handle)
+		return
+	}
+
 	if taskMessage.TaskType != common.TaskTypeIngestionTask {
 		common.Info(fmt.Sprintf("task %s is not an ingestion task", taskMessage.TaskID))
 		e.ackHandle(hb, handle, taskMessage.TaskID)
@@ -695,6 +700,88 @@ func (e *Ingestor) executeMemoryTaskWithHeartbeat(ctx context.Context, taskCtx *
 		return
 	}
 	common.Warn(fmt.Sprintf("memory task %s delivery left unsettled for durable recovery", taskID))
+}
+
+func (e *Ingestor) executeDocCompileTask(ctx context.Context, taskID string, hb *Heartbeat, handle common.TaskHandle) {
+	settleAck := false
+	defer func() {
+		hb.Stop()
+		if r := recover(); r != nil {
+			common.Error(fmt.Sprintf("doc_compile task %s panicked: %v", taskID, r), fmt.Errorf("%v", r))
+		}
+		if handle == nil || e.leaseAbandoned(hb) {
+			return
+		}
+		if settleAck {
+			if err := handle.Ack(); err != nil {
+				common.Error(fmt.Sprintf("ack doc_compile task %s", taskID), err)
+			}
+		} else if err := handle.Nack(); err != nil {
+			common.Error(fmt.Sprintf("nack doc_compile task %s", taskID), err)
+		}
+	}()
+
+	if taskID == "" {
+		common.Warn("doc_compile task with empty task id received, ack")
+		settleAck = true
+		return
+	}
+
+	taskDAO := dao.NewTaskDAO()
+	task, err := taskDAO.GetByID(ctx, dao.DB, taskID)
+	if err != nil || task == nil {
+		common.Warn(fmt.Sprintf("doc_compile task %s not found, ack", taskID))
+		settleAck = true
+		return
+	}
+	if task.TaskType != common.TaskTypeDocCompile {
+		common.Warn(fmt.Sprintf("task %s is not doc_compile (%s), ack", taskID, task.TaskType))
+		settleAck = true
+		return
+	}
+	if task.Progress < 0 || task.Progress >= 1 {
+		common.Info(fmt.Sprintf("doc_compile task %s already settled (progress=%v), ack", taskID, task.Progress))
+		settleAck = true
+		return
+	}
+
+	docDAO := dao.NewDocumentDAO()
+	doc, err := docDAO.GetByID(ctx, dao.DB, task.DocID)
+	if err != nil || doc == nil {
+		msg := "doc_compile: document not found"
+		_ = taskDAO.UpdateProgress(ctx, dao.DB, taskID, -1, msg)
+		settleAck = true
+		return
+	}
+	kb, err := dao.NewKnowledgebaseDAO().GetByID(ctx, dao.DB, doc.KbID)
+	if err != nil || kb == nil {
+		msg := "doc_compile: dataset not found"
+		_ = taskDAO.UpdateProgress(ctx, dao.DB, taskID, -1, msg)
+		_ = docDAO.UpdateByID(ctx, dao.DB, doc.ID, map[string]interface{}{"progress": float64(-1), "progress_msg": msg})
+		settleAck = true
+		return
+	}
+
+	_ = taskDAO.UpdateProgress(ctx, dao.DB, taskID, 0.05, time.Now().Format("15:04:05")+" Knowledge compile started from existing chunks.")
+	_ = docDAO.UpdateByID(ctx, dao.DB, doc.ID, map[string]interface{}{
+		"progress":     float64(0.05),
+		"progress_msg": "Knowledge compile started from existing chunks.",
+	})
+
+	if err := taskpkg.CompileDocumentFromSourceChunks(ctx, kb.TenantID, doc.KbID, doc.ID); err != nil {
+		common.Error(fmt.Sprintf("doc_compile task %s failed", taskID), err)
+		msg := "Knowledge compilation failed: " + err.Error()
+		_ = taskDAO.UpdateProgress(ctx, dao.DB, taskID, -1, msg)
+		_ = docDAO.UpdateByID(ctx, dao.DB, doc.ID, map[string]interface{}{"progress": float64(-1), "progress_msg": msg})
+		settleAck = true
+		return
+	}
+
+	doneMsg := time.Now().Format("15:04:05") + " Knowledge compilation finished."
+	_ = taskDAO.UpdateProgress(ctx, dao.DB, taskID, 1, doneMsg)
+	_ = docDAO.UpdateByID(ctx, dao.DB, doc.ID, map[string]interface{}{"progress": float64(1), "progress_msg": doneMsg})
+	settleAck = true
+	common.Info(fmt.Sprintf("doc_compile task %s finished", taskID))
 }
 
 // defaultRunMemoryTask is the production memory-task runner. It is held behind

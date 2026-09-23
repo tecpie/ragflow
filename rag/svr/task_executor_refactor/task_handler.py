@@ -163,6 +163,7 @@ class TaskHandler:
             "evaluation",
             "reembedding",
             "clone",
+            "doc_compile",
         } | STRUCTURE_MERGE_TASK_TYPES and not task_type.startswith("dataflow")
 
     async def handle_task(self) -> None:
@@ -243,6 +244,9 @@ class TaskHandler:
                 is_structure_merge_task,
             )
 
+            if task_type == "doc_compile":
+                await self._run_document_compile(embedding_model)
+                return
             if task_type == "raptor":
                 await self._run_raptor(embedding_model, vector_size)
             elif task_type == "graphrag":
@@ -389,6 +393,79 @@ class TaskHandler:
             ctx.progress_cb(-1, msg=error_message)
             logging.exception(error_message)
             raise
+
+    async def _run_document_compile(self, embedding_model: LLMBundle) -> None:
+        """Recompile knowledge products from existing source chunks.
+
+        Source chunks are kept. Rows stamped with ``compile_kwd`` for this
+        document are removed first so a second compile does not leave stale
+        entities behind.
+        """
+        from api.db import TaskStatus
+        from api.db.db_models import Document
+        from api.db.services.document_service import DocumentService
+        from rag.svr.task_executor_refactor.chunk_post_processor import (
+            _effective_compilation_template_ids,
+            run_document_structure_compile,
+        )
+
+        ctx = self._task_context
+        template_ids = _effective_compilation_template_ids(ctx.parser_config, ctx.kb_parser_config, ctx.tenant_id)
+        if not template_ids:
+            ctx.progress_cb(-1, msg="No knowledge compilation template configured.")
+            DocumentService.filter_update(
+                [Document.id == ctx.doc_id],
+                {"run": TaskStatus.FAIL.value, "progress": -1},
+            )
+            return
+
+        has_source_chunks = False
+        async for batch in self._load_chunks_for_doc(
+            ctx.tenant_id,
+            ctx.kb_id,
+            ctx.doc_id,
+            batch_size=1,
+            prefer_parents=True,
+        ):
+            if batch:
+                has_source_chunks = True
+                break
+        if not has_source_chunks:
+            ctx.progress_cb(
+                -1,
+                msg="No source chunks found. Finish document parsing before knowledge compile.",
+            )
+            DocumentService.filter_update(
+                [Document.id == ctx.doc_id],
+                {"run": TaskStatus.FAIL.value, "progress": -1},
+            )
+            return
+
+        index_name = search.index_name(ctx.tenant_id)
+        try:
+            exists = await thread_pool_exec(settings.docStoreConn.index_exist, index_name, ctx.kb_id)
+            if exists:
+                await thread_pool_exec(
+                    settings.docStoreConn.delete,
+                    {"doc_id": ctx.doc_id, "exists": "compile_kwd"},
+                    index_name,
+                    ctx.kb_id,
+                )
+            ctx.progress_cb(msg="Knowledge compile started from existing chunks.")
+            await run_document_structure_compile(self, embedding_model)
+        except Exception as exc:
+            logging.exception("doc_compile failed for document %s", ctx.doc_id)
+            ctx.progress_cb(-1, msg=f"Knowledge compilation failed: {exc}")
+            DocumentService.filter_update(
+                [Document.id == ctx.doc_id],
+                {"run": TaskStatus.FAIL.value, "progress": -1},
+            )
+            return
+        ctx.progress_cb(1, msg="Knowledge compilation finished.")
+        DocumentService.filter_update(
+            [Document.id == ctx.doc_id],
+            {"run": TaskStatus.DONE.value, "progress": 1},
+        )
 
     async def _run_raptor(
         self,

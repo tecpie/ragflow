@@ -1407,6 +1407,58 @@ def queue_per_doc_raptor_task(doc, priority):
     return task["id"]
 
 
+def queue_document_compile_task(doc, priority=0):
+    """Queue a document-scoped knowledge compilation task.
+
+    Re-runs KnowledgeCompiler against chunks already in the index. Does not
+    delete source chunks or re-parse the file.
+    """
+    # Close abandoned unfinished tasks (e.g. stuck parse page ranges). Otherwise
+    # DocumentService._sync_progress keeps averaging them and leaves run=RUNNING
+    # even after this compile task itself reaches progress=1.
+    Task.update(
+        progress=1.0,
+        progress_msg=datetime.now().strftime("%H:%M:%S") + " Closed: superseded by knowledge compile",
+    ).where((Task.doc_id == doc["id"]) & (Task.progress >= 0) & (Task.progress < 1)).execute()
+
+    chunking_config = DocumentService.get_chunking_config(doc["id"])
+    hasher = xxhash.xxh64()
+    for field in sorted(chunking_config.keys()):
+        hasher.update(str(chunking_config[field]).encode("utf-8"))
+
+    task = {
+        "id": get_uuid(),
+        "doc_id": doc["id"],
+        "from_page": MAXIMUM_TASK_PAGE_NUMBER,
+        "to_page": MAXIMUM_TASK_PAGE_NUMBER,
+        "task_type": "doc_compile",
+        "progress_msg": datetime.now().strftime("%H:%M:%S") + " created task doc_compile",
+        "begin_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    hasher.update(str(task["id"]).encode("utf-8"))
+    for field in ["doc_id", "from_page", "to_page"]:
+        hasher.update(str(task[field]).encode("utf-8"))
+    hasher.update(b"doc_compile")
+    task["digest"] = hasher.hexdigest()
+    bulk_insert_into_db(Task, [task], True)
+
+    task["doc_ids"] = [doc["id"]]
+    DocumentService.filter_update(
+        [Document.id == doc["id"]],
+        {
+            "run": TaskStatus.RUNNING.value,
+            "progress": 0,
+            "progress_msg": datetime.now().strftime("%H:%M:%S") + " knowledge compile queued",
+            "process_begin_at": get_format_time(),
+        },
+    )
+    assert REDIS_CONN.queue_product(
+        settings.get_svr_queue_name(priority, "doc_compile"),
+        message=task,
+    ), "Can't access Redis. Please check the Redis' status."
+    return task["id"]
+
+
 # Short-lived per-priority cache for the genuine queued-task backlog so the
 # per-document progress sync does not issue a COUNT query for every document
 # each cycle. Keyed by priority (None means "all priorities").

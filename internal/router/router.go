@@ -412,6 +412,7 @@ func (r *Router) Setup(engine *gin.Engine) {
 				datasets.POST("/:dataset_id/chunks", r.chunkHandler.Parse)
 				datasets.PATCH("/:dataset_id/documents/:document_id/chunks/:chunk_id", r.chunkHandler.UpdateChunk)
 				datasets.POST("/:dataset_id/documents/parse", r.documentHandler.StartIngestionTask)
+				datasets.POST("/:dataset_id/documents/compile", r.documentHandler.CompileDocuments)
 				datasets.POST("/:dataset_id/documents/stop", r.documentHandler.StopParseDocuments)
 				datasets.GET("/ingestion/tasks", r.documentHandler.ListIngestionTasks)
 				datasets.PUT("/ingestion/tasks", r.documentHandler.StopIngestionTasks)

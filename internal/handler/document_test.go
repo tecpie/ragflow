@@ -78,6 +78,8 @@ type fakeDocumentService struct {
 	ingestErr              error
 	ingestUserID           string
 	ingestReq              *document.IngestDocumentRequest
+	compileResult          *document.CompileDocumentsResult
+	compileErr             error
 	listOpts               dao.DocumentListOptions
 	filterOpts             dao.DocumentListOptions
 	filterResult           map[string]interface{}
@@ -286,6 +288,15 @@ func (f *fakeDocumentService) ListIngestionTasks(ctx context.Context, userID str
 }
 func (f *fakeDocumentService) IngestDocuments(ctx context.Context, datasetID, userID string, docIDs []string) ([]*service.ParseDocumentResponse, error) {
 	return nil, nil
+}
+func (f *fakeDocumentService) CompileDocuments(ctx context.Context, datasetID, userID string, docIDs []string) (*document.CompileDocumentsResult, error) {
+	if f.compileErr != nil {
+		return nil, f.compileErr
+	}
+	if f.compileResult != nil {
+		return f.compileResult, nil
+	}
+	return &document.CompileDocumentsResult{SuccessCount: len(docIDs), Skipped: []string{}}, nil
 }
 func (f *fakeDocumentService) StopIngestionTasks(ctx context.Context, tasks []string, userID string) ([]*entity.IngestionTask, error) {
 	return f.stopIngestionTasks, f.stopIngestionTaskErr

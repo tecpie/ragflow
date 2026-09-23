@@ -330,6 +330,46 @@ async def parse(tenant_id, dataset_id):
     return get_result()
 
 
+@manager.route("/datasets/<dataset_id>/documents/compile", methods=["POST"])  # noqa: F821
+@login_required
+@add_tenant_id_to_kwargs
+async def compile_documents(tenant_id, dataset_id):
+    """Re-run knowledge compilation for documents without re-parsing files."""
+    from api.db.services.document_service import queue_document_compile_task
+
+    if not KnowledgebaseService.accessible(kb_id=dataset_id, user_id=tenant_id):
+        return get_error_data_result(message=msg.dataset.not_owned, id=dataset_id)
+    req = await get_request_json()
+    if not req.get("document_ids"):
+        return get_error_data_result("`document_ids` is required")
+    unique_doc_ids, duplicate_messages = check_duplicate_ids(req.get("document_ids"), "document")
+
+    not_found = []
+    skipped = []
+    success_count = 0
+    for doc_id in unique_doc_ids:
+        docs = DocumentService.query(id=doc_id, kb_id=dataset_id)
+        if not docs:
+            not_found.append(doc_id)
+            continue
+        doc = docs[0]
+        if str(getattr(doc, "status", "1")) == "0":
+            skipped.append(doc_id)
+            continue
+        if getattr(doc, "run", None) == TaskStatus.RUNNING.value:
+            return get_error_data_result("Can't compile a document that is currently being processed")
+        queue_document_compile_task(doc.to_dict())
+        success_count += 1
+    if not_found and success_count == 0:
+        return get_result(message=f"Documents not found: {not_found}", code=RetCode.DATA_ERROR)
+    message = f"Queued knowledge compilation for {success_count} document(s)"
+    if skipped:
+        message += f"; skipped disabled: {skipped}"
+    if duplicate_messages:
+        message += f"; {';'.join(duplicate_messages)}"
+    return get_result(data={"success_count": success_count, "skipped": skipped}, message=message)
+
+
 @manager.route("/datasets/<dataset_id>/chunks", methods=["DELETE"])  # noqa: F821
 @login_required
 @add_tenant_id_to_kwargs
