@@ -549,84 +549,67 @@ async def build_chunks(task, progress_callback, on_chunking_start=None):
 
     if task["parser_config"].get("enable_metadata", False) and (task["parser_config"].get("metadata") or task["parser_config"].get("built_in_metadata")):
         st = timer()
-        progress_callback(msg="Start to generate meta-data for every chunk ...")
+        progress_callback(msg="Start to generate document-level meta-data ...")
         chat_model_config = resolve_model_config(task["tenant_id"], LLMType.CHAT, task["llm_id"])
         chat_mdl = LLMBundle(task["tenant_id"], chat_model_config, lang=task["language"])
 
-        # Pre-fetch value_source enum values (once per batch, not per chunk)
-        _metadata_conf_raw = task["parser_config"].get("metadata", [])
-        if isinstance(_metadata_conf_raw, list):
+        metadata_conf = task["parser_config"].get("metadata", [])
+        built_in_metadata = list(task["parser_config"].get("built_in_metadata") or [])
+        if isinstance(metadata_conf, dict):
+            if not isinstance(metadata_conf.get("properties"), dict):
+                metadata_conf = {"type": "object", "properties": {}}
+            if built_in_metadata:
+                metadata_conf = {
+                    **metadata_conf,
+                    "properties": {
+                        **metadata_conf.get("properties", {}),
+                        **turn2jsonschema(built_in_metadata).get("properties", {}),
+                    },
+                }
+        elif isinstance(metadata_conf, list):
+            metadata_conf = metadata_conf + built_in_metadata
+        else:
+            metadata_conf = built_in_metadata
+
+        # Pre-fetch value_source enum values once per document
+        if isinstance(metadata_conf, list):
             from common.data_source.value_source_connector import fetch_enum_options
             from api.db.services.connector_service import ConnectorService
-            for _field in _metadata_conf_raw:
+
+            for _field in metadata_conf:
                 if not isinstance(_field, dict):
                     continue
                 _vs = _field.get("value_source")
                 if _vs and _vs.get("connector_id"):
                     _ok, _conn = ConnectorService.get_by_id(_vs["connector_id"])
                     if not _ok:
-                        raise ValueError(
-                            f"Value source connector not found: {_vs['connector_id']} "
-                            f"(field '{_field.get('name', _field.get('key', ''))}')"
-                        )
+                        raise ValueError(f"Value source connector not found: {_vs['connector_id']} (field '{_field.get('name', _field.get('key', ''))}')")
                     _field["enum_options"] = fetch_enum_options(_conn.to_dict(), _vs)
                     _field["enum"] = [x["value"] for x in _field["enum_options"]]
 
-        async def gen_metadata_task(chat_mdl, d):
-            metadata_conf = task["parser_config"].get("metadata", [])
-            built_in_metadata = list(task["parser_config"].get("built_in_metadata") or [])
-            if isinstance(metadata_conf, dict):
-                if not isinstance(metadata_conf.get("properties"), dict):
-                    metadata_conf = {"type": "object", "properties": {}}
-                if built_in_metadata:
-                    metadata_conf = {
-                        **metadata_conf,
-                        "properties": {
-                            **metadata_conf.get("properties", {}),
-                            **turn2jsonschema(built_in_metadata).get("properties", {}),
-                        },
-                    }
-            elif isinstance(metadata_conf, list):
-                metadata_conf = metadata_conf + built_in_metadata
-            else:
-                metadata_conf = built_in_metadata
-            cached = get_llm_cache(chat_mdl.llm_name, d["content_with_weight"], "metadata", metadata_conf)
+        doc_content = "\n\n".join(d["content_with_weight"] for d in docs if d.get("content_with_weight"))
+        metadata = {}
+        if doc_content:
+            cached = get_llm_cache(chat_mdl.llm_name, doc_content, "metadata", metadata_conf)
             if not cached:
                 if has_canceled(task["id"]):
                     progress_callback(-1, msg="Task has been canceled.")
                     return
                 async with chat_limiter:
-                    cached = await gen_metadata(chat_mdl, turn2jsonschema(metadata_conf), d["content_with_weight"])
-                set_llm_cache(chat_mdl.llm_name, d["content_with_weight"], cached, "metadata", metadata_conf)
+                    cached = await gen_metadata(chat_mdl, turn2jsonschema(metadata_conf), doc_content)
+                set_llm_cache(chat_mdl.llm_name, doc_content, cached, "metadata", metadata_conf)
             if cached:
-                d["metadata_obj"] = cached
-
-        tasks = []
-        for d in docs:
-            tasks.append(asyncio.create_task(gen_metadata_task(chat_mdl, d)))
-        try:
-            await asyncio.gather(*tasks, return_exceptions=False)
-        except Exception as e:
-            logging.error("Error in doc_question_proposal", exc_info=e)
-            for t in tasks:
-                t.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
-            raise
-        metadata = {}
-        for doc in docs:
-            metadata = update_metadata_to(metadata, doc["metadata_obj"])
-            del doc["metadata_obj"]
+                metadata = update_metadata_to(metadata, cached)
         if metadata:
             existing_meta = DocMetadataService.get_document_metadata(task["doc_id"])
             existing_meta = existing_meta if isinstance(existing_meta, dict) else {}
             metadata = update_metadata_to(metadata, existing_meta)
             ret = DocMetadataService.update_document_metadata(task["doc_id"], metadata)
             get_recording_context().save_func_return_value("DocMetadataService.update_document_metadata", ret)
-        progress_callback(msg="Question generation {} chunks completed in {:.2f}s".format(len(docs), timer() - st))
+        progress_callback(msg=f"Document-level metadata generation completed in {timer() - st:.2f}s")
 
-    # Record metadata generation count
-    metadata_list = [d for d in docs if d.get("metadata_obj")]
-    get_recording_context().record("metadata_list_generated", metadata_list)
+    # Record metadata generation (document-level; no per-chunk metadata_obj)
+    get_recording_context().record("metadata_list_generated", [])
 
     if task["kb_parser_config"].get("tag_kb_ids", []):
         progress_callback(msg="Start to tag for every chunk ...")

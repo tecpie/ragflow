@@ -176,8 +176,8 @@ def build_metadata_config(parser_config: dict) -> list:
     cache and generation functions.
 
     This should be called once per ``generate_metadata`` invocation — the result
-    is identical for every chunk within the same document parse session so
-    extracting it avoids rebuilding inside the per-chunk async task.
+    is identical for the whole document parse session so extracting it avoids
+    rebuilding for the document-level LLM call.
 
     Args:
         parser_config: Configuration dict from the parser, expected to contain
@@ -207,50 +207,66 @@ def build_metadata_config(parser_config: dict) -> list:
     return metadata_conf
 
 
+def _prefetch_metadata_value_sources(metadata_conf) -> None:
+    """Resolve value_source enums once before document-level metadata extraction."""
+    if not isinstance(metadata_conf, list):
+        return
+    from api.db.services.connector_service import ConnectorService
+    from common.data_source.value_source_connector import fetch_enum_options
+
+    for field in metadata_conf:
+        if not isinstance(field, dict):
+            continue
+        value_source = field.get("value_source")
+        if not value_source or not value_source.get("connector_id"):
+            continue
+        ok, conn = ConnectorService.get_by_id(value_source["connector_id"])
+        if not ok:
+            raise ValueError(f"Value source connector not found: {value_source['connector_id']} (field '{field.get('name', field.get('key', ''))}')")
+        field["enum_options"] = fetch_enum_options(conn.to_dict(), value_source)
+        field["enum"] = [x["value"] for x in field["enum_options"]]
+
+
+def _document_content_for_metadata(docs: list[dict]) -> str:
+    """Concatenate chunk texts for a single document-level metadata LLM call.
+
+    ``gen_metadata`` truncates via ``message_fit_in`` to the model context window.
+    """
+    return "\n\n".join(d["content_with_weight"] for d in docs if d.get("content_with_weight"))
+
+
 async def generate_metadata(docs: list[dict], ctx: TaskContext) -> None:
-    """Generate metadata for chunks.
+    """Generate document-level metadata from concatenated chunk content.
 
     Args:
-        docs: List of chunk dictionaries to process.
+        docs: List of chunk dictionaries whose content is joined for extraction.
         ctx: TaskContext containing task configuration.
     """
     chat_limiter = ctx.chat_limiter
 
     st = timer()
-    ctx.progress_cb(msg="Start to generate meta-data for every chunk ...")
+    ctx.progress_cb(msg="Start to generate document-level meta-data ...")
     chat_model_config = resolve_model_config(ctx.tenant_id, LLMType.CHAT, ctx.llm_id)
     with LLMBundle(ctx.tenant_id, chat_model_config, lang=ctx.language) as chat_model:
         metadata_conf = build_metadata_config(ctx.parser_config)
+        _prefetch_metadata_value_sources(metadata_conf)
+        doc_content = _document_content_for_metadata(docs)
+        if not doc_content:
+            ctx.progress_cb(msg="Metadata generation skipped: empty document content")
+            return
 
-        async def gen_metadata_task(chat_mdl, d):
-            cached = get_llm_cache(chat_mdl.llm_name, d["content_with_weight"], "metadata", metadata_conf)
-            if not cached:
-                if ctx.has_canceled_func(ctx.id):
-                    ctx.progress_cb(-1, msg="Task has been canceled.")
-                    return
-                async with chat_limiter:
-                    cached = await gen_metadata(chat_mdl, turn2jsonschema(metadata_conf), d["content_with_weight"])
-                set_llm_cache(chat_mdl.llm_name, d["content_with_weight"], cached, "metadata", metadata_conf)
-            if cached:
-                d["metadata_obj"] = cached
-
-        tasks = []
-        for doc in docs:
-            tasks.append(asyncio.create_task(gen_metadata_task(chat_model, doc)))
-        try:
-            await asyncio.gather(*tasks, return_exceptions=False)
-        except Exception as e:
-            logging.error("Error in gen_metadata", exc_info=e)
-            for t in tasks:
-                t.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
-            raise
+        cached = get_llm_cache(chat_model.llm_name, doc_content, "metadata", metadata_conf)
+        if not cached:
+            if ctx.has_canceled_func(ctx.id):
+                ctx.progress_cb(-1, msg="Task has been canceled.")
+                return
+            async with chat_limiter:
+                cached = await gen_metadata(chat_model, turn2jsonschema(metadata_conf), doc_content)
+            set_llm_cache(chat_model.llm_name, doc_content, cached, "metadata", metadata_conf)
 
         metadata = {}
-        for doc in docs:
-            if "metadata_obj" in doc:
-                metadata = update_metadata_to(metadata, doc["metadata_obj"])
-                del doc["metadata_obj"]
+        if cached:
+            metadata = update_metadata_to(metadata, cached)
         if metadata:
             existing_meta = DocMetadataService.get_document_metadata(ctx.doc_id)
             existing_meta = existing_meta if isinstance(existing_meta, dict) else {}
@@ -259,7 +275,7 @@ async def generate_metadata(docs: list[dict], ctx: TaskContext) -> None:
                 ctx.write_interceptor.intercept("DocMetadataService.update_document_metadata")
             else:
                 DocMetadataService.update_document_metadata(ctx.doc_id, metadata)
-        ctx.progress_cb(msg=f"Metadata generation {len(docs)} chunks completed in {timer() - st:.2f}s")
+        ctx.progress_cb(msg=f"Document-level metadata generation completed in {timer() - st:.2f}s")
 
 
 def apply_built_in_metadata(ctx: TaskContext) -> None:
