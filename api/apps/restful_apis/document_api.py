@@ -852,6 +852,7 @@ def list_docs(dataset_id, tenant_id):
             doc_item["parser_config"]["metadata"] = turn2jsonschema(doc_item["parser_config"]["metadata"])
     return get_json_result(data={"total": total, "docs": renamed_doc_list})
 
+
 def _get_docs_with_request(req, dataset_id: str):
     """Get documents with request parameters from a dataset.
 
@@ -868,6 +869,8 @@ def _get_docs_with_request(req, dataset_id: str):
             - suffix (list): File suffix filters.
             - types (list): Document type filters.
             - run (list): Processing status filters.
+            - name (str): Exact document name filter.
+            - content_hash (str): Exact content hash filter.
             - create_time_from (int): Start timestamp for time range filter.
             - create_time_to (int): End timestamp for time range filter.
             - return_empty_metadata (bool|str): Whether to return documents with empty metadata.
@@ -919,6 +922,7 @@ def _get_docs_with_request(req, dataset_id: str):
         return err_code, err_message, [], 0
 
     doc_name = q.get("name")
+    content_hash = q.get("content_hash")
     doc_id = q.get("id")
     if doc_id:
         if not DocumentService.query(id=doc_id, kb_id=dataset_id):
@@ -938,7 +942,19 @@ def _get_docs_with_request(req, dataset_id: str):
         doc_ids_filter = doc_ids
 
     docs, total = DocumentService.get_by_kb_id(
-        dataset_id, page, page_size, orderby, desc, keywords, run_status_converted, types, suffix, name=doc_name, doc_ids=doc_ids_filter, return_empty_metadata=return_empty_metadata
+        dataset_id,
+        page,
+        page_size,
+        orderby,
+        desc,
+        keywords,
+        run_status_converted,
+        types,
+        suffix,
+        name=doc_name,
+        content_hash=content_hash,
+        doc_ids=doc_ids_filter,
+        return_empty_metadata=return_empty_metadata,
     )
 
     # time range filter (0 means no bound)

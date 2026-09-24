@@ -727,6 +727,7 @@ func parseDocumentListOptions(c *gin.Context, datasetID string) (dao.DocumentLis
 	}
 
 	opts.Name = c.Query("name")
+	opts.ContentHash = c.Query("content_hash")
 	docID := c.Query("id")
 	docIDs := queryValues(c, "ids")
 	if docID != "" && len(docIDs) > 0 {

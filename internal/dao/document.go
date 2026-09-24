@@ -124,6 +124,7 @@ type DocumentListOptions struct {
 	Types              []string
 	Suffixes           []string
 	Name               string
+	ContentHash        string
 	DocIDs             []string
 	DocIDFilterApplied bool
 	CreateTimeFrom     int64
@@ -299,6 +300,9 @@ func applyDocumentListFilters(query *gorm.DB, opts DocumentListOptions, qualifie
 	}
 	if opts.Name != "" {
 		query = query.Where(column("name")+" = ?", opts.Name)
+	}
+	if opts.ContentHash != "" {
+		query = query.Where(column("content_hash")+" = ?", opts.ContentHash)
 	}
 	if opts.DocIDFilterApplied {
 		if len(opts.DocIDs) == 0 {

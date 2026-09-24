@@ -144,7 +144,22 @@ class DocumentService(CommonService):
 
     @classmethod
     @DB.connection_context()
-    def get_by_kb_id(cls, kb_id, page_number, items_per_page, orderby, desc, keywords, run_status, types, suffix, name=None, doc_ids=None, return_empty_metadata=False):
+    def get_by_kb_id(
+        cls,
+        kb_id,
+        page_number,
+        items_per_page,
+        orderby,
+        desc,
+        keywords,
+        run_status,
+        types,
+        suffix,
+        name=None,
+        content_hash=None,
+        doc_ids=None,
+        return_empty_metadata=False,
+    ):
         if doc_ids is not None and len(doc_ids) == 0:
             return [], 0
 
@@ -179,6 +194,8 @@ class DocumentService(CommonService):
             docs = docs.where(cls.model.suffix.in_(suffix))
         if name:
             docs = docs.where(cls.model.name == name)
+        if content_hash:
+            docs = docs.where(cls.model.content_hash == content_hash)
 
         if return_empty_metadata:
             metadata_map = DocMetadataService.get_metadata_for_documents(None, kb_id)
