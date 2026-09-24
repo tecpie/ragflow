@@ -3019,6 +3019,9 @@ class LiteLLMBase(ABC):
             **kwargs,
             **policy_request_kwargs,
         }
+        # gen_conf/kwargs must not replace the provider-qualified model name
+        # (e.g. openai/qwen3-32b). A bare model triggers litellm.BadRequestError.
+        completion_args["model"] = self.model_name
         if self.provider == SupportedLiteLLMProvider.Nvidia:
             completion_args["num_retries"] = 0
         else:

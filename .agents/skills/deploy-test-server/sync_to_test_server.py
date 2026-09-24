@@ -36,6 +36,12 @@ TARGETS = {
         "docker_service": "ragflow-cpu",
         "container": "ragflow",
     },
+    "prod": {
+        "remote_base": "/data/docker/ragflow-prod/ragflow",
+        "docker_dir": "/data/docker/ragflow-prod",
+        "docker_service": "ragflow-cpu",
+        "container": "ragflow-prod",
+    },
 }
 
 # Local build helper 鈥?do not upload to the test server docker dirs.
@@ -111,18 +117,25 @@ def _config(target: str = "debug") -> dict[str, str]:
         raise SystemExit(f"Unknown target {target!r}. Use: {', '.join(TARGETS)}")
 
     defaults = TARGETS[target]
-    host = os.environ.get("SYNC_HOST", "172.16.0.31").strip()
-    user = os.environ.get("SYNC_USER", "root").strip()
+    if target == "prod":
+        host = os.environ.get("SYNC_HOST_PROD", "").strip() or "172.16.0.139"
+    else:
+        host = os.environ.get("SYNC_HOST", "172.16.0.31").strip() or "172.16.0.31"
+    user = _target_env("SYNC_USER", target, os.environ.get("SYNC_USER", "root").strip() or "root")
     remote_base = _target_env("SYNC_REMOTE_BASE", target, defaults["remote_base"])
     docker_dir = _target_env("SYNC_DOCKER_DIR", target, defaults["docker_dir"])
     docker_service = _target_env("SYNC_DOCKER_SERVICE", target, defaults["docker_service"])
-    docker_compose = os.environ.get("SYNC_DOCKER_COMPOSE", "docker-compose").strip()
+    if target == "prod":
+        docker_compose = os.environ.get("SYNC_DOCKER_COMPOSE_PROD", "").strip() or "docker compose"
+    else:
+        docker_compose = os.environ.get("SYNC_DOCKER_COMPOSE", "docker-compose").strip() or "docker-compose"
 
     return {
         "target": target,
         "host": host,
         "user": user,
-        "password": os.environ.get("SYNC_PASS", "").strip(),
+        "password": os.environ.get("SYNC_PASS", "").strip()
+        or (os.environ.get("SYNC_PASS_PROD", "").strip() if target == "prod" else ""),
         "ssh_key": str(_ssh_key_path()),
         "remote_base": remote_base.rstrip("/"),
         "docker_dir": docker_dir.rstrip("/"),
@@ -149,8 +162,8 @@ def _connect(cfg: dict[str, str], *, require_password: bool = False) -> tuple[pa
         "hostname": cfg["host"],
         "username": cfg["user"],
         "timeout": 30,
-        "allow_agent": True,
-        "look_for_keys": not require_password,
+        "allow_agent": False,
+        "look_for_keys": False,
     }
 
     key_path = Path(cfg["ssh_key"]).expanduser()
@@ -379,6 +392,19 @@ def _stable_image() -> str:
     return f"{_image_repo()}:{_branch_image_tag()}"
 
 
+def _prod_image() -> str:
+    custom = os.environ.get("PROD_RAGFLOW_IMAGE", "").strip()
+    if custom:
+        return custom
+    return os.environ.get("STABLE_RAGFLOW_IMAGE", "").strip() or f"{_image_repo()}:{_branch_image_tag()}"
+
+
+def _release_image_for_target(target: str) -> str:
+    if target == "prod":
+        return _prod_image()
+    return _stable_image()
+
+
 def _parse_env_assignments(text: str, *, first_wins: bool = True) -> dict[str, str]:
     result: dict[str, str] = {}
     for line in text.splitlines():
@@ -602,7 +628,7 @@ def _strip_init_model_provider_flag(text: str) -> str:
 def _patch_compose_for_target(text: str, target: str) -> str:
     text = _comment_depends_on_blocks(text)
     text = _strip_init_model_provider_flag(text)
-    name = "ragflow-debug" if target == "debug" else "ragflow"
+    name = {"debug": "ragflow-debug", "stable": "ragflow", "prod": "ragflow-prod"}[target]
     text = _ensure_container_name(text, "ragflow-cpu", name)
     # gpu keeps default generated name; cpu is the one we run
     volumes = _DEBUG_VOLUMES if target == "debug" else _STABLE_VOLUMES
@@ -961,7 +987,7 @@ echo "debug full update complete (image=$debug_image)"
             raise SystemExit(err or out or f"Migration failed with exit code {exit_code}")
 
 
-def _release_stable(
+def _release_image_target(
     cfg: dict[str, str],
     client: paramiko.SSHClient,
     sftp: paramiko.SFTPClient,
@@ -969,24 +995,50 @@ def _release_stable(
     docker_dir = cfg["docker_dir"]
     compose = cfg["docker_compose"]
     service = cfg["docker_service"]
-    stable_image = _stable_image()
+    target = cfg["target"]
+    image = _release_image_for_target(target)
 
-    _sync_docker_dir(
-        cfg,
-        sftp,
-        force_env={"RAGFLOW_IMAGE": stable_image},
-    )
+    force_env: dict[str, str] = {"RAGFLOW_IMAGE": image}
+    if target == "prod":
+        force_env.update(
+            {
+                "MYSQL_HOST": os.environ.get("PROD_MYSQL_HOST", "172.16.0.20").strip(),
+                "MYSQL_PORT": os.environ.get("PROD_MYSQL_PORT", "3306").strip(),
+                "MYSQL_DBNAME": os.environ.get("PROD_MYSQL_DBNAME", "ragflow_prod").strip(),
+                "MYSQL_USER": os.environ.get("PROD_MYSQL_USER", "ragflow_prod").strip(),
+                "MYSQL_PASSWORD": os.environ.get("PROD_MYSQL_PASSWORD", "").strip(),
+                "ES_HOST": os.environ.get("PROD_ES_HOST", "172.16.0.23").strip(),
+                "ELASTIC_PASSWORD": os.environ.get("PROD_ELASTIC_PASSWORD", "").strip(),
+                "MINIO_HOST": os.environ.get("PROD_MINIO_HOST", "172.16.0.106").strip(),
+                "MINIO_USER": os.environ.get("PROD_MINIO_USER", "minioadmin").strip(),
+                "MINIO_PASSWORD": os.environ.get("PROD_MINIO_PASSWORD", "").strip(),
+                "REDIS_HOST": os.environ.get("PROD_REDIS_HOST", "172.16.0.31").strip(),
+                "REDIS_PORT": os.environ.get("PROD_REDIS_PORT", "6379").strip(),
+                "REDIS_PASSWORD": os.environ.get("PROD_REDIS_PASSWORD", "").strip(),
+                "REDIS_DB": os.environ.get("PROD_REDIS_DB", "3").strip(),
+                "SVR_WEB_HTTP_PORT": os.environ.get("PROD_SVR_WEB_HTTP_PORT", "9080").strip(),
+                "SVR_WEB_HTTPS_PORT": os.environ.get("PROD_SVR_WEB_HTTPS_PORT", "9443").strip(),
+                "SVR_HTTP_PORT": os.environ.get("PROD_SVR_HTTP_PORT", "9380").strip(),
+                "ADMIN_SVR_HTTP_PORT": os.environ.get("PROD_ADMIN_SVR_HTTP_PORT", "9381").strip(),
+                "SVR_MCP_PORT": os.environ.get("PROD_SVR_MCP_PORT", "9382").strip(),
+                "GO_ADMIN_PORT": os.environ.get("PROD_GO_ADMIN_PORT", "9383").strip(),
+                "GO_HTTP_PORT": os.environ.get("PROD_GO_HTTP_PORT", "9384").strip(),
+                "API_PROXY_SCHEME": os.environ.get("PROD_API_PROXY_SCHEME", "python").strip(),
+            }
+        )
+
+    _sync_docker_dir(cfg, sftp, force_env=force_env)
 
     script = f"""set -euo pipefail
 docker_dir={docker_dir!r}
 service={service!r}
 compose={compose!r}
-stable_image={stable_image!r}
+image={image!r}
+target={target!r}
 
 chmod +x "$docker_dir/entrypoint.sh" 2>/dev/null || true
 sed -i 's/\\r$//' "$docker_dir/entrypoint.sh" "$docker_dir/service_conf.yaml.template" 2>/dev/null || true
 
-# Ensure no debug/code tree is mounted into stable.
 if grep -qE 'ragflow-debug/ragflow|/ragflow:[[:space:]]*$|\\./ragflow:/ragflow' "$docker_dir/docker-compose.yml"; then
   echo "WARNING: compose still references a host ragflow code mount; patched sync should have removed it"
   grep -nE 'ragflow-debug|\\./ragflow:/ragflow' "$docker_dir/docker-compose.yml" || true
@@ -996,12 +1048,20 @@ cd "$docker_dir"
 echo "=== pull image ==="
 $compose pull "$service"
 
-echo "=== recreate stable container ==="
+echo "=== recreate $target container ==="
 $compose --profile cpu up -d --force-recreate "$service"
-echo "stable release complete (image=$stable_image)"
+echo "$target release complete (image=$image)"
 """
-    print(f"releasing stable -> {cfg['host']} (image {stable_image})")
+    print(f"releasing {target} -> {cfg['host']} (image {image})")
     _run_remote_script(client, script, timeout=1800)
+
+
+def _release_stable(
+    cfg: dict[str, str],
+    client: paramiko.SSHClient,
+    sftp: paramiko.SFTPClient,
+) -> None:
+    _release_image_target(cfg, client, sftp)
 
 
 def main() -> int:
@@ -1043,7 +1103,7 @@ def main() -> int:
         "--target",
         choices=sorted(TARGETS),
         default="debug",
-        help="Deploy target: debug (default) or stable",
+        help="Deploy target: debug (default), stable, or prod",
     )
     parser.add_argument("--no-restart", action="store_true", help="Skip docker-compose restart")
     parser.add_argument(
@@ -1054,7 +1114,12 @@ def main() -> int:
     parser.add_argument(
         "--release-stable",
         action="store_true",
-        help="Pull latest image and recreate stable container (no file upload)",
+        help="Pull pinned image and recreate stable container (no app code upload)",
+    )
+    parser.add_argument(
+        "--release-prod",
+        action="store_true",
+        help="Sync docker/ + pull pinned image and recreate prod on SYNC_HOST_PROD",
     )
     parser.add_argument(
         "--setup-ssh",
@@ -1063,17 +1128,21 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    if args.release_prod:
+        args.target = "prod"
     cfg = _config(args.target)
     if args.setup_ssh:
         setup_ssh(cfg)
         return 0
 
-    if args.release_stable:
-        if cfg["target"] != "stable":
+    if args.release_stable or args.release_prod:
+        if args.release_stable and cfg["target"] != "stable":
             raise SystemExit("--release-stable requires --target stable")
+        if args.release_prod and cfg["target"] != "prod":
+            raise SystemExit("--release-prod requires --target prod")
         client, sftp = _connect(cfg)
         try:
-            _release_stable(cfg, client, sftp)
+            _release_image_target(cfg, client, sftp)
         finally:
             sftp.close()
             client.close()

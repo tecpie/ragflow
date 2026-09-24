@@ -35,7 +35,7 @@ RUN --mount=type=bind,from=registry.cn-hangzhou.aliyuncs.com/tecpie/ragflow_deps
 # instead of shipping a degraded counter nobody notices.
 # The tokenizer.json files that download_deps.py fetches as cross-check oracles are
 # test-only and deliberately not shipped here.
-RUN --mount=type=bind,from=infiniflow/ragflow_deps:latest,source=/huggingface.co,target=/huggingface.co \
+RUN --mount=type=bind,from=registry.cn-hangzhou.aliyuncs.com/tecpie/ragflow_deps:latest,source=/huggingface.co,target=/huggingface.co \
     for asset in \
         BAAI/bge-m3/sentencepiece.bpe.model \
         BAAI/bge-large-en-v1.5/vocab.txt \
@@ -45,7 +45,7 @@ RUN --mount=type=bind,from=infiniflow/ragflow_deps:latest,source=/huggingface.co
             mkdir -p "/ragflow/ragflow_deps/huggingface.co/$(dirname "$asset")" && \
             cp "/huggingface.co/$asset" "/ragflow/ragflow_deps/huggingface.co/$asset" ; \
         else \
-            echo "ERROR: tokenizer asset $asset is missing from the infiniflow/ragflow_deps image; this image would count with the calibrated estimate instead of the model's own tokenizer" >&2 ; \
+            echo "ERROR: tokenizer asset $asset is missing from the ragflow_deps image; this image would count with the calibrated estimate instead of the model's own tokenizer" >&2 ; \
             exit 1 ; \
         fi ; \
     done
@@ -85,7 +85,7 @@ RUN --mount=type=secret,id=gitee_token \
         if [ -n "$GITEE_TOKEN" ]; then \
             git clone --depth 1 --single-branch "https://oauth2:${GITEE_TOKEN}@gitee.com/infiniflow/resource" /tmp/resource; \
         else \
-            git clone --depth 1 --single-branch https://github.com/infiniflow/resource.git /tmp/resource; \
+            git clone --depth 1 --single-branch https://gitee.com/infiniflow/resource.git /tmp/resource; \
         fi; \
     else \
         git clone --depth 1 --single-branch https://github.com/infiniflow/resource.git /tmp/resource; \
