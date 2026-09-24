@@ -147,8 +147,9 @@ func (dao *ChatSessionDAO) DeleteByID(ctx context.Context, db *gorm.DB, id strin
 	})
 }
 
-// ListByChatID lists chat sessions by chat ID
-func (dao *ChatSessionDAO) ListByChatID(ctx context.Context, db *gorm.DB, chatID, sessionID, name string, terms []OrderTerm, page, pageSize int, includeHistory ...bool) ([]*entity.ChatSession, error) {
+// ListByChatID lists chat sessions by chat ID.
+// When filterUserID is non-empty, only sessions owned by that end-user are returned.
+func (dao *ChatSessionDAO) ListByChatID(ctx context.Context, db *gorm.DB, chatID, sessionID, name, filterUserID string, terms []OrderTerm, page, pageSize int, includeHistory ...bool) ([]*entity.ChatSession, error) {
 	var chatSessions []*entity.ChatSession
 	query := db.WithContext(ctx).Session(&gorm.Session{QueryFields: true}).Where("dialog_id = ?", chatID)
 	if sessionID != "" {
@@ -156,6 +157,9 @@ func (dao *ChatSessionDAO) ListByChatID(ctx context.Context, db *gorm.DB, chatID
 	}
 	if name != "" {
 		query = query.Where("name = ?", name)
+	}
+	if filterUserID != "" {
+		query = query.Where("user_id = ?", filterUserID)
 	}
 	query = query.Order(chatSessionOrderClause(terms))
 	if pageSize > 0 {

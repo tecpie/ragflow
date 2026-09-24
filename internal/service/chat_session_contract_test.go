@@ -60,6 +60,60 @@ func TestCreateSession_Success(t *testing.T) {
 	}
 }
 
+func TestCreateSession_UsesRequestUserID(t *testing.T) {
+	store := newFakeSessionStore()
+	store.dialogExists["tenant-1|chat-1"] = true
+	store.dialogs["chat-1"] = &entity.Chat{ID: "chat-1", PromptConfig: entity.JSONMap{"prologue": "hi"}}
+
+	svc := &ChatSessionService{
+		chatSessionDAO: store,
+		userTenantDAO:  &fakeTenantStore{},
+		pipeline:       &fakePipeline{},
+	}
+
+	ctx := t.Context()
+	_, code, err := svc.CreateSession(ctx, "tenant-1", "chat-1", map[string]interface{}{
+		"name":    "end-user-session",
+		"user_id": "platform-user-9",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if code != common.CodeSuccess {
+		t.Fatalf("code=%v", code)
+	}
+	var created *entity.ChatSession
+	for _, s := range store.sessions {
+		created = s
+		break
+	}
+	if created == nil || created.UserID == nil || *created.UserID != "platform-user-9" {
+		t.Fatalf("expected session user_id=platform-user-9, got %#v", created)
+	}
+}
+
+func TestListChatSessions_FiltersByUserID(t *testing.T) {
+	store := newFakeSessionStore()
+	store.sessions["s1"] = &entity.ChatSession{ID: "s1", DialogID: "chat-1", UserID: strPtr("u-a")}
+	store.sessions["s2"] = &entity.ChatSession{ID: "s2", DialogID: "chat-1", UserID: strPtr("u-b")}
+	store.dialogExists["tenant-1|chat-1"] = true
+
+	svc := &ChatSessionService{
+		chatSessionDAO: store,
+		userTenantDAO:  &fakeTenantStore{tenantIDs: []string{"tenant-1"}},
+		pipeline:       &fakePipeline{},
+	}
+
+	ctx := t.Context()
+	resp, err := svc.ListChatSessions(ctx, "caller", "chat-1", "", "", "u-a", []dao.OrderTerm{{Column: "create_time", Desc: true}}, 1, 30)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Sessions) != 1 || resp.Sessions[0].ID != "s1" {
+		t.Fatalf("expected only s1, got %#v", resp.Sessions)
+	}
+}
+
 func TestCreateSession_RejectsEmptyOrNonStringName(t *testing.T) {
 	store := newFakeSessionStore()
 	store.dialogExists["user-1|chat-1"] = true

@@ -820,6 +820,18 @@ async def bulk_delete_chats():
     return get_json_result(data={"success_count": success_count})
 
 
+def _resolve_session_user_id(req: dict | None = None) -> str:
+    """Prefer end-user id from body/query; fall back to API-token owner (tenant)."""
+    raw = None
+    if isinstance(req, dict):
+        raw = req.get("user_id")
+    if raw is None:
+        raw = request.args.get("user_id")
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip()
+    return current_user.id
+
+
 @manager.route("/chats/<chat_id>/sessions", methods=["POST"])  # noqa: F821
 @login_required
 async def create_session(chat_id):
@@ -840,7 +852,7 @@ async def create_session(chat_id):
             "dialog_id": chat_id,
             "name": name,
             "message": [{"role": "assistant", "content": dia.prompt_config.get("prologue", "")}],
-            "user_id": current_user.id,
+            "user_id": _resolve_session_user_id(req),
             "reference": [],
         }
         ConversationService.save(**conv)
@@ -1274,7 +1286,7 @@ async def session_completion(chat_id_in_arg=""):
                 if conv.dialog_id != chat_id:
                     return get_data_error_result(message="Session does not belong to this chat!")
             else:
-                conv = await _create_session_for_completion(chat_id, dia, current_user.id, save_session=store_history_messages)
+                conv = await _create_session_for_completion(chat_id, dia, _resolve_session_user_id(req), save_session=store_history_messages)
                 session_id = conv.id
 
             if pass_all_history_messages:
