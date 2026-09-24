@@ -1145,9 +1145,9 @@ func finalizeGeneralChunks(chunks []schema.ChunkDoc, childrenPattern *regexp.Reg
 }
 
 // splitGeneralChildren keeps the matched child delimiter attached to the
-// preceding child. This matches the legacy General/naive path; the shared
-// TokenChunker splitByChildren helper intentionally drops delimiters and is
-// therefore not reused here.
+// preceding child. This matches the legacy General/naive path; TokenChunker's
+// splitByChildren drops delimiters, so only the shared position assignment in
+// splitOneChunkByChildren is reused here.
 func splitGeneralChildren(chunks []schema.ChunkDoc, pattern *regexp.Regexp) []schema.ChunkDoc {
 	if pattern == nil {
 		return chunks
@@ -1158,16 +1158,17 @@ func splitGeneralChildren(chunks []schema.ChunkDoc, pattern *regexp.Regexp) []sc
 			result = append(result, chunk)
 			continue
 		}
-		mom := strings.TrimPrefix(chunk.Text, "\n")
+		parts := make([]string, 0)
 		for _, part := range splitKeepingGeneralDelimiter(chunk.Text, pattern) {
 			if strings.TrimSpace(part) == "" {
 				continue
 			}
-			piece := cloneChunkDoc(chunk)
-			piece.Text = part
-			piece.Mom = mom
-			result = append(result, piece)
+			parts = append(parts, part)
 		}
+		if len(parts) == 0 {
+			continue
+		}
+		result = append(result, splitOneChunkByChildren(chunk, parts)...)
 	}
 	return result
 }

@@ -429,6 +429,37 @@ def tokenize(d, txt, eng, language="English"):
     d["content_sm_ltks"] = rag_tokenizer.fine_grained_tokenize(d["content_ltks"])
 
 
+def _position_int_to_matrix(position_int):
+    if not position_int:
+        return []
+    out = []
+    for row in position_int:
+        if not row or len(row) < 5:
+            continue
+        out.append([float(row[0]), float(row[1]), float(row[2]), float(row[3]), float(row[4])])
+    return out
+
+
+def _apply_position_matrix(d, matrix):
+    if not matrix:
+        return
+    page_num_int = []
+    position_int = []
+    top_int = []
+    for row in matrix:
+        if not row or len(row) < 5:
+            continue
+        pn, left, right, top, bottom = row[:5]
+        page_num_int.append(int(pn))
+        top_int.append(int(top))
+        position_int.append((int(pn), int(left), int(right), int(top), int(bottom)))
+    if not position_int:
+        return
+    d["page_num_int"] = page_num_int
+    d["position_int"] = position_int
+    d["top_int"] = top_int
+
+
 def split_with_pattern(d, pattern: str, content: str, eng, language="English") -> list:
     docs = []
 
@@ -443,14 +474,36 @@ def split_with_pattern(d, pattern: str, content: str, eng, language="English") -
         return [dd]
 
     txts = [txt for txt in compiled_pattern.split(content)]
+    parts = []
     for j in range(0, len(txts), 2):
         txt = txts[j]
         if not txt:
             continue
         if j + 1 < len(txts):
             txt += txts[j + 1]
+        parts.append(txt)
+    if not parts:
+        return docs
+
+    # Lazy import: rag.flow.chunker.token_chunker already imports rag.nlp.
+    from rag.flow.chunker.children_positions import assign_child_positions
+
+    parent_pos = _position_int_to_matrix(d.get("position_int"))
+    parent_for_assign = {
+        "text": content,
+        "positions": parent_pos,
+        "_pdf_positions": parent_pos,
+    }
+
+    for i, txt in enumerate(parts):
         dd = copy.deepcopy(d)
         tokenize(dd, txt, eng, language=language)
+        if parent_pos:
+            child_view = {}
+            assign_child_positions(child_view, parent_for_assign, txt, parts, i, lambda t: t)
+            sliced = child_view.get("_pdf_positions") or child_view.get("positions")
+            if sliced:
+                _apply_position_matrix(dd, sliced)
         docs.append(dd)
     return docs
 

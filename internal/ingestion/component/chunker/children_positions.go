@@ -28,12 +28,6 @@ func splitOneChunkByChildren(ck schema.ChunkDoc, parts []string) []schema.ChunkD
 	if len(parts) == 0 {
 		return nil
 	}
-	if len(parts) == 1 {
-		cp := cloneChunkDoc(ck)
-		cp.Text = parts[0]
-		cp.Mom = strings.TrimPrefix(ck.Text, "\n")
-		return []schema.ChunkDoc{cp}
-	}
 
 	mom := strings.TrimPrefix(ck.Text, "\n")
 	parentPDF := ck.PDFPositions
@@ -51,7 +45,7 @@ func splitOneChunkByChildren(ck schema.ChunkDoc, parts []string) []schema.ChunkD
 
 	for i, p := range parts {
 		cp := cloneChunkDoc(ck)
-		cp.Text = p
+		setChunkText(&cp, p)
 		cp.Mom = mom
 		if !hasCoords {
 			out = append(out, cp)
