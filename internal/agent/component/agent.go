@@ -119,6 +119,13 @@ type AgentParam struct {
 	// outputs.structured; when set, Invoke populates outputs["structured"]
 	// so downstream Message templates like {Agent:X@structured} resolve.
 	OutputStructure map[string]any
+
+	// MaxTokensDisabled, TopPDisabled and TemperatureDisabled record a DSL
+	// *Enabled switch set to false, so runtime inputs that carry the value
+	// without its switch do not bring it back (see gateSampler).
+	MaxTokensDisabled   bool
+	TopPDisabled        bool
+	TemperatureDisabled bool
 }
 
 // SubAgentTool is a child Agent exposed to a parent Agent as an Eino tool.
@@ -1678,17 +1685,17 @@ func mergeAgentParam(base AgentParam, inputs map[string]any) AgentParam {
 		f := v
 		p.TopP = &f
 	}
+	gateSampler(inputs, "topPEnabled", &p.TopP, &p.TopPDisabled)
 	if v, ok := intFrom(inputs, "max_tokens"); ok {
 		f := v
 		p.MaxTokens = &f
 	}
-	if enabled, ok := boolFrom(inputs, "maxTokensEnabled"); ok && !enabled {
-		p.MaxTokens = nil
-	}
+	gateSampler(inputs, "maxTokensEnabled", &p.MaxTokens, &p.MaxTokensDisabled)
 	if v, ok := floatFrom(inputs, "temperature"); ok {
 		f := v
 		p.Temperature = &f
 	}
+	gateSampler(inputs, "temperatureEnabled", &p.Temperature, &p.TemperatureDisabled)
 	if v, ok := stringFrom(inputs, "thinking"); ok && v != "" && v != "default" {
 		p.Thinking = v
 	}
