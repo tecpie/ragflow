@@ -70,6 +70,8 @@ func (g *GPUStackModel) ChatWithMessages(ctx context.Context, modelName string, 
 	baseURL = strings.TrimSuffix(baseURL, "/")
 	url := fmt.Sprintf("%s/%s", baseURL, g.baseModel.URLSuffix.Chat)
 	reqBody := buildRequestBody(chatModelConfig, modelName, messages, false)
+	// GPUStack multi-engine gateways need both thinking and chat_template_kwargs.
+	applyEnableThinkingPolicy(modelName, g.Name(), chatConfigThinking(chatModelConfig), reqBody)
 
 	body, err := g.baseModel.doRequest(ctx, url, apiConfig, reqBody, nonStreamCallTimeout)
 	if err != nil {
@@ -106,6 +108,7 @@ func (g *GPUStackModel) ChatStreamlyWithSender(ctx context.Context, modelName st
 	url := fmt.Sprintf("%s/%s", baseURL, g.baseModel.URLSuffix.Chat)
 	reqBody := buildRequestBody(chatModelConfig, modelName, messages, true)
 	reqBody["stream_options"] = map[string]any{"include_usage": true}
+	applyEnableThinkingPolicy(modelName, g.Name(), chatConfigThinking(chatModelConfig), reqBody)
 
 	return g.baseModel.doStreamRequest(ctx, url, apiConfig, reqBody, streamCallTimeout, func(body io.ReadCloser) error {
 		return HandleStreamingResponse(body, modelUsage, chatModelConfig, OpenAIParserConfig, sender)

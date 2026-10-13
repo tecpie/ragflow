@@ -21,7 +21,8 @@ import React from 'react';
 import { useNavigate } from 'react-router';
 import { Button } from '../ui/button';
 
-interface BackButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+interface BackButtonProps
+  extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   to?: string;
 }
 

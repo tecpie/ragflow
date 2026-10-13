@@ -100,6 +100,7 @@ export const initialRetrievalValues = {
   ...initialKeywordsSimilarityWeightValue,
   cross_languages: [],
   retrieval_from: RetrievalFrom.Dataset,
+  document_ids: '',
   outputs: {
     formalized_content: {
       type: 'string',
@@ -849,6 +850,7 @@ export const RestrictedUpstreamMap = {
   [Operator.Message]: [
     Operator.Begin,
     Operator.Message,
+    Operator.Retrieval,
     Operator.RewriteQuestion,
     Operator.Categorize,
   ],
@@ -1204,6 +1206,7 @@ export const initialDocGeneratorValues = {
   watermark_text: '',
   add_page_numbers: true,
   add_timestamp: true,
+  include_download_info_in_content: false,
   font_size: 12,
   outputs: {
     doc_id: { type: 'string' },
@@ -1219,9 +1222,16 @@ export const initialBrowserValues = {
   prompts: `{${AgentGlobals.SysQuery}}`,
   max_steps: 30,
   headless: true,
+  use_cdp: false,
+  cdp_url: '',
+  remote_staging_url: '',
+  remote_staging_token: '',
+  remote_upload_mode: 'auto',
+  use_vision: false,
   enable_default_extensions: false,
   chromium_sandbox: false,
   persist_session: true,
+  enable_thinking: false,
   upload_sources: '',
   outputs: {
     content: { type: 'string', value: '' },

@@ -397,6 +397,7 @@ func (r *Router) Setup(engine *gin.Engine) {
 				datasets.POST("/:dataset_id/chunks", r.chunkHandler.Parse)
 				datasets.PATCH("/:dataset_id/documents/:document_id/chunks/:chunk_id", r.chunkHandler.UpdateChunk)
 				datasets.POST("/:dataset_id/documents/parse", r.documentHandler.StartIngestionTask)
+				datasets.POST("/:dataset_id/documents/compile", r.documentHandler.CompileDocuments)
 				datasets.POST("/:dataset_id/documents/stop", r.documentHandler.StopParseDocuments)
 				datasets.GET("/ingestion/tasks", r.documentHandler.ListIngestionTasks)
 				datasets.PUT("/ingestion/tasks", r.documentHandler.StopIngestionTasks)
@@ -629,6 +630,7 @@ func (r *Router) Setup(engine *gin.Engine) {
 				connectors.POST("/:connector_id/rebuild", r.connectorHandler.RebuildConnector)
 				connectors.POST("/:connector_id/resume-failed-sync", r.connectorHandler.ResumeFailedSync)
 				connectors.POST("/:connector_id/test", r.connectorHandler.TestConnector)
+				connectors.POST("/:connector_id/query", r.connectorHandler.QueryConnector)
 			}
 
 			// MCP server routes.

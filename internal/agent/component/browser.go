@@ -34,9 +34,9 @@
 // orchestrator: parse → resolve template → look up tenant model
 // config → call runtime.RunExtract → emit Python-shaped outputs.
 //
-// File upload / download and persistent session management are
-// not supported; see [`.claude/plans/tingly-weaving-orbit.md`]
-// for the full deferral list.
+// Upload sources are prepared locally, then optionally staged to a remote
+// Chrome host via HTTP gateway (tools/browser_remote_staging) or CDP blob
+// download before the stagehand agent runs with those remote paths.
 package component
 
 import (
@@ -45,13 +45,15 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-
+	"os"
+	"path/filepath"
 	"strings"
 
 	"ragflow/internal/agent/runtime"
 	"ragflow/internal/dao"
 	"ragflow/internal/entity"
 
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -95,19 +97,7 @@ var browserFactoryDefaultBaseURL = map[string]string{
 }
 
 // browserParam is the static DSL param surface for the Browser
-// component. Mirrors Python `browser.py:LLMParam + browser knobs`:
-//
-//	llm_id, model_id (alias), prompts, prompt (alias),
-//	max_steps, headless, enable_default_extensions,
-//	chromium_sandbox, persist_session, upload_sources.
-//
-// Go-only fields kept for backward compat with the existing test
-// file and the optional-URL form some operators still wire up:
-//
-//	url, timeout.
-//
-// v1 does not act on the v1-deferred params; Update accepts them so
-// the v1 fixture loads.
+// component. Mirrors Python `browser.py:LLMParam + browser knobs`.
 type browserParam struct {
 	LLMID            string `json:"llm_id"`
 	ModelID          string `json:"model_id"` // alias for llm_id
@@ -118,9 +108,16 @@ type browserParam struct {
 	EnableDefaultExt *bool  `json:"enable_default_extensions"`
 	ChromiumSandbox  *bool  `json:"chromium_sandbox"`
 	PersistSession   *bool  `json:"persist_session"`
+	UseCDP           *bool  `json:"use_cdp"`
+	CDPURL           string `json:"cdp_url"`
+	UseVision        *bool  `json:"use_vision"`
+	UploadSources    any    `json:"upload_sources"`
+	RemoteStagingURL string `json:"remote_staging_url"`
+	RemoteStagingTok string `json:"remote_staging_token"`
+	RemoteUploadMode string `json:"remote_upload_mode"`
 
 	// Go-only fields (kept for backward compat with the existing
-	// test file; not used by the stagehand path).
+	// test file; optional URL form some operators still wire up).
 	URL     string `json:"url"`
 	Timeout int    `json:"timeout"`
 }
@@ -161,6 +158,27 @@ func (p *browserParam) Update(conf map[string]any) error {
 	if v, ok := boolFrom(conf, "persist_session"); ok {
 		p.PersistSession = &v
 	}
+	if v, ok := boolFrom(conf, "use_cdp"); ok {
+		p.UseCDP = &v
+	}
+	if v, ok := stringFrom(conf, "cdp_url"); ok {
+		p.CDPURL = v
+	}
+	if v, ok := boolFrom(conf, "use_vision"); ok {
+		p.UseVision = &v
+	}
+	if raw, ok := conf["upload_sources"]; ok {
+		p.UploadSources = raw
+	}
+	if v, ok := stringFrom(conf, "remote_staging_url"); ok {
+		p.RemoteStagingURL = v
+	}
+	if v, ok := stringFrom(conf, "remote_staging_token"); ok {
+		p.RemoteStagingTok = v
+	}
+	if v, ok := stringFrom(conf, "remote_upload_mode"); ok {
+		p.RemoteUploadMode = v
+	}
 	if v, ok := stringFrom(conf, "url"); ok {
 		p.URL = v
 	}
@@ -189,6 +207,9 @@ func (p *browserParam) Check() error {
 	if p.Timeout < 0 {
 		return &ParamError{Field: "timeout", Reason: "must be non-negative"}
 	}
+	if p.UseCDP != nil && *p.UseCDP && strings.TrimSpace(p.CDPURL) == "" {
+		return &ParamError{Field: "cdp_url", Reason: "required when use_cdp is true"}
+	}
 	return nil
 }
 
@@ -215,6 +236,19 @@ func (p *browserParam) AsDict() map[string]any {
 	if p.PersistSession != nil {
 		out["persist_session"] = *p.PersistSession
 	}
+	if p.UseCDP != nil {
+		out["use_cdp"] = *p.UseCDP
+	}
+	out["cdp_url"] = p.CDPURL
+	if p.UseVision != nil {
+		out["use_vision"] = *p.UseVision
+	}
+	if p.UploadSources != nil {
+		out["upload_sources"] = p.UploadSources
+	}
+	out["remote_staging_url"] = p.RemoteStagingURL
+	out["remote_staging_token"] = p.RemoteStagingTok
+	out["remote_upload_mode"] = p.RemoteUploadMode
 	return out
 }
 
@@ -243,24 +277,9 @@ func NewBrowserComponent(params map[string]any) (Component, error) {
 // Name returns the registered component name.
 func (b *BrowserComponent) Name() string { return b.name }
 
-// Invoke dispatches a single-shot extraction task via
-// StagehandInvoker.RunExtract with a `{"type": "string"}` schema.
-// The flow:
-//
-//  1. Pull tenant_id from `state.Sys["tenant_id"]`.
-//  2. Resolve the `prompts` template via `runtime.ResolveTemplate`.
-//  3. Resolve `llm_id` as a tenant_model id or legacy model@factory
-//     reference and look up the tenant LLM config (apiKey, baseURL).
-//  4. Build `RunExtractRequest` with `ModelName = "openai/<model>"`,
-//     the resolved apiKey/baseURL/instruction, and
-//     `Schema = {"type": "string"}`.
-//  5. Call `DefaultRuntime.RunExtract` → raw JSON string.
-//  6. Unmarshal the JSON string to get the plain text content.
-//  7. Emit the Python-shaped outputs (`content`,
-//     `downloaded_files`) plus Go-native compat keys.
-//
-// File upload/download and session persistence are not supported
-// in this component; they are v1-deferred.
+// Invoke prepares upload_sources (optional remote staging), then runs
+// stagehand: RunTask when CDP/uploads/vision/agent steps are needed,
+// otherwise RunExtract for single-shot extraction.
 func (b *BrowserComponent) Invoke(ctx context.Context, db *gorm.DB, inputs map[string]any) (map[string]any, error) {
 	state, err := runtime.GetStateFromContext(ctx)
 	if err != nil {
@@ -275,7 +294,6 @@ func (b *BrowserComponent) Invoke(ctx context.Context, db *gorm.DB, inputs map[s
 		return nil, errors.New("browser: tenant_id missing from canvas state (state.Sys[\"tenant_id\"])")
 	}
 
-	// 1. Resolve prompts template.
 	prompts := b.param.Prompts
 	if v, ok := inputs["prompts"].(string); ok && strings.TrimSpace(v) != "" {
 		prompts = v
@@ -285,41 +303,106 @@ func (b *BrowserComponent) Invoke(ctx context.Context, db *gorm.DB, inputs map[s
 		return nil, fmt.Errorf("browser: resolve prompts template: %w", err)
 	}
 
-	// 2. Look up tenant model config.
 	providerName, modelName, apiKey, baseURL, err := resolveBrowserLLM(ctx, db, tenantID, b.param.LLMID)
 	if err != nil {
 		return nil, fmt.Errorf("browser: tenant llm lookup (%q): %w", b.param.LLMID, err)
 	}
 	baseURL = strings.TrimSpace(baseURL)
 
-	// 3. Build RunExtractRequest with single-string schema.
-	req := RunExtractRequest{
-		TenantID:    tenantID,
-		LLMID:       b.param.LLMID,
-		ModelName:   stagehandModelName(providerName, modelName),
-		BaseURL:     baseURL,
-		APIKey:      apiKey,
-		Headless:    b.param.Headless,
-		Instruction: resolvedPrompts,
-		Schema:      map[string]any{"type": "string"},
+	cdpURL := strings.TrimSpace(b.param.CDPURL)
+	if v, ok := stringFrom(inputs, "cdp_url"); ok && strings.TrimSpace(v) != "" {
+		cdpURL = strings.TrimSpace(v)
+	}
+	useCDP := b.param.UseCDP != nil && *b.param.UseCDP && cdpURL != ""
+	useVision := b.param.UseVision != nil && *b.param.UseVision
+
+	uploadSources := b.param.UploadSources
+	if raw, ok := inputs["upload_sources"]; ok && raw != nil {
+		uploadSources = raw
 	}
 
-	// 4. Dispatch via the runtime's RunExtract.
-	invoker := getDefaultStagehandInvoker()
-	rawJSON, err := invoker.RunExtract(ctx, req)
+	uploadDir, err := os.MkdirTemp("", "ragflow-browser-upload-*")
 	if err != nil {
-		return nil, fmt.Errorf("browser: stagehand extract (model=%q, base_url=%s): %w",
-			req.ModelName, browserBaseURLForLog(req.BaseURL), err)
+		return nil, fmt.Errorf("browser: create upload dir: %w", err)
+	}
+	defer os.RemoveAll(uploadDir)
+
+	prepared, err := prepareUploadFiles(ctx, db, state, uploadSources, uploadDir)
+	if err != nil {
+		return nil, fmt.Errorf("browser: prepare upload files: %w", err)
+	}
+	remoteHost := useCDP && len(prepared) > 0
+	if remoteHost {
+		prepared, err = stageUploadFilesOnRemoteHost(
+			ctx, prepared, cdpURL, b.param.RemoteStagingURL, b.param.RemoteStagingTok, b.param.RemoteUploadMode,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("browser: remote staging: %w", err)
+		}
 	}
 
-	// 5. Unmarshal the JSON-string result to get the plain text.
+	instruction := resolvedPrompts + buildUploadTaskAppendix(prepared, remoteHost)
+	instruction += buildUploadSystemExtension(prepared, remoteHost)
+	if useVision {
+		instruction += "\n\n[RAGFlow Browser vision]\n- use_vision is enabled: inspect screenshots when text/DOM is insufficient.\n"
+	}
+
+	invoker := getDefaultStagehandInvoker()
+	needAgent := useCDP || useVision || len(prepared) > 0 || b.param.MaxSteps > 0 ||
+		(b.param.PersistSession != nil && *b.param.PersistSession)
+
 	var content string
-	if err = json.Unmarshal([]byte(rawJSON), &content); err != nil {
-		return nil, fmt.Errorf("browser: unmarshal extract result: %w", err)
+	if needAgent {
+		taskReq := RunTaskRequest{
+			TenantID:    tenantID,
+			LLMID:       b.param.LLMID,
+			ModelName:   stagehandModelName(providerName, modelName),
+			BaseURL:     baseURL,
+			APIKey:      apiKey,
+			Instruction: instruction,
+			MaxSteps:    b.param.MaxSteps,
+			Headless:    b.param.Headless,
+			CDPURL:      "",
+			UseVision:   useVision,
+		}
+		if useCDP {
+			taskReq.CDPURL = cdpURL
+		}
+		if b.param.PersistSession != nil && *b.param.PersistSession {
+			profileDir := filepath.Join(os.TempDir(), "ragflow-browser-profiles", tenantID, sanitizeProfileSegment(b.param.LLMID))
+			_ = os.MkdirAll(profileDir, 0o755)
+			taskReq.UserDataDir = profileDir
+			taskReq.PreserveUserDataDir = true
+		}
+		content, err = invoker.RunTask(ctx, taskReq)
+		if err != nil {
+			return nil, fmt.Errorf("browser: stagehand task (model=%q, base_url=%s): %w",
+				taskReq.ModelName, browserBaseURLForLog(taskReq.BaseURL), err)
+		}
+	} else {
+		req := RunExtractRequest{
+			TenantID:    tenantID,
+			LLMID:       b.param.LLMID,
+			ModelName:   stagehandModelName(providerName, modelName),
+			BaseURL:     baseURL,
+			APIKey:      apiKey,
+			Headless:    b.param.Headless,
+			Instruction: instruction,
+			Schema:      map[string]any{"type": "string"},
+			URL:         b.param.URL,
+			CDPURL:      "",
+		}
+		rawJSON, xerr := invoker.RunExtract(ctx, req)
+		if xerr != nil {
+			return nil, fmt.Errorf("browser: stagehand extract (model=%q, base_url=%s): %w",
+				req.ModelName, browserBaseURLForLog(req.BaseURL), xerr)
+		}
+		if err = json.Unmarshal([]byte(rawJSON), &content); err != nil {
+			return nil, fmt.Errorf("browser: unmarshal extract result: %w", err)
+		}
 	}
 
-	// 6. Build the output map.
-	out := map[string]any{
+	return map[string]any{
 		"content":          content,
 		"downloaded_files": []map[string]any{},
 		"url":              "",
@@ -327,8 +410,16 @@ func (b *BrowserComponent) Invoke(ctx context.Context, db *gorm.DB, inputs map[s
 		"size":             len(content),
 		"model_id":         b.param.LLMID,
 		"prompt":           prompts,
+	}, nil
+}
+
+func sanitizeProfileSegment(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return uuid.NewString()[:8]
 	}
-	return out, nil
+	replacer := strings.NewReplacer(`/`, `_`, `\`, `_`, `:`, `_`, `@`, `_`, ` `, `_`)
+	return replacer.Replace(raw)
 }
 
 func browserBaseURLForLog(raw string) string {
@@ -384,9 +475,16 @@ func (b *BrowserComponent) Inputs() map[string]string {
 		"headless":                  "Browser launch mode (default true).",
 		"enable_default_extensions": "Accepted for fixture compat; ignored at Invoke.",
 		"chromium_sandbox":          "Accepted for fixture compat; ignored at Invoke.",
-		"persist_session":           "Accepted for fixture compat; ignored at Invoke.",
-		"url":                       "Go-only; not used (kept for backward compat).",
-		"timeout":                   "Go-only; not used (kept for backward compat).",
+		"persist_session":           "Reuse Chromium user-data-dir across runs when true.",
+		"use_cdp":                   "Connect to an existing Chrome via CDP instead of launching local.",
+		"cdp_url":                   "CDP HTTP/WS endpoint (required when use_cdp=true).",
+		"use_vision":                "Ask the agent to use screenshots when DOM text is insufficient.",
+		"upload_sources":            "File ids / session blobs / URLs to stage for upload_file.",
+		"remote_staging_url":        "HTTP staging gateway base URL (tools/browser_remote_staging).",
+		"remote_staging_token":      "Optional bearer token for the staging gateway.",
+		"remote_upload_mode":        "auto | staging | blob_cdp.",
+		"url":                       "Optional navigate URL for RunExtract path.",
+		"timeout":                   "Go-only; reserved.",
 	}
 }
 
@@ -400,6 +498,14 @@ func (b *BrowserComponent) GetInputForm() map[string]any {
 			"type": "line",
 			"name": "Upload sources",
 		},
+		"remote_staging_url": map[string]any{
+			"type": "line",
+			"name": "Remote staging URL",
+		},
+		"remote_staging_token": map[string]any{
+			"type": "line",
+			"name": "Remote staging token",
+		},
 	}
 }
 
@@ -407,7 +513,7 @@ func (b *BrowserComponent) GetInputForm() map[string]any {
 func (b *BrowserComponent) Outputs() map[string]string {
 	return map[string]string{
 		"content":          "Extracted plain text (Sessions.Extract result with schema {\"type\":\"string\"}).",
-		"downloaded_files": "Always [] (file download not supported).",
+		"downloaded_files": "Downloaded file descriptors (currently [] until download harvest is wired).",
 		"url":              "Go-native compat key; always \"\".",
 		"status":           "Go-native compat key; always 0.",
 		"size":             "Bytes in content.",

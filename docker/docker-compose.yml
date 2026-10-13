@@ -20,7 +20,7 @@ services:
         hard: 65535
     # MCP is served in-process by the API server (POST /mcp on the 9380 port).
 
-    # Example configuration to start Admin server:
+    # Admin is required for license/auth checks used by the API login path.
     command:
       - --enable-adminserver
       - --init-superuser

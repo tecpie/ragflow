@@ -46,9 +46,11 @@ import (
 )
 
 var (
-	figureVisionPromptBuilder func(language string) (string, error) = buildFigureVisionPrompt
-	visionChatInvoker                                               = defaultVisionChatInvoker
-	visionImageCropperFactory                                       = newVisionImageCropper
+	figureVisionPromptBuilder    func(language string) (string, error) = buildFigureVisionPrompt
+	tableVisionPromptBuilder     func(language string) (string, error) = buildTableVisionPrompt
+	signatureVisionPromptBuilder func(language string) (string, error) = buildSignatureVisionPrompt
+	visionChatInvoker                                                  = defaultVisionChatInvoker
+	visionImageCropperFactory                                          = newVisionImageCropper
 )
 
 const (
@@ -59,6 +61,11 @@ const (
 	visionChatTimeout     = 30 * time.Second
 	visionMediaItemBudget = 10 * time.Second
 )
+
+type visionEnhanceTarget struct {
+	idx  int
+	kind string
+}
 
 // isUsableVisionImage reports whether raw carries a valid image data URI or a
 // base64 payload that can be sent to a vision model.
@@ -122,9 +129,14 @@ type visionImage struct {
 }
 
 // maybeDispatchVisionEnhancement appends VLM descriptions to parsed image
-// resources and table regions. PDF OCR remains in the PDF parser; non-PDF
-// image text comes from this optional enhancement.
-// Mirrors Python's enhance_media_sections_with_vision in rag/flow/parser/utils.py:162.
+// resources and table regions, and transcribes DeepDOC signature-label bands.
+// Table crops use the table-seal prompt; approval/signature labels use a
+// rightward-extended crop plus the signature prompt (replace label-only OCR).
+// PDF OCR remains in the PDF parser; non-PDF image text comes from this
+// optional enhancement.
+// Mirrors Python enhance_media_sections_with_vision plus
+// enhance_signature_sections_with_vision / _enhance_pdf_tables_with_vision
+// (deepdoc/parser/figure_parser.py).
 func maybeDispatchVisionEnhancement(
 	ctx context.Context,
 	db *gorm.DB,
@@ -145,25 +157,16 @@ func maybeDispatchVisionEnhancement(
 	family := resolveParserFamily(fileType)
 	// Captions follow the knowledge base language, which also drives
 	// tokenization. The family setup's lang is an OCR engine parameter
-	// (pdf_vision_dispatch.go), not an input here — see issue #20727.
+	// (pdf_vision_dispatch.go), not an input here - see issue #20727.
 	language := resolveVisionLanguage(inputs)
+	tableVisionOn := !vision.skipTableEnhance
+	signatureVisionOn := !vision.skipSignatureEnhance
 
-	// Collect visual resources, including Markdown images whose type is text
-	// because flatten_media_to_text is enabled.
-	var items []int
-	for i, item := range dispatched.JSON {
-		if img, _ := item["image"].(string); img != "" {
-			items = append(items, i)
-			continue
-		}
-		kd, _ := item["doc_type_kwd"].(string)
-		if kd == "image" || kd == "table" {
-			if _, ok := parser.ExtractPDFPositions(item); ok {
-				items = append(items, i)
-			}
-		}
-	}
-	if len(items) == 0 {
+	// Collect visual resources (figures/tables) and DeepDOC signature-label
+	// lines. Markdown images whose type is text because flatten_media_to_text
+	// is enabled still carry an inline image payload.
+	targets := collectVisionEnhanceTargets(dispatched.JSON, tableVisionOn, signatureVisionOn)
+	if len(targets) == 0 {
 		return dispatched, false, nil
 	}
 	// Resolve VLM before materializing image payloads, so disabled or
@@ -171,7 +174,7 @@ func maybeDispatchVisionEnhancement(
 	var driver modelModule.ModelDriver
 	var modelName string
 	var apiConfig *modelModule.APIConfig
-	var prompt string
+	prompts := make(map[string]string)
 	vlmReady := false
 	var resolveErr error
 	if tenantID != "" {
@@ -186,9 +189,9 @@ func maybeDispatchVisionEnhancement(
 		} else {
 			driver, modelName, apiConfig, _, err = resolveTenantModelByType(ctx, db, tenantID, entity.ModelTypeImage2Text)
 		}
-		if err == nil {
-			prompt, err = figureVisionPromptBuilder(language)
-			vlmReady = err == nil && driver != nil
+		if err == nil && driver != nil {
+			prompts, err = buildVisionPromptsForTargets(targets, language)
+			vlmReady = err == nil && len(prompts) > 0
 		}
 		resolveErr = err
 	}
@@ -214,13 +217,13 @@ func maybeDispatchVisionEnhancement(
 	}
 	defer cropper.Close()
 	modified := false
-	descriptions := make([]string, len(items))
-	failures := make([]string, len(items))
+	descriptions := make([]string, len(targets))
+	failures := make([]string, len(targets))
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, visionEnhancementConcurrency)
 	var settled atomic.Int64
-	total := int64(len(items))
-	for slot, itemIdx := range items {
+	total := int64(len(targets))
+	for slot, target := range targets {
 		if err := ctx.Err(); err != nil {
 			break
 		}
@@ -245,7 +248,7 @@ func maybeDispatchVisionEnhancement(
 			release, err := parser.AcquireImageMedia(itemCtx)
 			if err != nil {
 				if ctx.Err() == nil && vlmReady {
-					if payload, _ := dispatched.JSON[itemIdx]["image"].(string); payload != "" {
+					if payload, _ := dispatched.JSON[target.idx]["image"].(string); payload != "" {
 						resource = &visionImage{VLMData: payload}
 					}
 				}
@@ -255,7 +258,7 @@ func maybeDispatchVisionEnhancement(
 				return
 			}
 			defer release()
-			item := dispatched.JSON[itemIdx]
+			item := visionCropItem(dispatched.JSON[target.idx], target.kind)
 			resource, err = cropper.Crop(itemCtx, item)
 			if err != nil || resource == nil {
 				cropErr := err
@@ -302,8 +305,9 @@ func maybeDispatchVisionEnhancement(
 			w.report(ctx, float64(n)/float64(total))
 			continue
 		}
+		prompt := prompts[target.kind]
 		wg.Add(1)
-		go func(slot int, imageData string) {
+		go func(slot int, imageData, prompt string) {
 			defer wg.Done()
 			defer releaseSlot()
 			defer func() {
@@ -327,7 +331,7 @@ func maybeDispatchVisionEnhancement(
 			if strings.TrimSpace(descriptions[slot]) == "" {
 				failures[slot] = "VLM returned an empty description"
 			}
-		}(slot, resource.VLMData)
+		}(slot, resource.VLMData, prompt)
 	}
 	wg.Wait()
 	if err := ctx.Err(); err != nil {
@@ -352,17 +356,118 @@ func maybeDispatchVisionEnhancement(
 			zap.Int("failed_items", failedItems), zap.String("first_failure", firstFailure))
 	}
 
-	// Append descriptions after parser-provided text and captions.
-	for slot, itemIdx := range items {
+	// Append (or replace, for label-only signature lines) VLM transcriptions.
+	for slot, target := range targets {
 		desc := strings.TrimSpace(descriptions[slot])
 		if desc == "" {
 			continue
 		}
-		appendItemText(dispatched.JSON[itemIdx], desc)
+		item := dispatched.JSON[target.idx]
+		if target.kind == visionKindSignature {
+			existing, _ := item["text"].(string)
+			item["text"] = mergeSignatureVisionText(existing, desc)
+		} else {
+			appendItemText(item, desc)
+		}
 		modified = true
 	}
 
 	return dispatched, modified, nil
+}
+
+func collectVisionEnhanceTargets(items []map[string]any, tableVisionOn, signatureVisionOn bool) []visionEnhanceTarget {
+	seen := make(map[int]struct{}, len(items))
+	var targets []visionEnhanceTarget
+	add := func(idx int, kind string) {
+		if _, ok := seen[idx]; ok {
+			return
+		}
+		seen[idx] = struct{}{}
+		targets = append(targets, visionEnhanceTarget{idx: idx, kind: kind})
+	}
+	for i, item := range items {
+		kd, _ := item["doc_type_kwd"].(string)
+		if img, _ := item["image"].(string); img != "" {
+			kind := visionKindFigure
+			if kd == "table" {
+				if !tableVisionOn {
+					continue
+				}
+				kind = visionKindTable
+			}
+			add(i, kind)
+			continue
+		}
+		switch kd {
+		case "image":
+			if _, ok := parser.ExtractPDFPositions(item); ok {
+				add(i, visionKindFigure)
+			}
+		case "table":
+			if !tableVisionOn {
+				continue
+			}
+			if _, ok := parser.ExtractPDFPositions(item); ok {
+				add(i, visionKindTable)
+			}
+		}
+	}
+	if !signatureVisionOn {
+		return targets
+	}
+	for i, item := range items {
+		if _, ok := seen[i]; ok {
+			continue
+		}
+		text, _ := item["text"].(string)
+		if !isSignatureLabelText(text) || alreadyHasSignatureName(text) {
+			continue
+		}
+		if _, ok := parser.ExtractPDFPositions(item); !ok {
+			continue
+		}
+		add(i, visionKindSignature)
+	}
+	return targets
+}
+
+func visionCropItem(item map[string]any, kind string) map[string]any {
+	if kind != visionKindSignature {
+		return item
+	}
+	cloned := make(map[string]any, len(item)+1)
+	for k, v := range item {
+		cloned[k] = v
+	}
+	cloned[visionSignatureBandKey] = true
+	return cloned
+}
+
+func buildVisionPromptsForTargets(targets []visionEnhanceTarget, language string) (map[string]string, error) {
+	needed := make(map[string]struct{}, 3)
+	for _, target := range targets {
+		needed[target.kind] = struct{}{}
+	}
+	out := make(map[string]string, len(needed))
+	for kind := range needed {
+		prompt, err := visionPromptForKind(kind, language)
+		if err != nil {
+			return nil, err
+		}
+		out[kind] = prompt
+	}
+	return out, nil
+}
+
+func visionPromptForKind(kind, language string) (string, error) {
+	switch kind {
+	case visionKindTable:
+		return tableVisionPromptBuilder(language)
+	case visionKindSignature:
+		return signatureVisionPromptBuilder(language)
+	default:
+		return figureVisionPromptBuilder(language)
+	}
 }
 
 func appendItemText(item map[string]any, text string) {
@@ -375,7 +480,19 @@ func appendItemText(item map[string]any, text string) {
 }
 
 func buildFigureVisionPrompt(language string) (string, error) {
-	template, err := (prompts.EmbeddedPromptLoader{}).Load("vision_llm_figure_describe_prompt")
+	return buildVisionPromptTemplate("vision_llm_figure_describe_prompt", language)
+}
+
+func buildTableVisionPrompt(language string) (string, error) {
+	return buildVisionPromptTemplate("vision_llm_table_describe_prompt", language)
+}
+
+func buildSignatureVisionPrompt(language string) (string, error) {
+	return buildVisionPromptTemplate("vision_llm_signature_describe_prompt", language)
+}
+
+func buildVisionPromptTemplate(name, language string) (string, error) {
+	template, err := (prompts.EmbeddedPromptLoader{}).Load(name)
 	if err != nil {
 		return "", err
 	}

@@ -257,86 +257,86 @@ export const ProviderConfigMap: Record<string, ProviderConfig> = {
   },
 
   // ============ XunFei Spark ============
-  // [LLMFactory.XunFeiSpark]: {
-  //   llmFactory: LLMFactory.XunFeiSpark,
-  //   title: 'XunFei Spark',
-  //   fields: [
-  //     {
-  //       name: 'instance_name',
-  //       label: 'instanceName',
-  //       type: FormFieldType.Text,
-  //       required: true,
-  //       placeholder: 'instanceNameMessage',
-  //       tooltip: 'instanceNameTip',
-  //       validation: { message: 'instanceNameMessage' },
-  //     },
-  //     {
-  //       name: 'spark_api_password',
-  //       label: 'addSparkAPIPassword',
-  //       type: FormFieldType.Password,
-  //       required: true,
-  //       placeholder: 'SparkAPIPasswordMessage',
-  //       shouldRender: 'hideWhenInstanceExists',
-  //       validation: { message: 'SparkAPIPasswordMessage' },
-  //     },
-  //     {
-  //       name: 'spark_app_id',
-  //       label: 'addSparkAPPID',
-  //       type: FormFieldType.Text,
-  //       required: true,
-  //       placeholder: 'SparkAPPIDMessage',
-  //       shouldRender: 'hideWhenInstanceExists',
-  //       validation: { message: 'SparkAPPIDMessage' },
-  //     },
-  //     {
-  //       name: 'spark_api_secret',
-  //       label: 'addSparkAPISecret',
-  //       type: FormFieldType.Text,
-  //       required: true,
-  //       placeholder: 'SparkAPISecretMessage',
-  //       shouldRender: 'hideWhenInstanceExists',
-  //       validation: { message: 'SparkAPISecretMessage' },
-  //     },
-  //     {
-  //       name: 'spark_api_key',
-  //       label: 'addSparkAPIKey',
-  //       type: FormFieldType.Text,
-  //       required: true,
-  //       placeholder: 'SparkAPIKeyMessage',
-  //       shouldRender: 'hideWhenInstanceExists',
-  //       validation: { message: 'SparkAPIKeyMessage' },
-  //     },
-  //   ],
-  //   verifyTransform: (values) => ({
-  //     apiKey: {
-  //       spark_api_password: values.spark_api_password,
-  //       spark_app_id: values.spark_app_id,
-  //       spark_api_secret: values.spark_api_secret,
-  //       spark_api_key: values.spark_api_key,
-  //     },
-  //     modelInfo: [],
-  //   }),
-  //   submitTransform: (values) => ({
-  //     instance_name: values.instance_name,
-  //     llm_factory: LLMFactory.XunFeiSpark,
-  //     api_key: {
-  //       spark_api_password: values.spark_api_password,
-  //       spark_app_id: values.spark_app_id,
-  //       spark_api_secret: values.spark_api_secret,
-  //       spark_api_key: values.spark_api_key,
-  //     },
-  //     model_info: [],
-  //   }),
-  //   echoTransform: (instance) => {
-  //     const obj = parseApiKeyAsObject(instance.api_key) ?? {};
-  //     return {
-  //       spark_api_password: obj.spark_api_password ?? '',
-  //       spark_app_id: obj.spark_app_id ?? '',
-  //       spark_api_secret: obj.spark_api_secret ?? '',
-  //       spark_api_key: obj.spark_api_key ?? '',
-  //     };
-  //   },
-  // },
+  [LLMFactory.XunFeiSpark]: {
+    llmFactory: LLMFactory.XunFeiSpark,
+    title: 'XunFei Spark',
+    fields: [
+      {
+        name: 'instance_name',
+        label: 'instanceName',
+        type: FormFieldType.Text,
+        required: true,
+        placeholder: 'instanceNameMessage',
+        tooltip: 'instanceNameTip',
+        validation: { message: 'instanceNameMessage' },
+      },
+      {
+        name: 'spark_api_password',
+        label: 'addSparkAPIPassword',
+        type: FormFieldType.Password,
+        required: true,
+        placeholder: 'SparkAPIPasswordMessage',
+        shouldRender: 'hideWhenInstanceExists',
+        validation: { message: 'SparkAPIPasswordMessage' },
+      },
+      {
+        name: 'spark_app_id',
+        label: 'addSparkAPPID',
+        type: FormFieldType.Text,
+        required: true,
+        placeholder: 'SparkAPPIDMessage',
+        shouldRender: 'hideWhenInstanceExists',
+        validation: { message: 'SparkAPPIDMessage' },
+      },
+      {
+        name: 'spark_api_secret',
+        label: 'addSparkAPISecret',
+        type: FormFieldType.Text,
+        required: true,
+        placeholder: 'SparkAPISecretMessage',
+        shouldRender: 'hideWhenInstanceExists',
+        validation: { message: 'SparkAPISecretMessage' },
+      },
+      {
+        name: 'spark_api_key',
+        label: 'addSparkAPIKey',
+        type: FormFieldType.Text,
+        required: true,
+        placeholder: 'SparkAPIKeyMessage',
+        shouldRender: 'hideWhenInstanceExists',
+        validation: { message: 'SparkAPIKeyMessage' },
+      },
+    ],
+    verifyTransform: (values) => ({
+      apiKey: {
+        spark_api_password: values.spark_api_password,
+        spark_app_id: values.spark_app_id,
+        spark_api_secret: values.spark_api_secret,
+        spark_api_key: values.spark_api_key,
+      },
+      modelInfo: [],
+    }),
+    submitTransform: (values) => ({
+      instance_name: values.instance_name,
+      llm_factory: LLMFactory.XunFeiSpark,
+      api_key: {
+        spark_api_password: values.spark_api_password,
+        spark_app_id: values.spark_app_id,
+        spark_api_secret: values.spark_api_secret,
+        spark_api_key: values.spark_api_key,
+      },
+      model_info: [],
+    }),
+    echoTransform: (instance) => {
+      const obj = parseApiKeyAsObject(instance.api_key) ?? {};
+      return {
+        spark_api_password: obj.spark_api_password ?? '',
+        spark_app_id: obj.spark_app_id ?? '',
+        spark_api_secret: obj.spark_api_secret ?? '',
+        spark_api_key: obj.spark_api_key ?? '',
+      };
+    },
+  },
 
   // ============ Baidu YiYan ============
   [LLMFactory.BaiduYiYan]: {
@@ -661,6 +661,14 @@ export const ProviderConfigMap: Record<string, ProviderConfig> = {
         validation: { message: 'mineruApiserverMessage' },
       },
       {
+        name: 'mineru_api_token',
+        label: 'mineruApiToken',
+        type: FormFieldType.Password,
+        required: false,
+        placeholder: 'mineruApiTokenPlaceholder',
+        tooltip: 'mineruApiTokenTip',
+      },
+      {
         name: 'mineru_output_dir',
         label: 'mineruOutputDir',
         type: FormFieldType.Text,
@@ -732,6 +740,7 @@ export const ProviderConfigMap: Record<string, ProviderConfig> = {
           typeof instance.base_url === 'string' && instance.base_url.trim()
             ? instance.base_url
             : (obj.mineru_apiserver ?? ''),
+        mineru_api_token: obj.mineru_api_token ?? '',
         mineru_output_dir: obj.mineru_output_dir ?? '',
         mineru_backend: obj.mineru_backend ?? 'pipeline',
         mineru_server_url: obj.mineru_server_url ?? '',

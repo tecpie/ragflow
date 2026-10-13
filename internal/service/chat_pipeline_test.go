@@ -1644,6 +1644,29 @@ func TestBuildChatConfigIgnoresNonPositiveMaxTokens(t *testing.T) {
 	}
 }
 
+// TestBuildChatConfig_EnableThinkingToggle pins that the chat UI's
+// enable_thinking flag (深度思考) reaches ChatConfig.Thinking, including when
+// it overrides an llm_setting thinking=enabled value.
+func TestBuildChatConfig_EnableThinkingToggle(t *testing.T) {
+	dialog := &entity.Chat{
+		LLMSetting: entity.JSONMap{"thinking": "enabled"},
+	}
+	cfg := BuildChatConfig(dialog, map[string]interface{}{"enable_thinking": false})
+	if cfg.Thinking == nil || *cfg.Thinking {
+		t.Fatalf("enable_thinking=false must disable Thinking, got %v", cfg.Thinking)
+	}
+
+	cfg = BuildChatConfig(&entity.Chat{}, map[string]interface{}{"enable_thinking": true})
+	if cfg.Thinking == nil || !*cfg.Thinking {
+		t.Fatalf("enable_thinking=true must set Thinking, got %v", cfg.Thinking)
+	}
+
+	cfg = BuildChatConfig(dialog, nil)
+	if cfg.Thinking == nil || !*cfg.Thinking {
+		t.Fatalf("llm_setting thinking=enabled must set Thinking, got %v", cfg.Thinking)
+	}
+}
+
 func TestClampChatConfigMaxTokensRejectsNonPositive(t *testing.T) {
 	for _, value := range []int{0, -1} {
 		cfg := &modelModule.ChatConfig{MaxTokens: &value}

@@ -126,6 +126,170 @@ func compileDirtyWikiDocument(ctx context.Context, request knowledge_compile.Wik
 	return replaceDirtyWikiProducts(ctx, request, compiled, uniqueStrings(affectedSlugs), uniqueStrings(removedSlugs), activeStates, false)
 }
 
+// CompileDocumentFromSourceChunks re-runs KnowledgeCompiler for a document from
+// existing source chunks without re-parsing the file. Old compile_kwd rows are
+// replaced; source chunks are kept. Mirrors Python task_handler._run_document_compile.
+func CompileDocumentFromSourceChunks(ctx context.Context, tenantID, datasetID, documentID string) error {
+	if tenantID == "" || datasetID == "" || documentID == "" {
+		return fmt.Errorf("doc compile: tenant, dataset, and document ids are required")
+	}
+	doc, err := dao.NewDocumentDAO().GetByID(ctx, dao.DB, documentID)
+	if err != nil {
+		return fmt.Errorf("doc compile: load document: %w", err)
+	}
+	if doc.KbID != datasetID {
+		return fmt.Errorf("doc compile: document %s does not belong to dataset %s", documentID, datasetID)
+	}
+	if doc.Status != nil && *doc.Status == "0" {
+		return fmt.Errorf("doc compile: document %s is disabled", documentID)
+	}
+
+	compilerParams, err := loadWikiCompilerParams(ctx, doc)
+	if err != nil {
+		return err
+	}
+	templateIDs, err := resolveAllTemplateIDs(ctx, tenantID, compilerParams)
+	if err != nil {
+		return err
+	}
+	if len(templateIDs) == 0 {
+		kb, kbErr := dao.NewKnowledgebaseDAO().GetByID(ctx, dao.DB, datasetID)
+		if kbErr != nil {
+			return fmt.Errorf("doc compile: load dataset: %w", kbErr)
+		}
+		if kb != nil {
+			if kbParams := findCompilerParams(map[string]any(kb.ParserConfig)); kbParams != nil {
+				compilerParams = kbParams
+				templateIDs, err = resolveAllTemplateIDs(ctx, tenantID, compilerParams)
+				if err != nil {
+					return err
+				}
+			}
+		}
+	}
+	if len(templateIDs) == 0 {
+		return fmt.Errorf("No knowledge compilation template configured.")
+	}
+
+	request := knowledge_compile.WikiDirtyRequest{
+		TenantID:   tenantID,
+		DatasetID:  datasetID,
+		DocumentID: documentID,
+	}
+	sourceChunks, err := loadActiveSourceChunks(ctx, request)
+	if err != nil {
+		return err
+	}
+	if len(sourceChunks) == 0 {
+		return fmt.Errorf("No source chunks found. Finish document parsing before knowledge compile.")
+	}
+
+	docEngine := engine.Get()
+	if docEngine == nil {
+		return fmt.Errorf("doc compile: document engine is unavailable")
+	}
+	indexName := fmt.Sprintf("ragflow_%s", tenantID)
+	if _, err := docEngine.DeleteChunks(ctx, map[string]any{
+		"doc_id": documentID,
+		"exists": "compile_kwd",
+	}, indexName, datasetID); err != nil {
+		return fmt.Errorf("doc compile: clear previous products: %w", err)
+	}
+
+	compiled := make([]map[string]any, 0)
+	activeStates := make([]kc.WikiMapActiveState, 0)
+	for _, templateID := range templateIDs {
+		params := copyStringAnyMap(compilerParams)
+		delete(params, "compilation_template_group_id")
+		delete(params, "compilation_template_group_ids")
+		params["compilation_template_id"] = templateID
+		component, err := knowledgecompiler.NewKnowledgeCompilerComponent("Compiler", params)
+		if err != nil {
+			return err
+		}
+		output, err := component.Invoke(ctx, dao.DB, map[string]any{
+			"chunks":     sourceChunks,
+			"tenant_id":  tenantID,
+			"dataset_id": datasetID,
+			"kb_id":      datasetID,
+			"doc_id":     documentID,
+		})
+		if err != nil {
+			return fmt.Errorf("doc compile document %s template %s: %w", documentID, templateID, err)
+		}
+		compiled = append(compiled, allCompiledRows(output)...)
+		states, err := wikiActiveStates(output)
+		if err != nil {
+			return fmt.Errorf("doc compile document %s: %w", documentID, err)
+		}
+		activeStates = append(activeStates, states...)
+	}
+
+	if len(compiled) > 0 {
+		if _, err := docEngine.InsertChunks(ctx, compiled, indexName, datasetID); err != nil {
+			return fmt.Errorf("doc compile: write products: %w", err)
+		}
+	}
+	if err := putWikiActiveStates(ctx, docEngine, activeStates); err != nil {
+		return err
+	}
+
+	eventVariants := compiledVariants(compiled)
+	eventTaskTypes := compiledTaskTypes(compiled)
+	if len(eventVariants) == 0 {
+		return nil
+	}
+	return knowledge_compile.PublishCompleted(ctx, tenantID, datasetID, documentID, eventVariants, eventTaskTypes)
+}
+
+func resolveAllTemplateIDs(ctx context.Context, tenantID string, params map[string]any) ([]string, error) {
+	// Same resolution as wiki, but keep every valid template kind (not wiki-only).
+	ids := make([]string, 0)
+	if templateID, ok := params["compilation_template_id"].(string); ok && strings.TrimSpace(templateID) != "" {
+		ids = append(ids, strings.TrimSpace(templateID))
+	}
+	groupIDs := stringValues(params["compilation_template_group_id"])
+	groupIDs = append(groupIDs, stringValues(params["compilation_template_group_ids"])...)
+	if len(groupIDs) > 0 {
+		resolved, err := dao.NewCompilationTemplateDAO().ResolveGroupTemplateIDs(ctx, dao.DB, tenantID, uniqueStrings(groupIDs))
+		if err != nil {
+			return nil, err
+		}
+		ids = append(ids, resolved...)
+	}
+	ids = uniqueStrings(ids)
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var templates []entity.CompilationTemplate
+	if err := dao.DB.WithContext(ctx).
+		Where("id IN ? AND status = ?", ids, string(entity.StatusValid)).Find(&templates).Error; err != nil {
+		return nil, err
+	}
+	kept := make([]string, 0, len(templates))
+	for _, tpl := range templates {
+		kept = append(kept, tpl.ID)
+	}
+	return uniqueStrings(kept), nil
+}
+
+func allCompiledRows(output map[string]any) []map[string]any {
+	rows := make([]map[string]any, 0)
+	items, _ := output["chunks"].([]any)
+	for _, item := range items {
+		row, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if strings.TrimSpace(anyString(row["compile_kwd"])) == "" {
+			continue
+		}
+		row["available_int"] = 0
+		rows = append(rows, row)
+	}
+	return rows
+}
+
 func loadWikiCompilerParams(ctx context.Context, doc *entity.Document) (map[string]any, error) {
 	if params := findCompilerParams(map[string]any(doc.ParserConfig)); params != nil {
 		return params, nil
@@ -258,7 +422,7 @@ func wikiCompiledRows(output map[string]any) []map[string]any {
 		if !ok {
 			continue
 		}
-		compileKWD := enginetypes.CompilationRowType(row)
+		compileKWD := strings.TrimSpace(anyString(row["compile_kwd"]))
 		if compileKWD != "wiki_page" && compileKWD != "wiki_section" {
 			continue
 		}
@@ -291,7 +455,7 @@ func replaceDirtyWikiProducts(ctx context.Context, request knowledge_compile.Wik
 		SelectFields: []string{"id", "compile_kwd", "slug_kwd", "parent_id"},
 		Filter: map[string]any{
 			"doc_id":        []string{request.DocumentID},
-			"type_kwd":      []string{"wiki_page", "wiki_section"},
+			"compile_kwd":   []string{"wiki_page", "wiki_section"},
 			"available_int": 0,
 		},
 	})
@@ -316,7 +480,7 @@ func replaceDirtyWikiProducts(ctx context.Context, request knowledge_compile.Wik
 	affectedPageIDs := make(map[string]struct{})
 	if existing != nil && !fullReplace {
 		for _, row := range existing.Chunks {
-			if enginetypes.CompilationRowType(row) != "wiki_page" {
+			if anyString(row["compile_kwd"]) != "wiki_page" {
 				continue
 			}
 			if _, ok := affected[anyString(row["slug_kwd"])]; ok {
@@ -326,7 +490,7 @@ func replaceDirtyWikiProducts(ctx context.Context, request knowledge_compile.Wik
 	}
 	if existing != nil && fullReplace {
 		for _, row := range existing.Chunks {
-			if enginetypes.CompilationRowType(row) == "wiki_page" {
+			if anyString(row["compile_kwd"]) == "wiki_page" {
 				removedSlugs = append(removedSlugs, anyString(row["slug_kwd"]))
 			}
 		}
@@ -369,7 +533,7 @@ func replaceDirtyWikiProducts(ctx context.Context, request knowledge_compile.Wik
 func clearWikiActiveStates(ctx context.Context, docEngine engine.DocEngine, request knowledge_compile.WikiDirtyRequest) error {
 	_, err := docEngine.DeleteChunks(ctx, map[string]any{
 		"kb_id":          request.DatasetID,
-		"type_kwd":       "wiki_map_active",
+		"compile_kwd":    "wiki_map_active",
 		"available_int":  0,
 		"source_doc_ids": []string{request.DocumentID},
 	}, fmt.Sprintf("ragflow_%s", request.TenantID), request.DatasetID)
@@ -845,10 +1009,13 @@ func (s *kcWikiPageStore) FindSimilarPages(ctx context.Context, tenantID, datase
 		IndexNames:   []string{fmt.Sprintf("ragflow_%s", tenantID)},
 		KbIDs:        []string{datasetID},
 		Limit:        k,
-		SelectFields: []string{"id", "slug_kwd", "title_kwd", "page_type_kwd", "compile_kwd", "type_kwd", "entity_type_kwd", "topic_kwd", "plan_group_kwd", "summary_with_weight", "content_with_weight", "entity_names_kwd", "related_kb_pages_kwd", "outlinks_kwd", "source_chunk_ids", "_score"},
-		// Select pages, not sections, by their role within the Wiki compilation.
+		SelectFields: []string{"id", "slug_kwd", "title_kwd", "page_type_kwd", "topic_kwd", "plan_group_kwd", "summary_with_weight", "content_with_weight", "md_with_weight", "entity_names_kwd", "related_kb_pages_kwd", "outlinks_kwd", "source_chunk_ids", "_score"},
+		// compile_kwd="wiki_page" is the schema-backed discriminator for wiki
+		// pages (sections carry compile_kwd="wiki_section"); there is no
+		// "kc_kind" column in the chunk schema, so filtering on it would return
+		// empty on Infinity.
 		Filter: map[string]interface{}{
-			"type_kwd": "wiki_page",
+			"compile_kwd": "wiki_page",
 		},
 		MatchExprs: []interface{}{&enginetypes.MatchDenseExpr{
 			VectorColumnName:  fmt.Sprintf("q_%d_vec", len(vec)),
@@ -865,11 +1032,7 @@ func (s *kcWikiPageStore) FindSimilarPages(ctx context.Context, tenantID, datase
 	}
 	out := make([]kc.WikiPageCandidate, 0, len(res.Chunks))
 	for _, row := range res.Chunks {
-		candidate, err := s.loadPageCandidate(ctx, req.IndexNames[0], req.KbIDs, row)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, candidate)
+		out = append(out, wikiPageCandidateFromRow(row))
 	}
 	return out, nil
 }
@@ -882,20 +1045,17 @@ func (s *kcWikiPageStore) GetPageBySlug(ctx context.Context, tenantID, datasetID
 		IndexNames:   []string{fmt.Sprintf("ragflow_%s", tenantID)},
 		KbIDs:        []string{datasetID},
 		Limit:        1,
-		SelectFields: []string{"id", "slug_kwd", "title_kwd", "page_type_kwd", "compile_kwd", "type_kwd", "entity_type_kwd", "topic_kwd", "plan_group_kwd", "summary_with_weight", "content_with_weight", "entity_names_kwd", "related_kb_pages_kwd", "outlinks_kwd", "source_chunk_ids", "_score"},
+		SelectFields: []string{"id", "slug_kwd", "title_kwd", "page_type_kwd", "topic_kwd", "plan_group_kwd", "summary_with_weight", "content_with_weight", "md_with_weight", "entity_names_kwd", "related_kb_pages_kwd", "outlinks_kwd", "source_chunk_ids", "_score"},
 		Filter: map[string]interface{}{
-			"type_kwd": "wiki_page",
-			"slug_kwd": slug,
+			"compile_kwd": "wiki_page",
+			"slug_kwd":    slug,
 		},
 	}
 	res, err := s.docEngine.Search(ctx, req)
 	if err != nil || res == nil || len(res.Chunks) == 0 {
 		return nil, err
 	}
-	page, err := s.loadPageCandidate(ctx, req.IndexNames[0], req.KbIDs, res.Chunks[0])
-	if err != nil {
-		return nil, err
-	}
+	page := wikiPageCandidateFromRow(res.Chunks[0])
 	return &page, nil
 }
 
@@ -907,9 +1067,9 @@ func (s *kcWikiPageStore) FindPagesBySourceChunks(ctx context.Context, tenantID,
 		IndexNames:   []string{fmt.Sprintf("ragflow_%s", tenantID)},
 		KbIDs:        []string{datasetID},
 		Limit:        k,
-		SelectFields: []string{"id", "slug_kwd", "title_kwd", "page_type_kwd", "compile_kwd", "type_kwd", "entity_type_kwd", "topic_kwd", "summary_with_weight", "content_with_weight", "entity_names_kwd", "related_kb_pages_kwd", "outlinks_kwd", "source_chunk_ids", "_score"},
+		SelectFields: []string{"id", "slug_kwd", "title_kwd", "page_type_kwd", "topic_kwd", "summary_with_weight", "content_with_weight", "md_with_weight", "entity_names_kwd", "related_kb_pages_kwd", "outlinks_kwd", "source_chunk_ids", "_score"},
 		Filter: map[string]interface{}{
-			"type_kwd":         "wiki_page",
+			"compile_kwd":      "wiki_page",
 			"source_chunk_ids": chunkIDs,
 		},
 	}
@@ -919,10 +1079,7 @@ func (s *kcWikiPageStore) FindPagesBySourceChunks(ctx context.Context, tenantID,
 	}
 	out := make([]kc.WikiPageCandidate, 0, len(res.Chunks))
 	for _, row := range res.Chunks {
-		candidate, err := s.loadPageCandidate(ctx, req.IndexNames[0], req.KbIDs, row)
-		if err != nil {
-			return nil, err
-		}
+		candidate := wikiPageCandidateFromRow(row)
 		if candidate.Score == 0 {
 			candidate.Score = 0.68
 		}
@@ -931,40 +1088,36 @@ func (s *kcWikiPageStore) FindPagesBySourceChunks(ctx context.Context, tenantID,
 	return out, nil
 }
 
-func (s *kcWikiPageStore) loadPageCandidate(ctx context.Context, indexName string, datasetIDs []string, row map[string]interface{}) (kc.WikiPageCandidate, error) {
-	page := wikiPageCandidateFromRow(row)
-	if enginetypes.WikiPageContent(row) != "" {
-		return page, nil
-	}
-	raw, err := s.docEngine.GetChunk(ctx, indexName, page.ID, datasetIDs)
-	if err != nil {
-		return kc.WikiPageCandidate{}, err
-	}
-	stored, _ := raw.(map[string]interface{})
-	content := strings.TrimSpace(enginetypes.WikiPageContent(stored))
-	page.ContentMD = content
-	page.ContentMDRaw = content
-	return page, nil
-}
-
 func wikiPageCandidateFromRow(row map[string]interface{}) kc.WikiPageCandidate {
-	content := strings.TrimSpace(enginetypes.WikiPageContent(row))
 	return kc.WikiPageCandidate{
-		ID:             strings.TrimSpace(anyString(row["id"])),
-		Slug:           strings.TrimSpace(anyString(row["slug_kwd"])),
-		Title:          strings.TrimSpace(anyString(row["title_kwd"])),
-		PageType:       enginetypes.WikiPageCategory(row),
-		Topic:          strings.TrimSpace(anyString(row["topic_kwd"])),
-		PlanGroup:      strings.TrimSpace(anyString(row["plan_group_kwd"])),
-		Summary:        strings.TrimSpace(anyString(row["summary_with_weight"])),
-		ContentMD:      content,
-		ContentMDRaw:   content,
+		ID:        strings.TrimSpace(anyString(row["id"])),
+		Slug:      strings.TrimSpace(anyString(row["slug_kwd"])),
+		Title:     strings.TrimSpace(anyString(row["title_kwd"])),
+		PageType:  strings.TrimSpace(anyString(row["page_type_kwd"])),
+		Topic:     strings.TrimSpace(anyString(row["topic_kwd"])),
+		PlanGroup: strings.TrimSpace(anyString(row["plan_group_kwd"])),
+		Summary:   strings.TrimSpace(anyString(row["summary_with_weight"])),
+		ContentMD: strings.TrimSpace(anyString(row["content_with_weight"])),
+		// md_with_weight is the page-body column Python writes and reads
+		// (wiki_incremental.py:2190/:2251); page rows fall back to
+		// content_with_weight when it was not stamped.
+		ContentMDRaw:   firstNonEmptyString(row["md_with_weight"], row["content_with_weight"]),
 		EntityNames:    anyStrings(row["entity_names_kwd"]),
 		RelatedKBPages: anyStrings(row["related_kb_pages_kwd"]),
 		Outlinks:       anyStrings(row["outlinks_kwd"]),
 		SourceChunkIDs: anyStrings(row["source_chunk_ids"]),
 		Score:          anyFloat(row["_score"]),
 	}
+}
+
+// firstNonEmptyString returns the first candidate that renders non-empty.
+func firstNonEmptyString(values ...interface{}) string {
+	for _, v := range values {
+		if s := strings.TrimSpace(anyString(v)); s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 func anyString(v interface{}) string {

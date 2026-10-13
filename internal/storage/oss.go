@@ -353,8 +353,12 @@ func (o *OSSStorage) BucketExists(ctx context.Context, bucket string) bool {
 		Bucket: aws.String(actualBucket),
 	})
 	if err != nil {
-		common.Error("Bucket does not exist or error", err, zap.String("bucket", actualBucket))
-		return false
+		if isOSSNotFound(err) {
+			return false
+		}
+		// 403 AccessDenied etc.: bucket likely exists but HeadBucket is not allowed
+		zap.L().Debug("HeadBucket failed, assuming bucket exists", zap.String("bucket", actualBucket), zap.Error(err))
+		return true
 	}
 
 	return true
@@ -486,7 +490,7 @@ func isOSSNotFound(err error) bool {
 	}
 	var apiErr smithy.APIError
 	if errors.As(err, &apiErr) {
-		return apiErr.ErrorCode() == "NotFound" || apiErr.ErrorCode() == "404" || apiErr.ErrorCode() == "NoSuchKey"
+		return apiErr.ErrorCode() == "NotFound" || apiErr.ErrorCode() == "404" || apiErr.ErrorCode() == "NoSuchKey" || apiErr.ErrorCode() == "NoSuchBucket"
 	}
 	return false
 }

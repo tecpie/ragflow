@@ -72,6 +72,7 @@ type retrievalParams struct {
 	Query                    string
 	KbIDs                    []string
 	MemoryIDs                []string
+	DocumentIDs              []string
 	UserID                   string
 	TopN                     int
 	TopK                     int
@@ -113,6 +114,13 @@ func parseRetrievalParams(params map[string]any) retrievalParams {
 		out.KbIDs = append(out.KbIDs, v...)
 	}
 	out.MemoryIDs = toStringSlice(params["memory_ids"])
+	if v, ok := params["document_ids"].(string); ok {
+		if strings.TrimSpace(v) != "" {
+			out.DocumentIDs = []string{v}
+		}
+	} else {
+		out.DocumentIDs = toStringSlice(params["document_ids"])
+	}
 	if v, ok := params["user_id"].(string); ok {
 		out.UserID = v
 	}
@@ -176,10 +184,11 @@ func (c *retrievalComponent) Name() string { return "Retrieval" }
 
 func (c *retrievalComponent) Inputs() map[string]string {
 	return map[string]string{
-		"query":       "Natural-language search query.",
-		"dataset_ids": "Optional list of dataset IDs to restrict the search to (overrides node-level kb_ids).",
-		"top_n":       "Maximum chunks to return (default 8, overrides node-level top_n).",
-		"use_kg":      "GraphRAG toggle (returns ErrKGRetrievalServiceMissing until a kg adapter is registered).",
+		"query":        "Natural-language search query.",
+		"dataset_ids":  "Optional list of dataset IDs to restrict the search to (overrides node-level kb_ids).",
+		"document_ids": "Optional list of document IDs to restrict retrieval scope.",
+		"top_n":        "Maximum chunks to return (default 8, overrides node-level top_n).",
+		"use_kg":       "GraphRAG toggle (returns ErrKGRetrievalServiceMissing until a kg adapter is registered).",
 	}
 }
 
@@ -187,6 +196,10 @@ func (c *retrievalComponent) GetInputForm() map[string]any {
 	return map[string]any{
 		"query": map[string]any{
 			"name": "Query",
+			"type": "line",
+		},
+		"document_ids": map[string]any{
+			"name": "Document IDs",
 			"type": "line",
 		},
 	}
@@ -360,6 +373,16 @@ func (c *retrievalComponent) applyDefaults(inputs map[string]any) map[string]any
 	if _, ok := out["memory_ids"]; !ok && len(c.params.MemoryIDs) > 0 {
 		out["memory_ids"] = append([]string(nil), c.params.MemoryIDs...)
 	}
+	if _, ok := out["document_ids"]; !ok && len(c.params.DocumentIDs) > 0 {
+		out["document_ids"] = append([]string(nil), c.params.DocumentIDs...)
+	}
+	if s, ok := out["document_ids"].(string); ok {
+		if strings.TrimSpace(s) == "" {
+			delete(out, "document_ids")
+		} else {
+			out["document_ids"] = []string{s}
+		}
+	}
 	if _, ok := out["user_id"]; !ok && c.params.UserID != "" {
 		out["user_id"] = c.params.UserID
 	}
@@ -487,30 +510,14 @@ func resolveRetrievalDatasetID(ctx context.Context, db *gorm.DB, kbName string) 
 			}
 		}
 		if userID, _ := state.Sys["user_id"].(string); userID != "" {
-			kbs, lookupErr := dao.NewKnowledgebaseDAO().GetByNameInUserTenants(ctx, db, kbName, userID)
-			if lookupErr != nil {
-				common.Warn("agent retrieval component: resolve dataset id by tenant membership failed",
+			if kbs, lookupErr := dao.NewKnowledgebaseDAO().GetByNameInUserTenants(ctx, db, kbName, userID); lookupErr == nil && len(kbs) > 0 {
+				common.Debug("agent retrieval component: resolved dataset id by user visibility")
+				return kbs[0].ID
+			} else if lookupErr != nil {
+				common.Warn("agent retrieval component: resolve dataset id by name failed",
 					zap.Error(lookupErr))
 			} else {
-				refs := make([]permission.ResourceRef, 0, len(kbs))
-				for _, kb := range kbs {
-					if kb != nil {
-						refs = append(refs, permission.ResourceRef{Kind: permission.ResourceKindDataset, ID: kb.ID})
-					}
-				}
-				accessible, accessErr := permission.NewDatabaseChecker(db).FilterResources(
-					ctx,
-					permission.Subject{UserID: userID},
-					refs,
-					permission.OperationUse,
-				)
-				if accessErr != nil {
-					common.Warn("agent retrieval component: check dataset use permission failed",
-						zap.Error(accessErr))
-				} else if len(accessible) > 0 {
-					common.Debug("agent retrieval component: resolved dataset id by permission")
-					return accessible[0].ID
-				}
+				common.Debug("agent retrieval component: user visibility lookup missed")
 			}
 		}
 	} else {
@@ -558,9 +565,8 @@ func (c *codeExecComponent) Inputs() map[string]string {
 }
 
 func (c *codeExecComponent) GetInputForm() map[string]any {
-	arguments := asAnyMap(c.params["arguments"])
-	res := make(map[string]any, len(arguments))
-	for k := range arguments {
+	res := make(map[string]any, len(c.params))
+	for k := range c.params {
 		res[k] = map[string]any{
 			"type": "line",
 			"name": k,
@@ -586,21 +592,12 @@ func (c *codeExecComponent) Invoke(ctx context.Context, db *gorm.DB, inputs map[
 	for k, v := range c.params {
 		merged[k] = v
 	}
-	arguments := asAnyMap(c.params["arguments"])
 	for k, v := range inputs {
-		if _, ok := arguments[k]; !ok {
-			merged[k] = v
-		}
+		merged[k] = v
 	}
 	if rawArgs, ok := merged["arguments"].(map[string]any); ok {
 		state, _ := runtime.GetStateFromContext(ctx)
-		resolvedArgs := resolveCodeExecArguments(rawArgs, merged, state)
-		for k := range rawArgs {
-			if v, ok := inputs[k]; ok {
-				resolvedArgs[k] = v
-			}
-		}
-		merged["arguments"] = resolvedArgs
+		merged["arguments"] = resolveCodeExecArguments(rawArgs, merged, state)
 	}
 	common.Debug("CodeExec wrapper invoke",
 		zap.Int("params_keys", len(c.params)),

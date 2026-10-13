@@ -88,8 +88,12 @@ type AgentParam struct {
 	Temperature              *float64
 	Tools                    []string                  // Agent-visible tool names resolved into Eino BaseTool instances
 	ToolParams               map[string]map[string]any // node-level tool constructor params keyed by tool name
-	SubAgents                []SubAgentTool
-	MCP                      any // Saved MCP selections, decoded and validated when tools are built.
+	// ToolCanvasNames is parallel to Tools: canvas node "name" for each
+	// tool object (empty when the tool was a bare string). Used to label
+	// <tool_call> verbose output with human-readable display names.
+	ToolCanvasNames []string
+	SubAgents       []SubAgentTool
+	MCP             any // Saved MCP selections, decoded and validated when tools are built.
 	ToolTimeout              time.Duration
 	MaxRounds                int
 	MessageHistoryWindowSize int // number of prior conversation turns to include; zero disables history
@@ -110,6 +114,11 @@ type AgentParam struct {
 	Driver  string
 	APIKey  string
 	BaseURL string
+	// OutputStructure is the expected top-level JSON key set for the
+	// Agent's structured output. Canvas DSL stores the JSON Schema under
+	// outputs.structured; when set, Invoke populates outputs["structured"]
+	// so downstream Message templates like {Agent:X@structured} resolve.
+	OutputStructure map[string]any
 }
 
 // SubAgentTool is a child Agent exposed to a parent Agent as an Eino tool.
@@ -166,7 +175,7 @@ func runEinoReActAgent(ctx context.Context, p AgentParam) (*schema.Message, erro
 	if err != nil {
 		return nil, fmt.Errorf("build model: %w", err)
 	}
-	tools, err := buildAgentTools(ctx, p)
+	tools, toolDisplayNames, err := buildAgentTools(ctx, p)
 	if err != nil {
 		return nil, fmt.Errorf("build tools: %w", err)
 	}
@@ -214,7 +223,7 @@ func runEinoReActAgent(ctx context.Context, p AgentParam) (*schema.Message, erro
 	// started signal (closed by the graph onStart callback), so starting
 	// the collector first lets non-citation deltas stream out in real time
 	// while the checker runs, instead of buffering the entire round.
-	emitDone := emitAgentModelStreams(ctx, future, p.Cite)
+	emitDone := emitAgentModelStreams(ctx, future, p.Cite, toolDisplayNames)
 	stream, err := agent.Stream(ctx, input, opt)
 	if err != nil {
 		// Drain the collector so its goroutine exits before we return.
@@ -387,10 +396,13 @@ func buildAgentInputMessages(ctx context.Context, p AgentParam) []*schema.Messag
 	return input
 }
 
-func emitAgentModelStreams(ctx context.Context, future react.MessageFuture, cite bool) <-chan error {
+func emitAgentModelStreams(ctx context.Context, future react.MessageFuture, cite bool, toolDisplayNames map[string]string) <-chan error {
 	done := make(chan error, 1)
 	go func() {
 		var firstErr error
+		// Track assistant tool_calls by id so tool-result messages can be
+		// rendered as Python-compatible <tool_call> verbose blocks for the UI.
+		pendingToolCalls := map[string]schema.ToolCall{}
 		iter := future.GetMessageStreams()
 		for {
 			msgStream, hasNext, err := iter.Next()
@@ -418,8 +430,22 @@ func emitAgentModelStreams(ctx context.Context, future react.MessageFuture, cite
 				if msg == nil {
 					continue
 				}
+				for _, tc := range msg.ToolCalls {
+					if tc.ID != "" {
+						pendingToolCalls[tc.ID] = tc
+					}
+				}
 				if msg.Role == schema.Tool {
 					recordArtifactsFromToolMessage(ctx, msg)
+					// Mirror Python verbose_tool_use: stream <tool_call> so the
+					// web UI can render collapsible tool sections. Go has no
+					// citation first-pass buffer; this is the frontend parity.
+					if !(runtime.AgentMessageEventsEmitted(ctx) && !runtime.HasDeferredAgentMessageSink(ctx)) {
+						runtime.EmitAgentMessage(ctx, formatVerboseToolCall(msg, pendingToolCalls, toolDisplayNames), "")
+					}
+					if msg.ToolCallID != "" {
+						delete(pendingToolCalls, msg.ToolCallID)
+					}
 					continue
 				}
 				if msg.Role != "" && msg.Role != schema.Assistant {
@@ -443,6 +469,49 @@ func emitAgentModelStreams(ctx context.Context, future react.MessageFuture, cite
 		done <- firstErr
 	}()
 	return done
+}
+
+// formatVerboseToolCall builds the same <tool_call>{json}</tool_call> markup
+// Python's Base._verbose_tool_use emits for the chat UI. toolDisplayNames maps
+// the model-facing (indexed) function name to the canvas/MCP display label.
+func formatVerboseToolCall(msg *schema.Message, pending map[string]schema.ToolCall, toolDisplayNames map[string]string) string {
+	name := ""
+	argsRaw := ""
+	if msg != nil {
+		if tc, ok := pending[msg.ToolCallID]; ok {
+			name = tc.Function.Name
+			argsRaw = tc.Function.Arguments
+		}
+	}
+	if name == "" {
+		name = "tool"
+	} else if display := strings.TrimSpace(toolDisplayNames[name]); display != "" {
+		name = display
+	}
+	var args any
+	if argsRaw != "" {
+		if err := json.Unmarshal([]byte(argsRaw), &args); err != nil {
+			args = argsRaw
+		}
+	} else {
+		args = map[string]any{}
+	}
+	result := ""
+	if msg != nil {
+		result = msg.Content
+		if result == "" {
+			result = toolMessageTextContent(msg)
+		}
+	}
+	payload, err := json.MarshalIndent(map[string]any{
+		"name":   name,
+		"args":   args,
+		"result": result,
+	}, "", "  ")
+	if err != nil {
+		payload = []byte(fmt.Sprintf(`{"name":%q,"args":{},"result":%q}`, name, result))
+	}
+	return "<tool_call>" + string(payload) + "</tool_call>"
 }
 
 // addToolCallMemory summarizes the tool calls observed in msg via
@@ -599,7 +668,7 @@ func (c *AgentComponent) GetInputForm() map[string]any {
 	// interface has no context. Runtime tool construction uses the run ctx in
 	// runEinoReActAgent above.
 	metadataCtx := context.Background()
-	tools, err := buildAgentTools(metadataCtx, c.param)
+	tools, _, err := buildAgentTools(metadataCtx, c.param)
 	if err != nil {
 		return out
 	}
@@ -660,7 +729,7 @@ func sortedAgentPromptInputKeys(systemPrompt, userPrompt string) []string {
 func (c *AgentComponent) Reset() {
 	// Reset is a context-free lifecycle hook and does not execute a tool.
 	// Runtime tool construction receives the Canvas run context.
-	tools, err := buildAgentTools(context.Background(), c.param)
+	tools, _, err := buildAgentTools(context.Background(), c.param)
 	if err != nil {
 		return
 	}
@@ -736,36 +805,61 @@ func hasCodeExecTool(names []string) bool {
 	return false
 }
 
-func buildAgentTools(ctx context.Context, p AgentParam) ([]einotool.BaseTool, error) {
+func buildAgentTools(ctx context.Context, p AgentParam) ([]einotool.BaseTool, map[string]string, error) {
 	tools, err := agenttool.BuildAll(p.Tools, p.ToolParams)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	mcpTools, err := buildAgentMCPTools(ctx, dao.DB, p.MCP, p.ToolTimeout)
-	if err != nil {
-		return nil, err
-	}
-	tools = append(tools, mcpTools...)
+	displayNames := make(map[string]string, len(tools)+len(p.SubAgents))
 	toolNames := make(map[string]struct{}, len(tools)+len(p.SubAgents))
-	for _, tool := range tools {
+	for i, tool := range tools {
 		info, err := tool.Info(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("agent tool info: %w", err)
+			return nil, nil, fmt.Errorf("agent tool info: %w", err)
 		}
 		if info == nil || strings.TrimSpace(info.Name) == "" {
-			return nil, fmt.Errorf("agent tool info: missing name")
+			return nil, nil, fmt.Errorf("agent tool info: missing name")
 		}
 		if _, exists := toolNames[info.Name]; exists {
-			return nil, fmt.Errorf("duplicate agent tool name %q", info.Name)
+			return nil, nil, fmt.Errorf("duplicate agent tool name %q", info.Name)
+		}
+		toolNames[info.Name] = struct{}{}
+		display := info.Name
+		if i < len(p.ToolCanvasNames) {
+			if hint := strings.TrimSpace(p.ToolCanvasNames[i]); hint != "" {
+				display = hint
+			}
+		}
+		displayNames[info.Name] = display
+	}
+	mcpTools, mcpDisplay, err := buildAgentMCPTools(ctx, dao.DB, p.MCP, p.ToolTimeout)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, tool := range mcpTools {
+		info, err := tool.Info(ctx)
+		if err != nil {
+			return nil, nil, fmt.Errorf("agent tool info: %w", err)
+		}
+		if info == nil || strings.TrimSpace(info.Name) == "" {
+			return nil, nil, fmt.Errorf("agent tool info: missing name")
+		}
+		if _, exists := toolNames[info.Name]; exists {
+			return nil, nil, fmt.Errorf("duplicate agent tool name %q", info.Name)
 		}
 		toolNames[info.Name] = struct{}{}
 	}
+	for k, v := range mcpDisplay {
+		displayNames[k] = v
+	}
+	tools = append(tools, mcpTools...)
 	for _, subAgent := range p.SubAgents {
 		name := uniqueAgentToolName(subAgent.Name, toolNames)
 		toolNames[name] = struct{}{}
+		displayNames[name] = name
 		tools = append(tools, &subAgentTool{name: name, spec: subAgent})
 	}
-	return tools, nil
+	return tools, displayNames, nil
 }
 
 type subAgentTool struct {
@@ -1086,6 +1180,21 @@ func (c *AgentComponent) invokeNow(ctx context.Context, db *gorm.DB, inputs map[
 	}
 	if groundingStatus != "" {
 		out["grounding_status"] = groundingStatus
+	}
+	if len(p.OutputStructure) > 0 {
+		cleaned := cleanFormattedAnswer(content)
+		parsed, ok := matchOutputStructure(cleaned, p.OutputStructure)
+		if !ok {
+			parsed, ok = matchOutputStructure(content, p.OutputStructure)
+		}
+		if ok {
+			out["structured"] = parsed
+			out["content"] = cleaned + artifactMD
+			content = cleaned
+		} else {
+			common.Warn("component: Agent: outputs.structured set but no parseable JSON matching schema",
+				zap.Strings("expected_keys", sortedMapKeys(p.OutputStructure)))
+		}
 	}
 	streamed := runtime.AgentMessageEventsEmitted(ctx) || runtime.DeferredAgentMessageEventsEmitted(ctx)
 	switch {
@@ -1604,8 +1713,9 @@ func mergeAgentParam(base AgentParam, inputs map[string]any) AgentParam {
 	if v, ok := intFrom(inputs, "tool_timeout"); ok {
 		p.ToolTimeout = time.Duration(v) * time.Second
 	}
-	if tools, params, subAgents, ok := agentToolsFrom(inputs, "tools"); ok {
+	if tools, params, canvasNames, subAgents, ok := agentToolsFrom(inputs, "tools"); ok {
 		p.Tools = tools
+		p.ToolCanvasNames = canvasNames
 		p.SubAgents = subAgents
 		p.ToolParams = mergeToolParams(p.ToolParams, params)
 	}
@@ -1621,23 +1731,84 @@ func mergeAgentParam(base AgentParam, inputs map[string]any) AgentParam {
 	if v, ok := boolFrom(inputs, "cite"); ok {
 		p.Cite = v
 	}
+	if keys := agentOutputStructureFrom(inputs); len(keys) > 0 {
+		p.OutputStructure = keys
+	}
 	return p
+}
+
+// agentOutputStructureFrom reads the Agent's structured-output schema from
+// either the LLM-style output_structure map or the canvas outputs.structured
+// JSON Schema, and returns the expected top-level response key set.
+func agentOutputStructureFrom(inputs map[string]any) map[string]any {
+	if v, ok := mapFrom(inputs, "output_structure"); ok {
+		return structuredExpectedKeySet(v)
+	}
+	outputs, ok := mapFrom(inputs, "outputs")
+	if !ok {
+		return nil
+	}
+	structured, ok := mapFrom(outputs, "structured")
+	if !ok || len(structured) == 0 {
+		return nil
+	}
+	return structuredExpectedKeySet(structured)
+}
+
+// structuredExpectedKeySet turns a JSON Schema (properties/required) or a
+// flat key map into the key set matchOutputStructure checks against.
+func structuredExpectedKeySet(schema map[string]any) map[string]any {
+	if req, ok := schema["required"].([]any); ok && len(req) > 0 {
+		keys := make(map[string]any, len(req))
+		for _, item := range req {
+			if s, ok := item.(string); ok && s != "" {
+				keys[s] = true
+			}
+		}
+		if len(keys) > 0 {
+			return keys
+		}
+	}
+	if props, ok := schema["properties"].(map[string]any); ok && len(props) > 0 {
+		keys := make(map[string]any, len(props))
+		for k := range props {
+			keys[k] = true
+		}
+		return keys
+	}
+	if _, hasType := schema["type"]; hasType {
+		// JSON Schema without properties/required — not a flat key hint.
+		return nil
+	}
+	return schema
+}
+
+func sortedMapKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // agentToolsFrom extracts the Agent tools list. The Go-native shape is
 // []string; the canvas DSL shape stores tool component objects with
 // component_name and params. Child Agent objects are returned separately
 // because they are dynamic tools, not entries in the static tool registry.
-func agentToolsFrom(inputs map[string]any, name string) ([]string, map[string]map[string]any, []SubAgentTool, bool) {
+// canvasNames is parallel to the returned tool name list and holds each
+// object's canvas node "name" (empty for bare string entries).
+func agentToolsFrom(inputs map[string]any, name string) ([]string, map[string]map[string]any, []string, []SubAgentTool, bool) {
 	v, ok := inputs[name]
 	if !ok {
-		return nil, nil, nil, false
+		return nil, nil, nil, nil, false
 	}
 	switch x := v.(type) {
 	case []string:
-		return x, nil, nil, true
+		return x, nil, nil, nil, true
 	case []any:
 		out := make([]string, 0, len(x))
+		canvasNames := make([]string, 0, len(x))
 		params := make(map[string]map[string]any)
 		subAgents := make([]SubAgentTool, 0)
 		for _, item := range x {
@@ -1647,24 +1818,26 @@ func agentToolsFrom(inputs map[string]any, name string) ([]string, map[string]ma
 					continue
 				}
 				out = append(out, tool)
+				canvasNames = append(canvasNames, "")
 			case map[string]any:
 				if subAgent, ok := subAgentToolObject(tool); ok {
 					subAgents = append(subAgents, subAgent)
 					continue
 				}
-				toolName, toolParams, ok := agentToolObject(tool)
+				toolName, toolParams, displayName, ok := agentToolObject(tool)
 				if !ok {
 					continue
 				}
 				out = append(out, toolName)
+				canvasNames = append(canvasNames, displayName)
 				if len(toolParams) != 0 {
 					params[strings.ToLower(strings.TrimSpace(toolName))] = toolParams
 				}
 			}
 		}
-		return out, params, subAgents, true
+		return out, params, canvasNames, subAgents, true
 	}
-	return nil, nil, nil, false
+	return nil, nil, nil, nil, false
 }
 
 func subAgentToolObject(item map[string]any) (SubAgentTool, bool) {
@@ -1694,16 +1867,25 @@ func subAgentToolObject(item map[string]any) (SubAgentTool, bool) {
 	}, true
 }
 
-func agentToolObject(item map[string]any) (string, map[string]any, bool) {
+func agentToolObject(item map[string]any) (string, map[string]any, string, bool) {
 	toolName, ok := stringFrom(item, "component_name")
-	if !ok || strings.TrimSpace(toolName) == "" {
+	hasIdentityKey := ok && strings.TrimSpace(toolName) != ""
+	if !hasIdentityKey {
 		toolName, ok = stringFrom(item, "tool_name")
+		hasIdentityKey = ok && strings.TrimSpace(toolName) != ""
+	}
+	displayName := ""
+	if hasIdentityKey {
+		// Canvas node label lives in "name" when component_name/tool_name
+		// already identify the tool type (mirrors Python cpn.get("name")).
+		displayName, _ = stringFrom(item, "name")
+		displayName = strings.TrimSpace(displayName)
 	}
 	if !ok || strings.TrimSpace(toolName) == "" {
 		toolName, ok = stringFrom(item, "name")
 	}
 	if !ok || strings.TrimSpace(toolName) == "" {
-		return "", nil, false
+		return "", nil, "", false
 	}
 	toolName = strings.TrimSpace(toolName)
 
@@ -1715,7 +1897,7 @@ func agentToolObject(item map[string]any) (string, map[string]any, bool) {
 		}
 		toolParams["function_name"] = strings.TrimSpace(fn)
 	}
-	return toolName, toolParams, true
+	return toolName, toolParams, displayName, true
 }
 
 func cloneMap(in map[string]any) map[string]any {

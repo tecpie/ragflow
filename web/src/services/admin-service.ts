@@ -47,6 +47,7 @@ request.interceptors.request.use((config) => {
   if (!newConfig.skipToken) {
     newConfig.headers.set(Authorization, getAuthorization());
   }
+  newConfig.headers.set('Accept-Language', i18n.language);
 
   return newConfig;
 });

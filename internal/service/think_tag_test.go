@@ -21,6 +21,34 @@ import (
 	"testing"
 )
 
+func TestEmitReasonChannelDeltaStreamsReasoning(t *testing.T) {
+	state := &ThinkStreamState{}
+	var frames []AsyncChatResult
+	emit := func(r AsyncChatResult) { frames = append(frames, r) }
+
+	emitReasonChannelDelta(state, "step one", emit)
+	emitReasonChannelDelta(state, " step two", emit)
+
+	if len(frames) != 3 {
+		t.Fatalf("frames=%d, want 3 (start + 2 reasoning)", len(frames))
+	}
+	if !frames[0].StartToThink {
+		t.Fatalf("first frame must be StartToThink, got %+v", frames[0])
+	}
+	if frames[1].Reasoning != "step one" || frames[1].Answer != "" {
+		t.Fatalf("second frame must carry Reasoning only, got %+v", frames[1])
+	}
+	if frames[2].Reasoning != " step two" {
+		t.Fatalf("third frame Reasoning=%q", frames[2].Reasoning)
+	}
+	if got := state.fullText; got != "<think>step one step two" {
+		t.Fatalf("fullText=%q, want <think>step one step two", got)
+	}
+	if !state.inReasoning {
+		t.Fatal("expected inReasoning after reason deltas")
+	}
+}
+
 func TestNextThinkDelta_NoThinkTag(t *testing.T) {
 	state := &ThinkStreamState{}
 	deltas := NextThinkDelta(state, "hello world", 0)
@@ -111,6 +139,19 @@ func TestNextThinkDelta_EmptyInput(t *testing.T) {
 	deltas := NextThinkDelta(state, "", 0)
 	if len(deltas) != 0 {
 		t.Errorf("expected 0 deltas for empty input, got %d", len(deltas))
+	}
+}
+
+func TestNextThinkDelta_EmptyThinkBlockSkipped(t *testing.T) {
+	state := &ThinkStreamState{}
+	deltas := NextThinkDelta(state, "<think></think>answer", 0)
+	for _, d := range deltas {
+		if d.Kind == ThinkDeltaMarker {
+			t.Fatalf("empty think must not emit markers, got %+v", deltas)
+		}
+	}
+	if len(deltas) != 1 || deltas[0].Value != "answer" {
+		t.Fatalf("expected only answer text, got %+v", deltas)
 	}
 }
 

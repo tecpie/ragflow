@@ -17,10 +17,10 @@ import { useChatStreamStore } from './store';
 export type RunChatCompletionStreamParams = {
   conversationId: string;
   chatId?: string;
-  question: string;
-  files?: IMessage['files'];
+  messages: IMessage[];
   enableThinking?: string;
   enableInternet?: boolean;
+  enableModelThinking?: boolean;
   llmSetting?: Variable;
 };
 
@@ -32,10 +32,10 @@ export type RunChatCompletionStreamResult = {
 export async function runChatCompletionStream({
   conversationId,
   chatId,
-  question,
-  files,
+  messages,
   enableThinking,
   enableInternet,
+  enableModelThinking,
   llmSetting,
 }: RunChatCompletionStreamParams): Promise<RunChatCompletionStreamResult> {
   const { beginStream, applyAnswer, endStream } = useChatStreamStore.getState();
@@ -77,10 +77,10 @@ export async function runChatCompletionStream({
       {
         chatId,
         sessionId: conversationId,
-        question,
-        files,
+        messages,
         enableThinking,
         enableInternet,
+        enableModelThinking,
         llmSetting,
       },
       controller.signal,

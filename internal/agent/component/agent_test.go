@@ -71,6 +71,66 @@ func TestAgent_NoToolsReAct(t *testing.T) {
 	}
 }
 
+func TestAgent_PopulatesStructuredFromOutputsSchema(t *testing.T) {
+	withAgentRunner(t, func(_ context.Context, _ AgentParam) (*schema.Message, error) {
+		return &schema.Message{
+			Role:    schema.Assistant,
+			Content: "```json\n{\"records\":[{\"ruleId\":\"r1\",\"verdict\":\"PASS\"}],\"opinion\":{\"conclusion\":\"PASS\"}}\n```",
+		}, nil
+	})
+
+	c := NewAgentComponent(agentParamFromMap(map[string]any{
+		"model_id": "stub",
+		"outputs": map[string]any{
+			"structured": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"records": map[string]any{"type": "array"},
+					"opinion": map[string]any{"type": "object"},
+				},
+				"required": []any{"records"},
+			},
+		},
+	}))
+	out, err := c.Invoke(t.Context(), nil, map[string]any{
+		"user_prompt": "summarize",
+	})
+	if err != nil {
+		t.Fatalf("Invoke: %v", err)
+	}
+	structured, ok := out["structured"].(map[string]any)
+	if !ok {
+		t.Fatalf("structured missing or wrong type: %T (%v)", out["structured"], out["structured"])
+	}
+	if _, ok := structured["records"]; !ok {
+		t.Fatalf("structured.records missing: %#v", structured)
+	}
+	if got, want := out["content"], `{"records":[{"ruleId":"r1","verdict":"PASS"}],"opinion":{"conclusion":"PASS"}}`; got != want {
+		t.Errorf("content=%q, want cleaned JSON %q", got, want)
+	}
+}
+
+func TestAgentOutputStructureFromRequiredKeys(t *testing.T) {
+	keys := agentOutputStructureFrom(map[string]any{
+		"outputs": map[string]any{
+			"structured": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"records": map[string]any{"type": "array"},
+					"opinion": map[string]any{"type": "object"},
+				},
+				"required": []any{"records"},
+			},
+		},
+	})
+	if len(keys) != 1 {
+		t.Fatalf("expected only required keys, got %#v", keys)
+	}
+	if _, ok := keys["records"]; !ok {
+		t.Fatalf("records key missing: %#v", keys)
+	}
+}
+
 func TestScanAllStreamForToolCallWaitsPastTextChunks(t *testing.T) {
 	stream := schema.StreamReaderFromArray([]*schema.Message{
 		{Role: schema.Assistant, Content: "I will calculate this."},
@@ -306,7 +366,7 @@ func TestReactCheckerStreamsThinkingBeforeAgentReturns(t *testing.T) {
 	})
 
 	opt, future := react.WithMessageFuture()
-	emitDone := emitAgentModelStreams(ctx, future, false)
+	emitDone := emitAgentModelStreams(ctx, future, false, nil)
 
 	streamCh := make(chan *schema.StreamReader[*schema.Message], 1)
 	errCh := make(chan error, 1)
@@ -975,7 +1035,7 @@ func TestAgent_NewAcceptsCanvasToolObjects(t *testing.T) {
 	if agent.param.ToolParams["retrieval"] == nil {
 		t.Fatalf("agent.param.ToolParams missing retrieval: %#v", agent.param.ToolParams)
 	}
-	if _, err := buildAgentTools(t.Context(), agent.param); err != nil {
+	if _, _, err := buildAgentTools(t.Context(), agent.param); err != nil {
 		t.Fatalf("buildAgentTools: %v", err)
 	}
 }
@@ -1001,7 +1061,7 @@ func TestAgent_NewAcceptsCodeExecCanvasToolObject(t *testing.T) {
 	if len(agent.param.Tools) != 1 || agent.param.Tools[0] != "CodeExec" {
 		t.Fatalf("agent.param.Tools = %#v, want [CodeExec]", agent.param.Tools)
 	}
-	tools, err := buildAgentTools(t.Context(), agent.param)
+	tools, _, err := buildAgentTools(t.Context(), agent.param)
 	if err != nil {
 		t.Fatalf("buildAgentTools: %v", err)
 	}
@@ -1061,7 +1121,7 @@ func TestAgent_CanCreateReactAgentWithAllRegisteredTools(t *testing.T) {
 		},
 		MaxRounds: 1,
 	}
-	tools, err := buildAgentTools(t.Context(), p)
+	tools, _, err := buildAgentTools(t.Context(), p)
 	if err != nil {
 		t.Fatalf("buildAgentTools: %v", err)
 	}
@@ -1124,7 +1184,7 @@ func TestAgent_CanvasSubAgentToolBuildsDynamicTool(t *testing.T) {
 	}
 	ctx := t.Context()
 
-	tools, err := buildAgentTools(ctx, agent.param)
+	tools, _, err := buildAgentTools(ctx, agent.param)
 	if err != nil {
 		t.Fatalf("buildAgentTools: %v", err)
 	}
@@ -1174,7 +1234,7 @@ func TestAgent_CanvasSubAgentToolNamesAreUniqueAfterNormalization(t *testing.T) 
 		t.Fatalf("New(Agent) returned %T, want *AgentComponent", c)
 	}
 
-	tools, err := buildAgentTools(t.Context(), agent.param)
+	tools, _, err := buildAgentTools(t.Context(), agent.param)
 	if err != nil {
 		t.Fatalf("buildAgentTools: %v", err)
 	}

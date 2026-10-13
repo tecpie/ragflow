@@ -49,6 +49,7 @@ import {
   useGetSendButtonDisabled,
   useSendButtonDisabled,
 } from '../../hooks/use-button-disabled';
+import { useCreateConversationBeforeSendMessage } from '../../hooks/use-chat-url';
 import { useCreateConversationBeforeUploadDocument } from '../../hooks/use-create-conversation';
 import {
   HandlePressEnterType,
@@ -75,7 +76,6 @@ type ChatCardProps = {
   id: string;
   idx: number;
   conversation: IClientConversation;
-  isAnyBoxLoading: boolean;
   setLoading(id: string, loading: boolean): void;
 } & Pick<
   MultipleChatBoxProps,
@@ -99,7 +99,6 @@ const ChatCard = forwardRef(function ChatCard(
     files,
     clearFiles,
     setLoading,
-    isAnyBoxLoading,
   }: ChatCardProps,
   ref,
 ) {
@@ -217,7 +216,7 @@ const ChatCard = forwardRef(function ChatCard(
                 <Button
                   variant="ghost"
                   size="icon-sm"
-                  disabled={isEmpty(llmId) || isAnyBoxLoading}
+                  disabled={isEmpty(llmId)}
                   onClick={handleApplyConfig}
                   data-testid="chat-detail-multimodel-card-apply"
                   data-card-index={idx}
@@ -233,7 +232,6 @@ const ChatCard = forwardRef(function ChatCard(
               <Button
                 variant="ghost"
                 size="icon-sm"
-                disabled={isAnyBoxLoading}
                 onClick={handleRemoveChatBox}
                 data-testid="chat-detail-multimodel-card-remove"
                 data-card-index={idx}
@@ -245,7 +243,6 @@ const ChatCard = forwardRef(function ChatCard(
               <Button
                 variant="ghost"
                 size="icon-sm"
-                disabled={isAnyBoxLoading}
                 onClick={addChatBox}
                 data-testid="chat-detail-multimodel-add-card"
               >
@@ -299,6 +296,8 @@ export function MultipleChatBox({
 }: MultipleChatBoxProps) {
   const { createConversationBeforeUploadDocument } =
     useCreateConversationBeforeUploadDocument();
+  const { createConversationBeforeSendMessage } =
+    useCreateConversationBeforeSendMessage();
   const { conversationId } = useGetChatSearchParams();
   const disabled = useGetSendButtonDisabled();
   const { visible, hideModal, documentId, selectedChunk, clickDocumentButton } =
@@ -317,7 +316,6 @@ export function MultipleChatBox({
   }, []);
 
   const allChatBoxLoading = [...chatBoxLoading.values()];
-  const isAnyBoxLoading = allChatBoxLoading.some((loading) => loading);
 
   const showInternet = useShowInternet();
 
@@ -336,17 +334,26 @@ export function MultipleChatBox({
     async ({
       enableInternet,
       enableThinking,
+      enableModelThinking,
     }: NextMessageInputOnPressEnterParameter) => {
       if (trim(value) === '') return;
+
+      const data = await createConversationBeforeSendMessage(value);
+
+      if (data === undefined) {
+        return;
+      }
 
       Object.values(boxesRef.current).forEach((box) => {
         box?.({
           enableInternet,
           enableThinking,
+          enableModelThinking,
+          ...data,
         });
       });
     },
-    [value],
+    [createConversationBeforeSendMessage, value],
   );
 
   return (
@@ -372,7 +379,6 @@ export function MultipleChatBox({
             setValue={setValue}
             clearFiles={clearFiles}
             setLoading={setLoading}
-            isAnyBoxLoading={isAnyBoxLoading}
           ></ChatCard>
         ))}
       </div>
@@ -380,7 +386,7 @@ export function MultipleChatBox({
         <NextMessageInput
           disabled={disabled}
           sendDisabled={sendDisabled}
-          sendLoading={isAnyBoxLoading}
+          sendLoading={allChatBoxLoading.some((loading) => loading)}
           value={value}
           resize="vertical"
           onInputChange={handleInputChange}
@@ -392,6 +398,7 @@ export function MultipleChatBox({
           stopOutputMessage={stopOutputMessage}
           onUpload={handleUploadFile}
           showReasoning
+          showModelThinking
           showInternet={showInternet}
           removeFile={removeFile}
           isUploading={isUploading}

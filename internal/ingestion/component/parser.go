@@ -122,6 +122,10 @@ type ParserComponent struct {
 type visionSettings struct {
 	modelID      string
 	systemPrompt string
+	// skipTableEnhance and skipSignatureEnhance come from the file family's
+	// table_vision_enhance / signature_vision_enhance setup flags (default on).
+	skipTableEnhance     bool
+	skipSignatureEnhance bool
 }
 
 // NewParserComponent constructs a Parser from a DSL param map.
@@ -556,7 +560,11 @@ func (c *ParserComponent) Invoke(ctx context.Context, db *gorm.DB, inputs map[st
 		if c.enableVisionEnhancement {
 			// Enhancement is optional; parser-provided text and image metadata
 			// remain available if a vision model cannot describe an image.
-			dispatched, _, _ = maybeDispatchVisionEnhancement(ctx, db, fileTypeExt, dispatched, inputs, c.vision, visionWin)
+			vision := c.vision
+			familySetup := setups[resolveParserFamily(fileTypeExt)]
+			vision.skipTableEnhance = !visionEnhanceFlagEnabled(familySetup, "table_vision_enhance", true)
+			vision.skipSignatureEnhance = !visionEnhanceFlagEnabled(familySetup, "signature_vision_enhance", true)
+			dispatched, _, _ = maybeDispatchVisionEnhancement(ctx, db, fileTypeExt, dispatched, inputs, vision, visionWin)
 		}
 	}
 	// Known/supported families must fail loudly when dispatch or

@@ -102,12 +102,10 @@ function ParserItem({ name, index, canRemove, onRemove }: ParserItemProps) {
           <Widget prefix={prefix} fileType={fileFormat as FileType}></Widget>
         </div>
       </Collapse>
-      <div className="hidden">
-        <OutputFormatFormField
-          prefix={prefix}
-          fileType={fileFormat as FileType}
-        />
-      </div>
+      <OutputFormatFormField
+        prefix={prefix}
+        fileType={fileFormat as FileType}
+      />
     </Card>
   );
 }
@@ -197,7 +195,7 @@ const ParserForm = ({
 
   return (
     <Form {...form}>
-      <form className="space-y-5 px-5 pt-4">
+      <form className="space-y-5 px-5">
         <VisionEnhancementFormFields />
         {fields.map((field, index) => {
           return (

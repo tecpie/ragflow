@@ -93,11 +93,15 @@ func swapVisionGlobals(
 	t.Helper()
 	origResolver := resolveTenantModelByType
 	origInvoker := visionChatInvoker
-	origPrompt := figureVisionPromptBuilder
+	origFigurePrompt := figureVisionPromptBuilder
+	origTablePrompt := tableVisionPromptBuilder
+	origSignaturePrompt := signatureVisionPromptBuilder
 	t.Cleanup(func() {
 		resolveTenantModelByType = origResolver
 		visionChatInvoker = origInvoker
-		figureVisionPromptBuilder = origPrompt
+		figureVisionPromptBuilder = origFigurePrompt
+		tableVisionPromptBuilder = origTablePrompt
+		signatureVisionPromptBuilder = origSignaturePrompt
 	})
 	if resolver != nil {
 		resolveTenantModelByType = resolver
@@ -107,6 +111,8 @@ func swapVisionGlobals(
 	}
 	if prompt != nil {
 		figureVisionPromptBuilder = prompt
+		tableVisionPromptBuilder = prompt
+		signatureVisionPromptBuilder = prompt
 	}
 }
 
@@ -1098,12 +1104,16 @@ func TestVisionEnhancement_GlobalModelPreferredOverPDFParser(t *testing.T) {
 	origTenantResolver := resolveTenantModelByType
 	origModelResolver := resolveModelConfig
 	origInvoker := visionChatInvoker
-	origPrompt := figureVisionPromptBuilder
+	origFigurePrompt := figureVisionPromptBuilder
+	origTablePrompt := tableVisionPromptBuilder
+	origSignaturePrompt := signatureVisionPromptBuilder
 	t.Cleanup(func() {
 		resolveTenantModelByType = origTenantResolver
 		resolveModelConfig = origModelResolver
 		visionChatInvoker = origInvoker
-		figureVisionPromptBuilder = origPrompt
+		figureVisionPromptBuilder = origFigurePrompt
+		tableVisionPromptBuilder = origTablePrompt
+		signatureVisionPromptBuilder = origSignaturePrompt
 	})
 
 	tenantResolverCalled := false
@@ -1123,6 +1133,8 @@ func TestVisionEnhancement_GlobalModelPreferredOverPDFParser(t *testing.T) {
 	invoker := &visionEnhanceCaptureInvoker{}
 	visionChatInvoker = invoker.invoke
 	figureVisionPromptBuilder = fakePrompt
+	tableVisionPromptBuilder = fakePrompt
+	signatureVisionPromptBuilder = fakePrompt
 
 	dispatched := parser.ParseResult{
 		OutputFormat: "json",

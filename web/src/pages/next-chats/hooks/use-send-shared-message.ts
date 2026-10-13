@@ -68,6 +68,7 @@ export const useSendSharedMessage = () => {
       message: Message,
       id?: string,
       enableThinking?: string,
+      enableModelThinking?: boolean,
       enableInternet?: boolean,
     ) => {
       const res = await send(completionUrl, {
@@ -76,6 +77,7 @@ export const useSendSharedMessage = () => {
         question: message.content,
         session_id: get(derivedMessages, '0.session_id'),
         reasoning: Number(enableThinking),
+        enable_thinking: enableModelThinking,
         internet: enableInternet,
         ...(chatInfo?.llm_id ? { model_name: chatInfo.llm_id } : {}),
       });
@@ -101,9 +103,16 @@ export const useSendSharedMessage = () => {
     async (
       message: Message,
       enableThinking?: string,
+      enableModelThinking?: boolean,
       enableInternet?: boolean,
     ) => {
-      sendMessage(message, undefined, enableThinking, enableInternet);
+      sendMessage(
+        message,
+        undefined,
+        enableThinking,
+        enableModelThinking,
+        enableInternet,
+      );
     },
     [sendMessage],
   );
@@ -130,6 +139,7 @@ export const useSendSharedMessage = () => {
   const handlePressEnter = useCallback(
     ({
       enableThinking,
+      enableModelThinking,
       enableInternet,
     }: NextMessageInputOnPressEnterParameter) => {
       if (trim(value) === '' || !done) return;
@@ -149,6 +159,7 @@ export const useSendSharedMessage = () => {
             role: MessageType.User,
           },
           enableThinking,
+          enableModelThinking,
           enableInternet,
         );
       }

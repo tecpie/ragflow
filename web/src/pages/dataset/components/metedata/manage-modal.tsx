@@ -31,8 +31,8 @@ import { Plus, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  getMetadataValueTypeLabel,
   MetadataType,
+  getMetadataValueTypeLabel,
   metadataValueTypeEnum,
 } from './constant';
 import {

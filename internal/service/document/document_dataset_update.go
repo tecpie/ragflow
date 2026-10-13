@@ -407,7 +407,7 @@ func (s *DocumentService) validateDocumentName(ctx context.Context, doc *entity.
 	}
 
 	available, err := common.NameAvailable(oldName, newName, func(candidate string) (bool, error) {
-		return s.documentDAO.NameExistsInKB(ctx, dao.DB, doc.KbID, candidate)
+		return s.documentNameExistsInKB(ctx, doc.KbID, candidate)
 	})
 	if err != nil {
 		return common.CodeServerError, err

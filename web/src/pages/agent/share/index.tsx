@@ -201,6 +201,7 @@ const ChatContainer = () => {
                   stopOutputMessage={stopOutputMessage}
                   onUpload={handleUploadFile}
                   isUploading={loading || isWaiting}
+                  showModelThinking
                 ></NextMessageInput>
               </div>
             </div>

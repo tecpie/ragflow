@@ -30,6 +30,7 @@ import (
 	"ragflow/internal/common"
 	"ragflow/internal/dao"
 	"ragflow/internal/entity"
+	"ragflow/internal/i18n"
 	"ragflow/internal/permission"
 )
 
@@ -455,6 +456,7 @@ func (s *AgentService) DeleteAgentSessions(ctx context.Context, userID, agentID 
 		}
 	}
 
+	locale := i18n.LocaleFromStdContext(ctx)
 	sessionIDs, duplicateMessages := checkDuplicateSessionIDs(ids)
 	errorsList := make([]string, 0)
 	successCount := 0
@@ -471,7 +473,7 @@ func (s *AgentService) DeleteAgentSessions(ctx context.Context, userID, agentID 
 			return nil, common.CodeServerError, err
 		}
 		if conv == nil {
-			errorsList = append(errorsList, fmt.Sprintf("The agent doesn't own the session %s", sessionID))
+			errorsList = append(errorsList, i18n.Translate(locale, i18n.AgentSessionNotOwned, i18n.KV("id", sessionID)))
 			continue
 		}
 
@@ -682,9 +684,6 @@ func (s *AgentService) CreateAgentSession(ctx context.Context, req *CreateAgentS
 		return nil, common.CodeServerError, fmt.Errorf("load canvas dsl: %w", err)
 	}
 	messages := req.Messages
-	if len(messages) == 0 {
-		messages = json.RawMessage(`[]`)
-	}
 	reference := json.RawMessage(`[]`)
 
 	var dsl entity.JSONMap
@@ -699,6 +698,9 @@ func (s *AgentService) CreateAgentSession(ctx context.Context, req *CreateAgentS
 			return nil, common.CodeServerError, errors.New("Internal storage error while accessing the agent.")
 		}
 		return nil, common.CodeDataError, err
+	}
+	if len(req.Messages) == 0 {
+		messages = agentSessionInitialMessages(dsl)
 	}
 
 	// Resolve the latest version title so the session records which version it

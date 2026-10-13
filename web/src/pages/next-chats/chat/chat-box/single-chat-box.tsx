@@ -103,7 +103,6 @@ export function SingleChatBox({ conversation }: IProps) {
               index={i}
               isLast={i === messages.length - 1}
               removeMessageById={removeMessageById}
-              deleteDisabled={message.awaitingServerId}
               regenerateMessage={regenerateMessage}
               sendLoading={sendLoading}
             />
@@ -130,6 +129,7 @@ export function SingleChatBox({ conversation }: IProps) {
           isUploading={isUploading}
           removeFile={removeFile}
           showReasoning
+          showModelThinking
           showInternet={showInternet}
         />
         {visible && (

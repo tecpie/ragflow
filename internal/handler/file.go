@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"net/http"
 	"ragflow/internal/common"
+	"ragflow/internal/i18n"
 	permissionresponse "ragflow/internal/permission/response"
 	"ragflow/internal/storage"
 	"ragflow/internal/utility"
@@ -612,7 +613,7 @@ func (h *FileHandler) LinkToDatasets(c *gin.Context) {
 	}
 	ctx := c.Request.Context()
 	if err := h.file2DocumentService.LinkToDatasets(ctx, user.ID, &req, mode); err != nil {
-		common.ResponseWithCodeData(c, linkToDatasetsErrorCode(err), nil, err.Error())
+		common.ResponseWithCodeData(c, linkToDatasetsErrorCode(err), nil, i18n.T(c, err.Error()))
 		return
 	}
 

@@ -321,7 +321,7 @@ func (d *DatasetService) SearchDatasets(ctx context.Context, req *service.Search
 		common.Warn("use_kg is not yet implemented in Go - skipping KG retrieval")
 	}
 
-	filteredChunks = nlp.RetrievalByChildren(filteredChunks, tenantIDs, d.docEngine, ctx)
+	filteredChunks = nlp.RetrievalByChildren(filteredChunks, tenantIDs, "aggregate", d.docEngine, ctx)
 
 	keyMapping := map[string]string{
 		"chunk_id":            "id",

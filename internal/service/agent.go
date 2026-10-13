@@ -2402,6 +2402,24 @@ func beginLayoutRecognize(c *canvas.Canvas) string {
 	return ""
 }
 
+// agentSessionInitialMessages builds the initial persisted message list for a
+// new agent session: one assistant prologue with created_at when the DSL defines
+// one, otherwise an empty JSON array.
+func agentSessionInitialMessages(dsl map[string]any) json.RawMessage {
+	prologue, err := dslpkg.ExtractPrologue(dsl)
+	if err != nil || strings.TrimSpace(prologue) == "" {
+		return json.RawMessage(`[]`)
+	}
+	messages := []map[string]interface{}{
+		{"role": "assistant", "content": prologue, "created_at": time.Now().Unix()},
+	}
+	raw, err := json.Marshal(messages)
+	if err != nil {
+		return json.RawMessage(`[]`)
+	}
+	return raw
+}
+
 func (s *AgentService) createAgentRunSession(
 	ctx context.Context,
 	sessionID, userID, agentID string,
@@ -2420,7 +2438,7 @@ func (s *AgentService) createAgentRunSession(
 		DialogID:  agentID,
 		UserID:    userID,
 		ExpUserID: &userID,
-		Message:   json.RawMessage(`[]`),
+		Message:   agentSessionInitialMessages(runDSL),
 		Reference: json.RawMessage(`[]`),
 		Source:    &source,
 		DSL:       entity.JSONMap(runDSL),

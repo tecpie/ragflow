@@ -51,7 +51,6 @@ export default {
       languagePlaceholder: 'select your language',
       copy: 'Copy',
       copied: 'Copied',
-      readOnly: 'Read-only',
       viewMore: 'View more',
       viewLess: 'View less',
       comingSoon: 'Coming soon',
@@ -470,6 +469,20 @@ Example: A 1 KB message with 1024-dim embedding uses ~9 KB. The 5 MB default lim
           'This value will be deleted from this file.',
         deleteSettingFieldWarn: `This field will be deleted; existing metadata won't be affected.`,
         deleteSettingValueWarn: `This value will be deleted; existing metadata won't be affected.`,
+        valueSourceMode: 'Value Source',
+        manual: 'Manual Input',
+        fromConnector: 'From Connector',
+        selectConnector: 'Select Connector',
+        enumValueField: 'Enum value field',
+        enumValueFieldTip:
+          'REST: JSON property name on each list item. MySQL/PostgreSQL: column name or alias in the SELECT result (must match cursor.description labels, same idea as RDBMSConnector._row_to_document).',
+        enumValueFieldPlaceholder: 'e.g. id',
+        enumValueFieldRequired:
+          'Please set the enum value field for this connector.',
+        enumDescriptionField: 'Enum description field',
+        enumDescriptionFieldTip:
+          'Optional. REST: JSON property on each item. MySQL/PostgreSQL: description column name or alias in the SELECT result.',
+        enumDescriptionFieldPlaceholder: 'e.g. name',
       },
       redoAll: 'Clear existing chunks',
       applyAutoMetadataSettings: 'Apply global auto-metadata settings',
@@ -510,7 +523,6 @@ Example: A 1 KB message with 1024-dim embedding uses ~9 KB. The 5 MB default lim
       source: 'Source',
       fileName: 'File name',
       datasetLogs: 'Dataset',
-      datasourceLogs: 'Data source',
       fileLogs: 'File',
       overview: 'Logs',
       success: 'Success',
@@ -667,11 +679,6 @@ Example: A 1 KB message with 1024-dim embedding uses ~9 KB. The 5 MB default lim
       reRankModelWaring: 'Re-rank model is very time consuming.',
     },
     knowledgeConfiguration: {
-      builtInSuffix: 'Built in',
-      builtInBadge: 'Built in',
-      builtInPipelines: 'Built-in pipelines',
-      parserSelectPlaceholder: 'Select a parser',
-      parserOptionUnavailable: 'unavailable',
       randomSeedTip:
         'Seed is the starting point for a pseudo-random algorithm that ensures reproducibility of the same output across different runs.',
       datasetDescription: 'Describe your dataset',
@@ -952,6 +959,8 @@ Paragraphs:
       entityTypes: 'Entity types',
       compilationTemplate: 'Operator',
       compilationTemplateRequired: 'Please select an operator',
+      compilationTemplateTip:
+        'Selected compilation operators run automatically after document parsing (structure templates). Wiki templates still need manual generation on the Artifacts page.',
       compilationTemplateUnavailable:
         'The selected operator is unavailable (deleted or no permission), please select another one',
       createTemplate: 'Create template',
@@ -1166,6 +1175,14 @@ This auto-tagging feature enhances retrieval by adding another layer of domain-s
       thinkingLevelNone: 'Naive',
       thinkingLevelAgentic: 'Agentic',
       thinkingLevelAgenticDescription: 'Self-directed corpus exploration',
+      failoverModels: 'Failover models',
+      failoverModelsTip:
+        'When the primary model hits a provider error, the agentic agent switches to the next model in this list, in order.',
+      failoverModelsPrimaryLabel: 'Primary model',
+      failoverModelsNoPrimary: 'Tenant default',
+      failoverModelsEmpty:
+        'No fallback model. Add at least one so a provider failure can be survived.',
+      failoverModelsAdd: 'Add a fallback model',
       thinkingTip:
         'Only controls thinking mode for official Qwen, Kimi, and GLM model providers. System default disables Qwen thinking to avoid long-running tasks.',
       quote: 'Show citations',
@@ -1241,7 +1258,11 @@ This auto-tagging feature enhances retrieval by adding another layer of domain-s
       locale: 'Language',
       selectLanguage: 'Select a language',
       reasoning: 'Reasoning',
-      reasoningTip: `Whether to enable a reasoning workflow during question answering, as seen in models like Deepseek-R1. When enabled, this allows the model to access external knowledge and tackle complex questions in a step-by-step manner, leveraging techniques like chain-of-thought reasoning. This approach enhances the model's ability to provide accurate responses by breaking down problems into manageable steps, improving performance on tasks that require logical reasoning and multi-step thinking.`,
+      reasoningTip:
+        'Enable the deep-research retrieval workflow for complex questions. This is separate from model thinking below, which controls the model’s own reasoning output.',
+      modelThinking: 'Deep thinking',
+      modelThinkingTip:
+        'Control whether reasoning models (e.g. DeepSeek-R1, Qwen3, Kimi K2.5) emit their internal thinking process. When off, the model answers directly.',
       webSearch: 'Web search',
       webSearchProvider: 'Web search provider',
       webSearchProviderTip:
@@ -1271,9 +1292,6 @@ This auto-tagging feature enhances retrieval by adding another layer of domain-s
       queritApiKeyTip:
         'When Querit is selected, its web search results supplement dataset retrieval.',
       queritApiKeyMessage: 'Please enter your Querit API Key',
-      search1apiApiKeyTip:
-        'When Search1API is selected, its web search results supplement dataset retrieval.',
-      search1apiApiKeyMessage: 'Please enter your Search1API API Key',
       serplyApiKeyTip:
         'When Serply is selected, its web search results supplement dataset retrieval.',
       serplyApiKeyMessage: 'Please enter your Serply API Key',
@@ -2144,6 +2162,10 @@ Example: Virtual Hosted Style`,
       mineruApiserver: 'MinerU API Server',
       mineruApiserverMessage: 'Please input the MinerU API Server URL!',
       mineruApiserverPlaceholder: 'e.g. http://host.docker.internal:9987',
+      mineruApiToken: 'MinerU API token',
+      mineruApiTokenPlaceholder: 'Token from mineru.net API management (optional)',
+      mineruApiTokenTip:
+        'When set, RAGFlow uses the official precise API (/api/v4, including vlm). Leave empty to use the no-login agent API. Not required for a self-hosted MinerU server.',
       mineruOutputDir: 'MinerU Output Directory',
       mineruOutputDirMessage: 'Please input the MinerU output directory!',
       mineruOutputDirPlaceholder: '/tmp/mineru',
@@ -2803,6 +2825,28 @@ Best for: Documents with flowing, contextually connected content — such as boo
         'Timeout in seconds for a single tool call (including MCP tools). Increase it for long-running tools.',
       maxSteps: 'Max steps',
       headless: 'Headless',
+      useCdp: 'Use CDP connection',
+      useCdpTip:
+        'Connect to an existing Chromium/Chrome instance via CDP instead of launching a new local browser process.',
+      cdpUrl: 'CDP URL',
+      cdpUrlTip:
+        'Supports both HTTP and WebSocket CDP endpoints, for example http://127.0.0.1:9222 or ws://127.0.0.1:9222/devtools/browser/<id>.',
+      remoteStagingUrl: 'Remote staging URL',
+      remoteStagingUrlTip:
+        'Used for HTTP staging mode. If only one external port is available (common on Windows), run tools/browser_remote_staging/gateway.py on the remote host and set both CDP URL and this field to the same URL. When left empty and upload mode is auto, Blob+CDP is used instead and no staging service is required.',
+      remoteStagingToken: 'Remote staging token',
+      remoteStagingTokenTip:
+        'Must match BROWSER_STAGING_TOKEN on the Chrome host. You can also configure RAGFLOW_BROWSER_REMOTE_STAGING_TOKEN in Docker.',
+      remoteUploadMode: 'Remote upload mode',
+      remoteUploadModeAuto:
+        'Auto (HTTP staging if URL set, otherwise Blob+CDP)',
+      remoteUploadModeStaging: 'HTTP staging',
+      remoteUploadModeBlobCdp: 'Blob+CDP (no extra service)',
+      remoteUploadModeTip:
+        'When RAGFlow runs in Docker and Chrome is remote, files must be written on the Chrome host first. Auto: use HTTP staging when remote staging URL is configured, otherwise transfer via CDP Blob download.',
+      useVision: 'Enable vision input',
+      useVisionTip:
+        'When enabled, browser screenshots are sent to the vision model. Disable this for text-only models such as Qwen3-14B, otherwise the model API may reject requests.',
       enableDefaultExtensions: 'Enable default extensions',
       enableDefaultExtensionsTip:
         'Enable browser-use default extensions (uBlock, cookie handling, ClearURLs). Disable this to avoid runtime extension downloads.',
@@ -2842,7 +2886,7 @@ Best for: Documents with flowing, contextually connected content — such as boo
       dataManipulation: 'Data manipulation',
       flow: 'Flow',
       dialog: 'Dialogue',
-      cite: 'Show citations',
+      cite: 'Cite',
       citeTip: 'citeTip',
       name: 'Name',
       nameMessage: 'Please input name',
@@ -2943,23 +2987,6 @@ Best for: Documents with flowing, contextually connected content — such as boo
       sofyaSearchDepthBasic: 'Page content',
       sofyaSearchDepthSnippets: 'Snippets only',
       sofyaApiKeyTip: 'Required. Create an API Key at sofya.co.',
-      search1APISearch: 'Search1API',
-      search1APISearchDescription:
-        'A web and news search component powered by Search1API. It covers search services such as Google, Bing, Baidu, GitHub, arXiv, Reddit, YouTube, Hacker News and Reuters. As an agent tool, the agent can pick the channel and search service for each call. An API Key is required.',
-      search1APIChannelTip:
-        'Web searches the general web; News searches news sources. As an agent tool, the agent can switch the channel for each call.',
-      search1APIChannelGeneral: 'Web',
-      search1APIChannelNews: 'News',
-      search1APIService: 'Search service',
-      search1APIServiceTip:
-        'The default search service for the selected channel. As an agent tool, the agent can pick another service the channel supports for each call.',
-      search1APIApiKeyTip: 'Required. Create an API Key at app.s1.dev.',
-      search1APICrawl: 'Search1API crawl',
-      search1APICrawlDescription:
-        'Read a web page with Search1API and return its title and full content. An API Key is required.',
-      search1APICrawlUrl: 'URL',
-      search1APICrawlUrlTip:
-        'The absolute HTTP or HTTPS URL of the page to read. As an agent tool, the agent supplies the URL.',
       docGenerator: 'Doc Generator',
       docGeneratorDescription: `Generate a file from Markdown content.`,
       browser: 'Browser',
@@ -2984,6 +3011,7 @@ Best for: Documents with flowing, contextually connected content — such as boo
       watermarkText: 'Watermark Text',
       headerText: 'Header Text',
       footerText: 'Footer Text',
+      includeDownloadInfoInContent: 'Append download info to content',
       contentPlaceholder: 'Enter markdown content...',
       filenamePlaceholder: 'document.ext (auto-generated if empty)',
       contentRequired: 'Content is required',
@@ -3458,6 +3486,9 @@ This process aggregates variables from multiple branches into a single variable 
         'The prompt words will change. Please confirm whether you want to discard the existing prompt words?',
       queryRequired: 'Query is required',
       queryTip: 'Select the variable you want to use',
+      documentIds: 'Document IDs',
+      documentIdsTip:
+        'Optional list of document IDs to restrict retrieval scope. Supports upstream variable references.',
       agent: 'Agent',
       addAgent: 'Add agent',
       agentDescription:

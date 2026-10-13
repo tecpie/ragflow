@@ -25,7 +25,7 @@ import (
 
 func TestAgentMCPRequiresRuntimeServer(t *testing.T) {
 	p := mergeAgentParam(AgentParam{}, map[string]any{"mcp": []any{map[string]any{"mcp_id": "missing", "tools": map[string]any{"route": map[string]any{"name": "route"}}}}})
-	if _, err := buildAgentTools(t.Context(), p); err == nil {
+	if _, _, err := buildAgentTools(t.Context(), p); err == nil {
 		t.Fatal("configured MCP tools silently discarded")
 	}
 }
@@ -90,7 +90,7 @@ func TestAgentMCPModelDispatch(t *testing.T) {
 	state.Sys["canvas_id"] = "canvas"
 	ctx := withStateForTest(t.Context(), state)
 	p := mergeAgentParam(AgentParam{}, map[string]any{"mcp": []any{map[string]any{"mcp_id": "mcp", "tools": map[string]any{"route": map[string]any{"name": "route", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"origin": map[string]any{"type": "string"}}, "required": []string{"origin"}}}}}}})
-	tools, err := buildAgentTools(ctx, p)
+	tools, _, err := buildAgentTools(ctx, p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +165,7 @@ func TestAgentMCPModelDispatch(t *testing.T) {
 	}
 	state.Sys["user_id"] = "outsider"
 	state.Sys["tenant_id"] = "other-tenant"
-	if _, err := buildAgentTools(ctx, p); err == nil {
+	if _, _, err := buildAgentTools(ctx, p); err == nil {
 		t.Fatal("MCP dependency access without canvas permission was allowed")
 	}
 }
@@ -191,7 +191,7 @@ func TestAgentMCPToolNamesDoNotCollide(t *testing.T) {
 		map[string]any{"mcp_id": "first", "tools": map[string]any{"search": map[string]any{"name": "web_search"}}},
 		map[string]any{"mcp_id": "second", "tools": map[string]any{"search": map[string]any{"name": "web_search"}}},
 	}}
-	tools, err := buildAgentTools(ctx, p)
+	tools, display, err := buildAgentTools(ctx, p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,6 +207,9 @@ func TestAgentMCPToolNamesDoNotCollide(t *testing.T) {
 		if info.Name != want[i] {
 			t.Errorf("tool %d name = %q, want %q", i, info.Name, want[i])
 		}
+	}
+	if display["search_0"] != "web_search" || display["search_1"] != "web_search" {
+		t.Errorf("display=%v, want search_0/1 -> web_search", display)
 	}
 }
 

@@ -2,6 +2,8 @@ import {
   mergeAnswerChunk,
   preprocessLaTeX,
   replaceThinkToSection,
+  replaceToolCallToSection,
+  stripEmptyThinkBlocks,
 } from '../chat';
 
 describe('mergeAnswerChunk', () => {
@@ -108,7 +110,33 @@ describe('preprocessLaTeX', () => {
   });
 });
 
+describe('stripEmptyThinkBlocks', () => {
+  it('removes empty redacted_thinking blocks', () => {
+    expect(stripEmptyThinkBlocks('<think></think>你好')).toBe('你好');
+  });
+
+  it('removes empty think blocks with mixed closing tags', () => {
+    const input = '<think></' + 'think>答案';
+    expect(stripEmptyThinkBlocks(input)).toBe('答案');
+  });
+
+  it('keeps non-empty think blocks', () => {
+    const input = '<think>推理内容</think>答案';
+    expect(stripEmptyThinkBlocks(input)).toBe(input);
+  });
+});
+
 describe('replaceThinkToSection', () => {
+  it('does not render empty think blocks', () => {
+    expect(replaceThinkToSection('<think></think>你好')).toBe('你好');
+  });
+
+  it('renders non-empty think blocks as details', () => {
+    expect(replaceThinkToSection('<think>分析中</think>你好')).toBe(
+      '<details class="think"><summary>Thinking...</summary>分析中</details>你好',
+    );
+  });
+
   it('drops an empty think section instead of rendering a bare strip', () => {
     expect(replaceThinkToSection('<think></think>Here is the answer.')).toBe(
       'Here is the answer.',
@@ -135,5 +163,20 @@ describe('replaceThinkToSection', () => {
 
   it('leaves text without think markers unchanged', () => {
     expect(replaceThinkToSection('plain answer')).toBe('plain answer');
+  });
+});
+
+describe('replaceToolCallToSection', () => {
+  it('renders tool_call blocks as collapsible details with tool name', () => {
+    const body = JSON.stringify({ name: 'search_0', args: { q: 'x' }, result: 'ok' });
+    expect(replaceToolCallToSection(`before<tool_call>${body}</tool_call>after`)).toBe(
+      `before<details class="tool_call"><summary>Tool call: search_0</summary><pre>${body}</pre></details>after`,
+    );
+  });
+
+  it('falls back when body is not JSON', () => {
+    expect(replaceToolCallToSection('<tool_call>not-json</tool_call>')).toBe(
+      '<details class="tool_call"><summary>Tool call</summary><pre>not-json</pre></details>',
+    );
   });
 });

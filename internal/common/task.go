@@ -35,6 +35,10 @@ const (
 	// pool with ingestion tasks; handleAndExecute dispatches them by TaskType.
 	// Their TaskMessage is only a wake-up; input lives in memory_task.
 	TaskTypeMemory = "memory"
+	// TaskTypeDocCompile re-runs KnowledgeCompiler from existing source chunks
+	// without re-parsing the file. Input lives in the shared task table
+	// (task_type=doc_compile); the TaskMessage is only a wake-up.
+	TaskTypeDocCompile = "doc_compile"
 )
 
 // TaskMessage is a broker wake-up that identifies one durable task.

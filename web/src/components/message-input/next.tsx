@@ -30,12 +30,13 @@ import {
 } from '@/components/file-upload';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { cn } from '@/lib/utils';
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { CircleStop, Globe, Paperclip, Send, Upload, X } from 'lucide-react';
+import { Brain, CircleStop, Globe, Paperclip, Send, Upload, X } from 'lucide-react';
 import * as React from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -46,6 +47,7 @@ import { AudioButton } from '../ui/audio-button';
 
 export type NextMessageInputOnPressEnterParameter = {
   enableThinking?: string;
+  enableModelThinking?: boolean;
   enableInternet?: boolean;
   storeHistoryMessages?: boolean;
   omitSessionId?: boolean;
@@ -63,6 +65,7 @@ interface NextMessageInputProps {
   isUploading?: boolean;
   onPressEnter({
     enableThinking,
+    enableModelThinking,
     enableInternet,
   }: NextMessageInputOnPressEnterParameter): void;
   onInputChange: React.ChangeEventHandler<HTMLTextAreaElement>;
@@ -71,6 +74,7 @@ interface NextMessageInputProps {
   onUpload?: NonNullable<FileUploadProps['onUpload']>;
   removeFile?(file: File): void;
   showReasoning?: boolean;
+  showModelThinking?: boolean;
   showInternet?: boolean;
   resize?: 'none' | 'vertical' | 'horizontal' | 'both';
 }
@@ -89,6 +93,7 @@ export function NextMessageInput({
   onPressEnter,
   removeFile,
   showReasoning = false,
+  showModelThinking = false,
   showInternet = false,
 }: NextMessageInputProps) {
   const { t } = useTranslation();
@@ -100,6 +105,7 @@ export function NextMessageInput({
   const [enableThinking, setEnableThinking] = useState(() =>
     storage.getThinkingLevel(),
   );
+  const [enableModelThinking, setEnableModelThinking] = useState(false);
   const [enableInternet, setEnableInternet] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -169,6 +175,10 @@ export function NextMessageInput({
     storage.setThinkingLevel(value);
   }, []);
 
+  const handleModelThinkingToggle = useCallback(() => {
+    setEnableModelThinking((prev) => !prev);
+  }, []);
+
   const handleInternetToggle = useCallback(() => {
     setEnableInternet((prev) => !prev);
   }, []);
@@ -176,9 +186,16 @@ export function NextMessageInput({
   const pressEnter = useCallback(() => {
     onPressEnter({
       enableThinking,
+      enableModelThinking,
       enableInternet: showInternet ? enableInternet : false,
     });
-  }, [onPressEnter, enableThinking, enableInternet, showInternet]);
+  }, [
+    onPressEnter,
+    enableThinking,
+    enableModelThinking,
+    enableInternet,
+    showInternet,
+  ]);
 
   useEffect(() => {
     if (audioInputValue !== null) {
@@ -196,6 +213,7 @@ export function NextMessageInput({
     onInputChange,
     onPressEnter,
     enableThinking,
+    enableModelThinking,
     enableInternet,
     showInternet,
     pressEnter,
@@ -347,6 +365,22 @@ export function NextMessageInput({
                 triggerClassName="h-7 border-0 !bg-bg-card text-sm"
                 testId="chat-detail-thinking-toggle"
               />
+            )}
+
+            {showModelThinking && (
+              <Button
+                type="button"
+                size="sm"
+                variant={'outline'}
+                className={cn('border-0 h-7 text-sm bg-bg-card', {
+                  'bg-text-primary text-bg-base': enableModelThinking,
+                })}
+                onClick={handleModelThinkingToggle}
+                data-testid="chat-detail-model-thinking-toggle"
+              >
+                <Brain />
+                <span>{t('chat.modelThinking')}</span>
+              </Button>
             )}
 
             {showInternet && (

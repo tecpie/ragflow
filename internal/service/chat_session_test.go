@@ -164,7 +164,7 @@ func (f *fakeSessionStore) DeleteByID(ctx context.Context, db *gorm.DB, id strin
 	return nil
 }
 
-func (f *fakeSessionStore) ListByResourceIDs(_ context.Context, _ *gorm.DB, chatID string, sessionIDs []string, sessionID, name string, _ []dao.OrderTerm, _, _ int, _ ...bool) ([]*entity.ChatSession, error) {
+func (f *fakeSessionStore) ListByResourceIDs(_ context.Context, _ *gorm.DB, chatID string, sessionIDs []string, sessionID, name, filterUserID string, _ []dao.OrderTerm, _, _ int, _ ...bool) ([]*entity.ChatSession, error) {
 	allowedIDs := make(map[string]struct{}, len(sessionIDs))
 	for _, id := range sessionIDs {
 		allowedIDs[id] = struct{}{}
@@ -186,6 +186,11 @@ func (f *fakeSessionStore) ListByResourceIDs(_ context.Context, _ *gorm.DB, chat
 				sessionName = *s.Name
 			}
 			if sessionName != name {
+				continue
+			}
+		}
+		if filterUserID != "" {
+			if s.UserID == nil || *s.UserID != filterUserID {
 				continue
 			}
 		}
@@ -442,7 +447,7 @@ func TestListChatSessions_Success(t *testing.T) {
 	}
 
 	ctx := t.Context()
-	resp, err := svc.ListChatSessions(ctx, "user-1", "chat-1", "", "", []dao.OrderTerm{{Column: "create_time", Desc: true}}, 1, 30)
+	resp, err := svc.ListChatSessions(ctx, "user-1", "chat-1", "", "", "", []dao.OrderTerm{{Column: "create_time", Desc: true}}, 1, 30)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -461,7 +466,7 @@ func TestListChatSessions_NotOwner(t *testing.T) {
 	}
 
 	ctx := t.Context()
-	_, err := svc.ListChatSessions(ctx, "user-1", "chat-1", "", "", []dao.OrderTerm{{Column: "create_time", Desc: true}}, 1, 30)
+	_, err := svc.ListChatSessions(ctx, "user-1", "chat-1", "", "", "", []dao.OrderTerm{{Column: "create_time", Desc: true}}, 1, 30)
 	if err == nil || err.Error() != "Resource not found" {
 		t.Fatalf("got %v", err)
 	}

@@ -123,6 +123,13 @@ type RunTaskRequest struct {
 	// Set when persist_session=true so cookies / local storage
 	// survive across sessions. Used by OQ-22c.
 	PreserveUserDataDir bool
+	// CDPURL, when non-empty, attaches stagehand to an existing Chrome
+	// via Sessions.Start Browser.CdpURL (remote CDP / use_cdp).
+	CDPURL string
+	// UseVision records the Browser node use_vision flag. Stagehand
+	// does not expose a 1:1 knob; callers embed vision guidance in
+	// Instruction. Kept here for logging / future SDK wiring.
+	UseVision bool
 }
 
 // StagehandInvoker is the abstraction BrowserComponent depends on.
@@ -427,12 +434,16 @@ func (r *stagehandRuntime) RunTask(ctx context.Context, req RunTaskRequest) (str
 			launchOpts.PreserveUserDataDir = stagehand.Bool(true)
 		}
 	}
+	browser := stagehand.SessionStartParamsBrowser{
+		Type:          "local",
+		LaunchOptions: launchOpts,
+	}
+	if cdpURL := strings.TrimSpace(req.CDPURL); cdpURL != "" {
+		browser.CdpURL = stagehand.String(cdpURL)
+	}
 	startResp, err := client.Sessions.Start(ctx, stagehand.SessionStartParams{
 		ModelName: req.ModelName,
-		Browser: stagehand.SessionStartParamsBrowser{
-			Type:          "local",
-			LaunchOptions: launchOpts,
-		},
+		Browser:   browser,
 	})
 	if err != nil {
 		return "", fmt.Errorf("stagehand runtime: Sessions.Start: %w", err)
@@ -453,6 +464,7 @@ func (r *stagehandRuntime) RunTask(ctx context.Context, req RunTaskRequest) (str
 	if maxSteps <= 0 {
 		maxSteps = 30
 	}
+	_ = req.UseVision // guidance is embedded in Instruction by BrowserComponent
 
 	execResp, err := client.Sessions.Execute(ctx, sessionID, stagehand.SessionExecuteParams{
 		AgentConfig: stagehand.SessionExecuteParamsAgentConfig{
@@ -526,6 +538,7 @@ type RunExtractRequest struct {
 	URL         string         // optional: when set, Sessions.Navigate to this URL first
 	Instruction string         // natural-language extraction prompt
 	Schema      map[string]any // JSON schema; Data.Result is the structured data
+	CDPURL      string         // optional: attach to existing Chrome via CDP
 }
 
 // RunExtract implements the "structured single-shot" path against
@@ -576,19 +589,17 @@ func (r *stagehandRuntime) RunExtract(ctx context.Context, req RunExtractRequest
 	launchOpts := stagehand.SessionStartParamsBrowserLaunchOptions{
 		Headless: stagehand.Bool(headless),
 	}
-	if req.URL != "" {
-		// Note: BrowserLaunchOptions doesn't carry DownloadsPath /
-		// UserDataDir here; RunExtract is single-shot extraction
-		// without browser automation, so we skip those.
-		_ = req.URL
+	browser := stagehand.SessionStartParamsBrowser{
+		Type:          "local",
+		LaunchOptions: launchOpts,
+	}
+	if cdpURL := strings.TrimSpace(req.CDPURL); cdpURL != "" {
+		browser.CdpURL = stagehand.String(cdpURL)
 	}
 
 	startResp, err := client.Sessions.Start(ctx, stagehand.SessionStartParams{
 		ModelName: req.ModelName,
-		Browser: stagehand.SessionStartParamsBrowser{
-			Type:          "local",
-			LaunchOptions: launchOpts,
-		},
+		Browser:   browser,
 	})
 	if err != nil {
 		return "", fmt.Errorf("stagehand runtime: RunExtract: Sessions.Start: %w", err)

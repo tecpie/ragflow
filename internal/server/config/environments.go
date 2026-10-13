@@ -293,6 +293,10 @@ func (c *Config) GetEnvironments() error {
 	}
 
 	mcpAllowPrivateHosts := common.GetEnvSmall(common.EnvMCPAllowPrivateHosts)
+	if mcpAllowPrivateHosts == "" {
+		// Python alias; prefer RAGFLOW_MCP_ALLOW_PRIVATE_HOSTS when both are set.
+		mcpAllowPrivateHosts = common.GetEnvSmall(common.EnvMCPAllowPrivateIP)
+	}
 	if mcpAllowPrivateHosts != "" {
 		c.environments.MCPAllowPrivateHosts = mcpAllowPrivateHosts == "true" || mcpAllowPrivateHosts == "1" || mcpAllowPrivateHosts == "yes"
 	}

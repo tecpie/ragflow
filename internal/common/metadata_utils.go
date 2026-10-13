@@ -17,6 +17,7 @@
 package common
 
 import (
+	"fmt"
 	"regexp"
 	"sort"
 	"strconv"
@@ -373,14 +374,32 @@ func toString(v interface{}) string {
 	}
 }
 
+// MetadataValueSource describes a connector-backed enum for one metadata field,
+// mirroring the frontend IValueSource / Python value_source dict.
+type MetadataValueSource struct {
+	ConnectorID          string `json:"connector_id,omitempty"`
+	EnumValueField       string `json:"enum_value_field,omitempty"`
+	EnumDescriptionField string `json:"enum_description_field,omitempty"`
+}
+
+// MetadataEnumOption is one value/description pair resolved from a value_source
+// connector, mirroring Python fetch_enum_options output.
+type MetadataEnumOption struct {
+	Value       string `json:"value"`
+	Description string `json:"description,omitempty"`
+}
+
 // MetadataFieldDef describes one auto-metadata field, mirroring the
-// {key, type, description, enum} shape stored in parser_config.metadata /
-// built_in_metadata and the Python metadata_utils.py field contract.
+// {key, type, description, enum, value_source, enum_options} shape stored in
+// parser_config.metadata / built_in_metadata and the Python metadata_utils.py
+// field contract.
 type MetadataFieldDef struct {
-	Key         string   `json:"key"`
-	Type        string   `json:"type,omitempty"`
-	Description string   `json:"description,omitempty"`
-	Enum        []string `json:"enum,omitempty"`
+	Key         string                `json:"key"`
+	Type        string                `json:"type,omitempty"`
+	Description string                `json:"description,omitempty"`
+	Enum        []string              `json:"enum,omitempty"`
+	ValueSource *MetadataValueSource  `json:"value_source,omitempty"`
+	EnumOptions []MetadataEnumOption  `json:"enum_options,omitempty"`
 }
 
 // Turn2JSONSchema converts a metadata field list into a JSON-Schema object,
@@ -388,6 +407,10 @@ type MetadataFieldDef struct {
 // metadata_schema. The result is rendered into the auto-metadata extraction
 // prompt so the LLM knows the exact
 // keys, descriptions and allowed enum values to extract.
+//
+// When EnumOptions is populated (typically after PrefetchMetadataValueSources),
+// the field description is enriched with value/description lines and enum is
+// filled from those options — matching Python metadata_schema.
 func Turn2JSONSchema(fields []MetadataFieldDef) map[string]any {
 	properties := make(map[string]any, len(fields))
 	for _, f := range fields {
@@ -395,14 +418,47 @@ func Turn2JSONSchema(fields []MetadataFieldDef) map[string]any {
 			continue
 		}
 		prop := map[string]any{}
-		if f.Description != "" {
-			prop["description"] = f.Description
-		}
-		if len(f.Enum) > 0 {
+		desc := f.Description
+		if len(f.EnumOptions) > 0 {
+			cleaned := make([]MetadataEnumOption, 0, len(f.EnumOptions))
+			values := make([]string, 0, len(f.EnumOptions))
+			seen := map[string]struct{}{}
+			for _, opt := range f.EnumOptions {
+				v := strings.TrimSpace(opt.Value)
+				if v == "" {
+					continue
+				}
+				d := opt.Description
+				if len(d) > 800 {
+					d = d[:800]
+				}
+				cleaned = append(cleaned, MetadataEnumOption{Value: v, Description: d})
+				if _, ok := seen[v]; !ok {
+					seen[v] = struct{}{}
+					values = append(values, v)
+				}
+			}
+			if len(cleaned) > 0 {
+				prop["type"] = "string"
+				prop["enum"] = values
+				var lines []string
+				for _, c := range cleaned {
+					if c.Description != "" {
+						lines = append(lines, fmt.Sprintf("- `%s`: %s", c.Value, c.Description))
+					} else {
+						lines = append(lines, fmt.Sprintf("- `%s`", c.Value))
+					}
+				}
+				desc = desc + "\n\nAllowed values (pick exactly one; use descriptions to decide):\n" + strings.Join(lines, "\n")
+			}
+		} else if len(f.Enum) > 0 {
 			prop["enum"] = f.Enum
 			prop["type"] = "string"
 		} else if f.Type != "" {
 			prop["type"] = f.Type
+		}
+		if desc != "" {
+			prop["description"] = desc
 		}
 		properties[f.Key] = prop
 	}
@@ -488,9 +544,10 @@ func MetadataRawFieldList(value any) []any {
 	return nil
 }
 
-// MetadataFieldDefsFromRaw parses a raw {key, type, description, enum} field list into
-// typed defs. Entries without a key are dropped, so a malformed entry cannot become a
-// field nobody can filter on.
+// MetadataFieldDefsFromRaw parses a raw {key, type, description, enum,
+// value_source, enum_options} field list into typed defs. Entries without a
+// key are dropped, so a malformed entry cannot become a field nobody can
+// filter on.
 func MetadataFieldDefsFromRaw(value any) []MetadataFieldDef {
 	if value == nil {
 		return nil
@@ -525,10 +582,73 @@ func MetadataFieldDefsFromRaw(value any) []MetadataFieldDef {
 					def.Enum = append(def.Enum, s)
 				}
 			}
+		} else if e, ok := m["enum"].([]string); ok {
+			def.Enum = append(def.Enum, e...)
+		}
+		if vs := parseMetadataValueSource(m["value_source"]); vs != nil {
+			def.ValueSource = vs
+		}
+		if opts := parseMetadataEnumOptions(m["enum_options"]); len(opts) > 0 {
+			def.EnumOptions = opts
 		}
 		fields = append(fields, def)
 	}
 	return fields
+}
+
+func parseMetadataValueSource(v any) *MetadataValueSource {
+	m, ok := v.(map[string]any)
+	if !ok || m == nil {
+		return nil
+	}
+	vs := &MetadataValueSource{}
+	if s, ok := m["connector_id"].(string); ok {
+		vs.ConnectorID = strings.TrimSpace(s)
+	}
+	if s, ok := m["enum_value_field"].(string); ok {
+		vs.EnumValueField = strings.TrimSpace(s)
+	}
+	if s, ok := m["enum_description_field"].(string); ok {
+		vs.EnumDescriptionField = strings.TrimSpace(s)
+	}
+	if vs.ConnectorID == "" && vs.EnumValueField == "" && vs.EnumDescriptionField == "" {
+		return nil
+	}
+	return vs
+}
+
+func parseMetadataEnumOptions(v any) []MetadataEnumOption {
+	arr, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]MetadataEnumOption, 0, len(arr))
+	for _, item := range arr {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		raw, ok := m["value"]
+		if !ok || raw == nil {
+			continue
+		}
+		var val string
+		switch x := raw.(type) {
+		case string:
+			val = strings.TrimSpace(x)
+		default:
+			val = strings.TrimSpace(fmt.Sprint(raw))
+		}
+		if val == "" {
+			continue
+		}
+		opt := MetadataEnumOption{Value: val}
+		if d, ok := m["description"].(string); ok {
+			opt.Description = d
+		}
+		out = append(out, opt)
+	}
+	return out
 }
 
 // DeclaredMetadataFieldsFromParserConfig returns the metadata fields a dataset DECLARES for

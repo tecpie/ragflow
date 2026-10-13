@@ -340,6 +340,51 @@ func (s *ConnectorService) GetConnector(ctx context.Context, connectorID, userID
 	return connector, nil
 }
 
+// QueryConnectorRequest is the body for POST /connectors/:id/query.
+// When EnumValueField is set, the response is {"options": [...]}; otherwise it
+// returns a data preview (RDBMS rows or REST items).
+type QueryConnectorRequest struct {
+	Limit                int    `json:"limit"`
+	EnumValueField       string `json:"enum_value_field"`
+	EnumDescriptionField string `json:"enum_description_field"`
+}
+
+// QueryConnector previews connector data or resolves enum_options for a
+// metadata value_source, mirroring Python connector_api.query_connector.
+func (s *ConnectorService) QueryConnector(ctx context.Context, connectorID, userID string, req *QueryConnectorRequest) (map[string]any, error) {
+	connector, err := s.GetConnector(ctx, connectorID, userID)
+	if err != nil {
+		return nil, err
+	}
+	if !syncerconnector.IsQueryableSource(connector.Source) {
+		return nil, fmt.Errorf("%w: data query is only supported for MySQL, PostgreSQL, and REST API connectors", ErrConnectorTestUnsupported)
+	}
+	cfg := map[string]any(connector.Config)
+	if cfg == nil {
+		cfg = map[string]any{}
+	}
+	if req == nil {
+		req = &QueryConnectorRequest{}
+	}
+	enumValueField := strings.TrimSpace(req.EnumValueField)
+	if enumValueField != "" {
+		opts, err := syncerconnector.FetchEnumOptions(ctx, connector.Source, cfg, common.MetadataValueSource{
+			ConnectorID:          connector.ID,
+			EnumValueField:       enumValueField,
+			EnumDescriptionField: strings.TrimSpace(req.EnumDescriptionField),
+		})
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"options": opts}, nil
+	}
+	limit := req.Limit
+	if limit <= 0 {
+		limit = syncerconnector.DefaultQueryLimit
+	}
+	return syncerconnector.QueryConnectorData(ctx, connector.Source, cfg, limit)
+}
+
 // ListConnectors returns connectors belonging to a tenant the caller can use.
 func (s *ConnectorService) ListConnectors(ctx context.Context, userID, requestedTenantID string) (*ListConnectorsResponse, error) {
 	userID = strings.TrimSpace(userID)

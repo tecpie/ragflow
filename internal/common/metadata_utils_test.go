@@ -18,6 +18,7 @@ package common
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -53,6 +54,63 @@ func TestTurn2JSONSchema(t *testing.T) {
 	}
 	if _, ok := author["description"]; !ok {
 		t.Fatal("author should carry description")
+	}
+}
+
+func TestTurn2JSONSchema_EnumOptionsEnrichDescription(t *testing.T) {
+	fields := []MetadataFieldDef{
+		{
+			Key:         "status",
+			Description: "workflow status",
+			EnumOptions: []MetadataEnumOption{
+				{Value: "open", Description: "not done"},
+				{Value: "closed"},
+				{Value: "open", Description: "dup dropped from enum"},
+			},
+		},
+	}
+	schema := Turn2JSONSchema(fields)
+	props := schema["properties"].(map[string]any)
+	status := props["status"].(map[string]any)
+	if status["type"] != "string" {
+		t.Fatalf("type = %v, want string", status["type"])
+	}
+	enum, ok := status["enum"].([]string)
+	if !ok || len(enum) != 2 || enum[0] != "open" || enum[1] != "closed" {
+		t.Fatalf("enum = %v, want [open closed]", status["enum"])
+	}
+	desc, _ := status["description"].(string)
+	if !strings.Contains(desc, "workflow status") || !strings.Contains(desc, "`open`: not done") || !strings.Contains(desc, "`closed`") {
+		t.Fatalf("description = %q, want enriched enum_options lines", desc)
+	}
+}
+
+func TestMetadataFieldDefsFromRaw_ValueSourceAndEnumOptions(t *testing.T) {
+	got := MetadataFieldDefsFromRaw([]any{
+		map[string]any{
+			"key":         "dept",
+			"type":        "string",
+			"description": "department",
+			"value_source": map[string]any{
+				"connector_id":           "conn-1",
+				"enum_value_field":       "code",
+				"enum_description_field": "name",
+			},
+			"enum_options": []any{
+				map[string]any{"value": "A", "description": "Alpha"},
+				map[string]any{"value": "B"},
+			},
+		},
+	})
+	if len(got) != 1 {
+		t.Fatalf("got %d fields, want 1", len(got))
+	}
+	def := got[0]
+	if def.ValueSource == nil || def.ValueSource.ConnectorID != "conn-1" || def.ValueSource.EnumValueField != "code" {
+		t.Fatalf("value_source = %#v", def.ValueSource)
+	}
+	if len(def.EnumOptions) != 2 || def.EnumOptions[0].Value != "A" || def.EnumOptions[0].Description != "Alpha" {
+		t.Fatalf("enum_options = %#v", def.EnumOptions)
 	}
 }
 

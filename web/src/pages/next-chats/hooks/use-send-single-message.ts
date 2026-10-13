@@ -60,6 +60,7 @@ export function useSendSingleMessage({
       messages,
       enableInternet,
       enableThinking,
+      enableModelThinking,
       storeHistoryMessages,
       omitSessionId,
       ...params
@@ -81,11 +82,13 @@ export function useSendSingleMessage({
             message,
           ],
           reasoning: Number(enableThinking),
+          enable_thinking: enableModelThinking,
           internet: enableInternet,
           ...params,
           ...(storeHistoryMessages === undefined
             ? {}
             : { store_history_messages: storeHistoryMessages }),
+          pass_all_history_messages: true,
         },
         controller,
       );
@@ -111,6 +114,7 @@ export function useSendSingleMessage({
   const handlePressEnter = useCallback(
     async ({
       enableThinking,
+      enableModelThinking,
       enableInternet,
       currentMessages,
       targetConversationId,
@@ -142,6 +146,7 @@ export function useSendSingleMessage({
           },
           enableInternet,
           enableThinking,
+          enableModelThinking,
           ...params,
         });
       }

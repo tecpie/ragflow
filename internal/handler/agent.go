@@ -36,6 +36,7 @@ import (
 	"ragflow/internal/common"
 	"ragflow/internal/dao"
 	"ragflow/internal/entity"
+	"ragflow/internal/i18n"
 	pipelinepkg "ragflow/internal/ingestion/pipeline"
 	"ragflow/internal/ingestion/task"
 	"ragflow/internal/service"
@@ -357,6 +358,9 @@ type agentDetailResponse struct {
 	LastPublishTime *int64 `json:"last_publish_time,omitempty"`
 }
 
+// updateAgentRequest is the wire shape for PUT /api/v1/agents/:canvas_id.
+type updateAgentRequest map[string]interface{}
+
 func decodeJSONWithNumber(body io.Reader, target any) error {
 	decoder := json.NewDecoder(body)
 	decoder.UseNumber()
@@ -379,13 +383,13 @@ func (h *AgentHandler) UpdateAgent(c *gin.Context) {
 		return
 	}
 	canvasID := c.Param("canvas_id")
-	var req map[string]interface{}
+	var req updateAgentRequest
 	if err := decodeJSONWithNumber(c.Request.Body, &req); err != nil && !errors.Is(err, io.EOF) {
 		common.ResponseWithCodeData(c, common.CodeArgumentError, nil, "Invalid request: "+err.Error())
 		return
 	}
 	if req == nil {
-		req = map[string]interface{}{}
+		req = updateAgentRequest{}
 	}
 	if err := h.agentService.UpdateAgent(c.Request.Context(), user.ID, canvasID, req); err != nil {
 		ec, em := mapAgentError(err)
@@ -993,7 +997,7 @@ func (h *AgentHandler) DeleteAgentSession(c *gin.Context) {
 		common.ResponseWithCodeData(c, code, nil, msg)
 		return
 	}
-	ctx := c.Request.Context()
+	ctx := i18n.ContextWithLocale(c.Request.Context(), i18n.LocaleFromContext(c))
 	canvasID := c.Param("canvas_id")
 	sessionID := c.Param("session_id")
 	if sessionID != "" {

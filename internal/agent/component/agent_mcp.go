@@ -20,9 +20,11 @@ import (
 
 // buildAgentMCPTools binds the saved tool selection to servers the canvas can use.
 // Discovery happens when configuring the server; execution uses those schemas.
-func buildAgentMCPTools(ctx context.Context, db *gorm.DB, raw any, timeout time.Duration) ([]einotool.BaseTool, error) {
+// The returned display map keys indexed function names (name_N) to the MCP
+// tool meta "name", falling back to the selection key (Python parity).
+func buildAgentMCPTools(ctx context.Context, db *gorm.DB, raw any, timeout time.Duration) ([]einotool.BaseTool, map[string]string, error) {
 	if raw == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	var selections []struct {
 		ID    string                  `json:"mcp_id"`
@@ -30,12 +32,13 @@ func buildAgentMCPTools(ctx context.Context, db *gorm.DB, raw any, timeout time.
 	}
 	data, err := json.Marshal(raw)
 	if err != nil {
-		return nil, fmt.Errorf("encode Agent MCP configuration: %w", err)
+		return nil, nil, fmt.Errorf("encode Agent MCP configuration: %w", err)
 	}
 	if err := json.Unmarshal(data, &selections); err != nil {
-		return nil, fmt.Errorf("decode Agent MCP configuration: %w", err)
+		return nil, nil, fmt.Errorf("decode Agent MCP configuration: %w", err)
 	}
 	var tools []einotool.BaseTool
+	displayNames := make(map[string]string)
 	toolIndex := 0
 	for _, selection := range selections {
 		if len(selection.Tools) == 0 {
@@ -43,12 +46,12 @@ func buildAgentMCPTools(ctx context.Context, db *gorm.DB, raw any, timeout time.
 		}
 		state, err := runtime.GetStateFromContext(ctx)
 		if err != nil || state == nil || db == nil {
-			return nil, fmt.Errorf("MCP server %q: missing runtime tenant or database", selection.ID)
+			return nil, nil, fmt.Errorf("MCP server %q: missing runtime tenant or database", selection.ID)
 		}
 		userID, _ := state.Sys["user_id"].(string)
 		canvasID, _ := state.Sys["canvas_id"].(string)
 		if strings.TrimSpace(userID) == "" || strings.TrimSpace(canvasID) == "" {
-			return nil, fmt.Errorf("MCP server %q: missing runtime user or canvas", selection.ID)
+			return nil, nil, fmt.Errorf("MCP server %q: missing runtime user or canvas", selection.ID)
 		}
 		tenantID, _ := state.Sys["tenant_id"].(string)
 		checker := permission.NewDatabaseChecker(db)
@@ -61,20 +64,20 @@ func buildAgentMCPTools(ctx context.Context, db *gorm.DB, raw any, timeout time.
 			permission.OperationUse,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("MCP server %q: authorize canvas dependency: %w", selection.ID, err)
+			return nil, nil, fmt.Errorf("MCP server %q: authorize canvas dependency: %w", selection.ID, err)
 		}
 		server, err := dao.NewMCPServerDAO().GetByID(ctx, db, selection.ID)
 		if err != nil {
-			return nil, fmt.Errorf("load MCP server %q: %w", selection.ID, err)
+			return nil, nil, fmt.Errorf("load MCP server %q: %w", selection.ID, err)
 		}
 		if server == nil {
-			return nil, fmt.Errorf("load MCP server %q: %w", selection.ID, permission.ErrResourceNotFound)
+			return nil, nil, fmt.Errorf("load MCP server %q: %w", selection.ID, permission.ErrResourceNotFound)
 		}
 		headers := make(map[string]string, len(server.Headers))
 		for key, value := range server.Headers {
 			s, ok := value.(string)
 			if !ok {
-				return nil, fmt.Errorf("MCP server %q: header %q must be a string", selection.ID, key)
+				return nil, nil, fmt.Errorf("MCP server %q: header %q must be a string", selection.ID, key)
 			}
 			headers[key] = s
 		}
@@ -84,14 +87,21 @@ func buildAgentMCPTools(ctx context.Context, db *gorm.DB, raw any, timeout time.
 		}
 		for _, name := range slices.Sorted(maps.Keys(selection.Tools)) {
 			descriptor := selection.Tools[name]
+			metaName := strings.TrimSpace(descriptor.Name)
 			descriptor.Name = name
+			indexedName := fmt.Sprintf("%s_%d", name, toolIndex)
 			adapter := agenttool.NewMCPToolAdapterWithOptions(descriptor, utility.CallOptions{
 				URL: server.URL, ServerType: server.ServerType, Headers: headers, Variables: variables, Timeout: timeout,
 			})
-			adapter.SetVisibleName(fmt.Sprintf("%s_%d", name, toolIndex))
+			adapter.SetVisibleName(indexedName)
+			display := metaName
+			if display == "" {
+				display = name
+			}
+			displayNames[indexedName] = display
 			toolIndex++
 			tools = append(tools, adapter)
 		}
 	}
-	return tools, nil
+	return tools, displayNames, nil
 }

@@ -314,49 +314,50 @@ func TestExtractor_ResolvesDefaultModelOncePerRun(t *testing.T) {
 	}
 }
 
-// TestMetadataLLMCache_KeyedByChunkID asserts the metadata extraction cache
-// followed the same key change, and that a hit skips the model.
-func TestMetadataLLMCache_KeyedByChunkID(t *testing.T) {
+// TestMetadataLLMCache_KeyedByDocumentContent asserts the metadata extraction
+// cache is document-scoped (content hash), and that a hit skips the model.
+func TestMetadataLLMCache_KeyedByDocumentContent(t *testing.T) {
 	stub := withStubChatInvoker(t, stubResponse{Content: `{"category":"fresh"}`})
 	store := newFakeCacheStore()
 	c := newMetadataExtractor(common.MetadataFieldDef{Key: "category", Type: "string"})
-	in := extractorInputs{llmID: "model-1", cache: store}
+	in := extractorInputs{
+		llmID:  "model-1",
+		cache:  store,
+		chunks: []map[string]any{{"id": "chunk-1", "text": "part-a"}, {"id": "chunk-2", "text": "part-b"}},
+	}
 
-	// Seed via the setter so the test pins the getter/setter agreement rather
-	// than duplicating the key format.
 	schemaJSON, err := json.Marshal(common.Turn2JSONSchema(c.Param.Metadata.Metadata))
 	if err != nil {
 		t.Fatalf("marshal metadata schema: %v", err)
 	}
-	setMetadataLLMCache(cacheTaskCtx("task-9"), in.cache, "model-1", string(schemaJSON), "chunk-1", map[string]any{"category": "cached"})
+	docCacheID := documentMetadataCacheID("part-a\n\npart-b")
+	setMetadataLLMCache(cacheTaskCtx("task-9"), in.cache, "model-1", string(schemaJSON), docCacheID, map[string]any{"category": "cached"})
 
-	ck := map[string]any{"id": "chunk-1", "text": "a body that no longer participates in the key"}
-	if err := c.runEnableMetadata(t.Context(), nil, in, ck, "a body that no longer participates in the key"); err != nil {
-		t.Fatalf("runEnableMetadata: %v", err)
+	if err := c.runDocumentMetadata(t.Context(), nil, in, fractionWindow{}); err != nil {
+		t.Fatalf("runDocumentMetadata: %v", err)
 	}
-	meta, _ := ck["metadata"].(map[string]any)
+	meta, _ := in.chunks[0]["metadata"].(map[string]any)
 	if meta["category"] != "cached" {
-		t.Errorf("metadata = %v, want category=cached from the chunk-id-keyed cache", meta)
+		t.Errorf("metadata = %v, want category=cached from the document-level cache", meta)
 	}
 	if n := stub.Calls(); n != 0 {
 		t.Errorf("LLM calls = %d, want 0 on a cache hit", n)
 	}
 }
 
-// TestMetadataLLMCache_DistinctChunksDoNotShare asserts the metadata cache
-// discriminates chunks.
-func TestMetadataLLMCache_DistinctChunksDoNotShare(t *testing.T) {
+// TestMetadataLLMCache_DistinctDocumentsDoNotShare asserts the metadata cache
+// discriminates documents by content identity.
+func TestMetadataLLMCache_DistinctDocumentsDoNotShare(t *testing.T) {
 	store := newFakeCacheStore()
-	in := extractorInputs{llmID: "model-1", cache: store}
 	ctx := cacheTaskCtx("task-9")
-	setMetadataLLMCache(ctx, in.cache, "model-1", `{"category":"string"}`, "chunk-1", map[string]any{"category": "one"})
+	setMetadataLLMCache(ctx, store, "model-1", `{"category":"string"}`, documentMetadataCacheID("doc-a"), map[string]any{"category": "one"})
 
-	if _, hit := getMetadataLLMCache(ctx, in.cache, "model-1", `{"category":"string"}`, "chunk-2"); hit {
-		t.Error("chunk-2 must not read chunk-1's metadata entry")
+	if _, hit := getMetadataLLMCache(ctx, store, "model-1", `{"category":"string"}`, documentMetadataCacheID("doc-b")); hit {
+		t.Error("doc-b must not read doc-a's metadata entry")
 	}
-	got, hit := getMetadataLLMCache(ctx, in.cache, "model-1", `{"category":"string"}`, "chunk-1")
+	got, hit := getMetadataLLMCache(ctx, store, "model-1", `{"category":"string"}`, documentMetadataCacheID("doc-a"))
 	if !hit || got["category"] != "one" {
-		t.Errorf("getMetadataLLMCache(chunk-1) = %v (hit=%v), want category=one", got, hit)
+		t.Errorf("getMetadataLLMCache(doc-a) = %v (hit=%v), want category=one", got, hit)
 	}
 }
 
@@ -372,18 +373,17 @@ func TestMetadataLLMCache_SchemaChangeInvalidates(t *testing.T) {
 	}
 }
 
-// TestMetadataLLMCache_NoChunkIDBypassesCache asserts the metadata path also
-// skips the cache when the chunk has no stable id.
-func TestMetadataLLMCache_NoChunkIDBypassesCache(t *testing.T) {
+// TestMetadataLLMCache_EmptyDocIDBypassesCache asserts an empty document cache
+// identity disables the metadata cache (chunkcache.Key contract).
+func TestMetadataLLMCache_EmptyDocIDBypassesCache(t *testing.T) {
 	store := newFakeCacheStore()
-	in := extractorInputs{llmID: "model-1", cache: store}
 	ctx := cacheTaskCtx("task-9")
-	setMetadataLLMCache(ctx, in.cache, "model-1", `{"category":"string"}`, "", map[string]any{"category": "one"})
+	setMetadataLLMCache(ctx, store, "model-1", `{"category":"string"}`, "", map[string]any{"category": "one"})
 	if len(store.kv) != 0 {
-		t.Errorf("cache writes = %v, want none without a chunk id", store.kv)
+		t.Errorf("cache writes = %v, want none without a document cache id", store.kv)
 	}
-	if _, hit := getMetadataLLMCache(ctx, in.cache, "model-1", `{"category":"string"}`, ""); hit {
-		t.Error("getMetadataLLMCache with no chunk id must miss")
+	if _, hit := getMetadataLLMCache(ctx, store, "model-1", `{"category":"string"}`, ""); hit {
+		t.Error("getMetadataLLMCache with empty doc cache id must miss")
 	}
 }
 

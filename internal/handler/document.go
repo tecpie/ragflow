@@ -28,6 +28,7 @@ import (
 	"net/url"
 	"ragflow/internal/common"
 	"ragflow/internal/entity"
+	"ragflow/internal/i18n"
 	"ragflow/internal/permission"
 	"ragflow/internal/utility"
 	"reflect"
@@ -80,6 +81,7 @@ type documentServiceIface interface {
 	BatchUpdateDocumentMetadatas(ctx context.Context, datasetID string, selector *document.MetadataSelector, updates []document.MetadataUpdate, deletes []document.MetadataDelete) (*document.BatchUpdateMetadatasResponse, common.ErrorCode, error)
 	ListIngestionTasks(ctx context.Context, userID string, datasetID *string, page, pageSize int) ([]*entity.IngestionTask, error)
 	IngestDocuments(ctx context.Context, datasetID, userID string, docIDs []string) ([]*service.ParseDocumentResponse, error)
+	CompileDocuments(ctx context.Context, datasetID, userID string, docIDs []string) (*document.CompileDocumentsResult, error)
 	StopIngestionTasks(ctx context.Context, tasks []string, userID string) ([]*entity.IngestionTask, error)
 	Ingest(ctx context.Context, userID string, req *document.IngestDocumentRequest) (common.ErrorCode, error)
 	RemoveIngestionTasks(ctx context.Context, tasks []string, userID string) ([]map[string]string, error)
@@ -602,7 +604,7 @@ func (h *DocumentHandler) ListDocuments(c *gin.Context) {
 
 	if orderby := c.Query("orderby"); orderby != "" {
 		switch orderby {
-		case "create_time", "update_time", "name":
+		case "create_time", "update_time", "name", "size":
 		default:
 			common.ResponseWithCodeData(c, common.CodeArgumentError, nil, fmt.Sprintf("invalid orderby field: %s", orderby))
 			return
@@ -658,7 +660,7 @@ func (h *DocumentHandler) ListDocuments(c *gin.Context) {
 		idOpts.Name = ""
 		_, idTotal, idErr := h.documentService.ListDocumentsByDatasetIDWithOptions(ctx, idOpts, 1, 1)
 		if idErr == nil && idTotal == 0 {
-			common.ResponseWithCodeData(c, common.CodeDataError, map[string]interface{}{"total": 0, "docs": []interface{}{}}, fmt.Sprintf("you don't own the document %s", docID))
+			common.ResponseWithCodeData(c, common.CodeDataError, map[string]interface{}{"total": 0, "docs": []interface{}{}}, i18n.T(c, i18n.DocumentNotOwned, i18n.KV("id", docID)))
 			return
 		}
 	}
@@ -668,7 +670,7 @@ func (h *DocumentHandler) ListDocuments(c *gin.Context) {
 		nameOpts.DocIDFilterApplied = false
 		_, nameTotal, nameErr := h.documentService.ListDocumentsByDatasetIDWithOptions(ctx, nameOpts, 1, 1)
 		if nameErr == nil && nameTotal == 0 {
-			common.ResponseWithCodeData(c, common.CodeDataError, map[string]interface{}{"total": 0, "docs": []interface{}{}}, fmt.Sprintf("you don't own the document %s", opts.Name))
+			common.ResponseWithCodeData(c, common.CodeDataError, map[string]interface{}{"total": 0, "docs": []interface{}{}}, i18n.T(c, i18n.DocumentNotOwned, i18n.KV("id", opts.Name)))
 			return
 		}
 	}
@@ -734,6 +736,7 @@ func parseDocumentListOptions(c *gin.Context, datasetID string) (dao.DocumentLis
 	}
 
 	opts.Name = c.Query("name")
+	opts.ContentHash = c.Query("content_hash")
 	docID := c.Query("id")
 	docIDs := queryValues(c, "ids")
 	if docID != "" && len(docIDs) > 0 {
@@ -1001,7 +1004,7 @@ func (h *DocumentHandler) UploadDocuments(c *gin.Context) {
 	ctx := c.Request.Context()
 	kb, err := h.datasetService.GetKnowledgebaseByID(ctx, datasetID)
 	if err != nil || kb == nil {
-		common.ResponseWithCodeData(c, common.CodeDataError, nil, fmt.Sprintf("Can't find the dataset with ID %s!", datasetID))
+		common.ResponseWithCodeData(c, common.CodeDataError, nil, i18n.T(c, i18n.DatasetNotFoundId, i18n.KV("id", datasetID)))
 		return
 	}
 	if err := service.CheckDatasetAccess(ctx, permission.Subject{UserID: user.ID}, kb.ID, permission.OperationUpdate); err != nil {
@@ -1194,7 +1197,7 @@ func (h *DocumentHandler) DownloadDocument(c *gin.Context) {
 		return
 	}
 	if datasetID == "" {
-		common.ErrorWithCode(c, common.CodeDataError, fmt.Sprintf("The dataset not own the document %s.", docID))
+		common.ErrorWithCode(c, common.CodeDataError, i18n.T(c, i18n.DatasetDocumentNotOwnedId, i18n.KV("id", docID)))
 		return
 	}
 	ctx := c.Request.Context()
@@ -1616,7 +1619,7 @@ func (h *DocumentHandler) StartIngestionTask(c *gin.Context) {
 	userID := c.GetString("user_id")
 	if orderby := c.Query("orderby"); orderby != "" {
 		switch orderby {
-		case "create_time", "update_time", "name":
+		case "create_time", "update_time", "name", "size":
 		default:
 			common.ResponseWithCodeData(c, common.CodeArgumentError, nil, fmt.Sprintf("invalid orderby field: %s", orderby))
 			return
@@ -1642,6 +1645,42 @@ func (h *DocumentHandler) StartIngestionTask(c *gin.Context) {
 		}
 	}
 	common.SuccessWithData(c, map[string]interface{}{"success_count": successCount}, "success")
+}
+
+func (h *DocumentHandler) CompileDocuments(c *gin.Context) {
+	datasetID := c.Param("dataset_id")
+
+	var req StartParseDocumentsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ResponseWithCodeData(c, common.CodeDataError, nil, "`document_ids` is required")
+		return
+	}
+	if len(req.DocumentIDs) == 0 {
+		common.ResponseWithCodeData(c, common.CodeDataError, nil, "`document_ids` is required")
+		return
+	}
+
+	userID := c.GetString("user_id")
+	ctx := c.Request.Context()
+	if err := h.datasetService.CheckAccess(ctx, permission.Subject{UserID: userID}, datasetID, permission.OperationRun); err != nil {
+		respondPermissionError(c, err, false)
+		return
+	}
+
+	result, err := h.documentService.CompileDocuments(ctx, datasetID, userID, req.DocumentIDs)
+	if err != nil {
+		common.ResponseWithCodeData(c, common.CodeExceptionError, nil, err.Error())
+		return
+	}
+
+	message := fmt.Sprintf("Queued knowledge compilation for %d document(s)", result.SuccessCount)
+	if len(result.Skipped) > 0 {
+		message += fmt.Sprintf("; skipped disabled: %v", result.Skipped)
+	}
+	common.SuccessWithData(c, map[string]interface{}{
+		"success_count": result.SuccessCount,
+		"skipped":       result.Skipped,
+	}, message)
 }
 
 type StopIngestionsRequest struct {
@@ -1741,7 +1780,7 @@ func (h *DocumentHandler) StopParseDocuments(c *gin.Context) {
 	userID := c.GetString("user_id")
 	if orderby := c.Query("orderby"); orderby != "" {
 		switch orderby {
-		case "create_time", "update_time", "name":
+		case "create_time", "update_time", "name", "size":
 		default:
 			common.ResponseWithCodeData(c, common.CodeArgumentError, nil, fmt.Sprintf("invalid orderby field: %s", orderby))
 			return

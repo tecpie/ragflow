@@ -61,7 +61,7 @@ func applyVllmCompatibleThinking(reqBody map[string]interface{}, modelName strin
 		if config != nil && config.Thinking != nil {
 			enableThinking = *config.Thinking
 		}
-		if strings.Contains(modelNameLower, "-preview") || strings.Contains(modelNameLower, "2.4t-a95b") {
+		if qwen3RequiresThinking(modelName) || strings.Contains(modelNameLower, "2.4t-a95b") {
 			enableThinking = true
 		}
 

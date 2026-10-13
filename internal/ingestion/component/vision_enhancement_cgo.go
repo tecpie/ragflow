@@ -133,6 +133,15 @@ func (c *visionPDFCropper) Crop(ctx context.Context, item map[string]any) (*visi
 	if c.engine == nil {
 		return nil, nil
 	}
+	if signatureBand, _ := item[visionSignatureBandKey].(bool); signatureBand {
+		var pageW, pageH float64
+		if len(positions[0].PageNumbers) > 0 {
+			if sizer, ok := c.engine.(visionPageSizer); ok {
+				pageW, pageH, _ = sizer.PageSize(positions[0].PageNumbers[0])
+			}
+		}
+		positions = extendSignatureBandPositions(positions, pageW, pageH)
+	}
 	// Render each distinct page the positions span (1-based → 0-based is
 	// handled by PositionsFromMatrix). Reuse the chunker's sliding-window
 	// idea but scope it to this single item: typically one page.

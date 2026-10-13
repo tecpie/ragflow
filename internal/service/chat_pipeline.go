@@ -973,7 +973,7 @@ func (s *ChatPipelineService) AsyncChat(
 
 				// Child chunk retrieval
 				if existingChunks, ok := kbinfos["chunks"].([]map[string]interface{}); ok && len(existingChunks) > 0 {
-					kbinfos["chunks"] = nlp.RetrievalByChildren(existingChunks, kbTenantIDStrings(kbs), engine.Get(), ctx)
+					kbinfos["chunks"] = nlp.RetrievalByChildren(existingChunks, kbTenantIDStrings(kbs), "aggregate", engine.Get(), ctx)
 				}
 
 				// Web search
@@ -1389,28 +1389,11 @@ func (s *ChatPipelineService) AsyncChat(
 					ctx, chatMessages, chatCfg, nil,
 					func(answer *string, reason *string) error {
 						if reason != nil && *reason != "" {
-							if thinkState.EnterReasoning() {
-								send(AsyncChatResult{
-									Answer:       "",
-									Reference:    map[string]interface{}{},
-									AudioBinary:  nil,
-									CreatedAt:    float64(time.Now().Unix()),
-									Final:        false,
-									StartToThink: true,
-								})
-							}
-							deltas := NextThinkDelta(thinkState, *reason, 16)
-							for _, d := range deltas {
-								if d.Kind == ThinkDeltaText && d.Value != "" {
-									fullAnswer += d.Value
-									send(AsyncChatResult{
-										Answer:    d.Value,
-										Reference: map[string]interface{}{},
-										CreatedAt: float64(time.Now().Unix()),
-										Final:     false,
-									})
-								}
-							}
+							// Reason channel is already delimited by
+							// StartToThink/EndToThink. Do not run it through
+							// NextThinkDelta: that parser treats reason text as
+							// answer-side tokens and flushes a buffered blob.
+							emitReasonChannelDelta(thinkState, *reason, send)
 						}
 						if isContentDelta(answer) {
 							if thinkState.ExitReasoning() {
@@ -1733,29 +1716,12 @@ func (s *ChatPipelineService) AsyncChatSolo(
 				ctx, chatMessages, chatCfg, nil,
 				func(answer *string, reason *string) error {
 					if reason != nil && *reason != "" {
-						if thinkState.EnterReasoning() {
-							out <- AsyncChatResult{
-								Answer:       "",
-								Reference:    map[string]interface{}{},
-								AudioBinary:  nil,
-								CreatedAt:    float64(time.Now().Unix()),
-								Final:        false,
-								StartToThink: true,
+						emitReasonChannelDelta(thinkState, *reason, func(result AsyncChatResult) {
+							if result.Reasoning != "" {
+								result.AudioBinary = s.synthesizeTTS(ctx, ttsModel, result.Reasoning)
 							}
-						}
-						deltas := NextThinkDelta(thinkState, *reason, 16)
-						for _, d := range deltas {
-							if d.Kind == ThinkDeltaText && d.Value != "" {
-								fullAnswer += d.Value
-								out <- AsyncChatResult{
-									Answer:      d.Value,
-									Reference:   map[string]interface{}{},
-									AudioBinary: s.synthesizeTTS(ctx, ttsModel, d.Value),
-									CreatedAt:   float64(time.Now().Unix()),
-									Final:       false,
-								}
-							}
-						}
+							out <- result
+						})
 					}
 					if isContentDelta(answer) {
 						if thinkState.ExitReasoning() {
@@ -4875,9 +4841,28 @@ func kbTenantIDStrings(kbs []*entity.Knowledgebase) []string {
 	return out
 }
 
+// chatConfigThinkingValue parses dialog/request thinking flags. The chat UI
+// sends enable_thinking as a bool; llm_setting.thinking may be a bool or the
+// strings "enabled"/"disabled".
+func chatConfigThinkingValue(v interface{}) (bool, bool) {
+	switch t := v.(type) {
+	case bool:
+		return t, true
+	case string:
+		switch strings.ToLower(strings.TrimSpace(t)) {
+		case "enabled", "true", "1":
+			return true, true
+		case "disabled", "false", "0":
+			return false, true
+		}
+	}
+	return false, false
+}
+
 // BuildChatConfig converts the dialog's LLM setting (with optional
 // per-request overrides) into a typed ChatConfig for the LLM driver.
 // Dialog values are read first; request config values win when present.
+// enable_thinking (chat "深度思考" toggle) overrides thinking when set.
 func BuildChatConfig(dialog *entity.Chat, config map[string]interface{}) *modelModule.ChatConfig {
 	cfg := &modelModule.ChatConfig{}
 
@@ -4885,7 +4870,7 @@ func BuildChatConfig(dialog *entity.Chat, config map[string]interface{}) *modelM
 		if v, ok := dialog.LLMSetting["stream"].(bool); ok {
 			cfg.Stream = &v
 		}
-		if v, ok := dialog.LLMSetting["thinking"].(bool); ok {
+		if v, ok := chatConfigThinkingValue(dialog.LLMSetting["thinking"]); ok {
 			cfg.Thinking = &v
 		}
 		if v, ok := chatConfigPositiveInt(dialog.LLMSetting["max_tokens"]); ok {
@@ -4925,7 +4910,12 @@ func BuildChatConfig(dialog *entity.Chat, config map[string]interface{}) *modelM
 		if v, ok := config["stream"].(bool); ok {
 			cfg.Stream = &v
 		}
-		if v, ok := config["thinking"].(bool); ok {
+		if v, ok := chatConfigThinkingValue(config["thinking"]); ok {
+			cfg.Thinking = &v
+		}
+		// UI toggle wins over llm_setting / thinking string so closing
+		// "深度思考" actually reaches applyEnableThinkingPolicy.
+		if v, ok := chatConfigThinkingValue(config["enable_thinking"]); ok {
 			cfg.Thinking = &v
 		}
 		if v, ok := chatConfigPositiveInt(config["max_tokens"]); ok {

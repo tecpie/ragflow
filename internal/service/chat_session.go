@@ -25,6 +25,7 @@ import (
 	"math"
 	"ragflow/internal/common"
 	"ragflow/internal/engine"
+	"ragflow/internal/i18n"
 	"ragflow/internal/storage"
 	"strconv"
 	"strings"
@@ -47,7 +48,7 @@ type chatSessionStore interface {
 	Create(ctx context.Context, db *gorm.DB, conv *entity.ChatSession) error
 	UpdateByID(ctx context.Context, db *gorm.DB, id string, updates map[string]interface{}) error
 	DeleteByID(ctx context.Context, db *gorm.DB, id string) error
-	ListByResourceIDs(ctx context.Context, db *gorm.DB, chatID string, sessionIDs []string, sessionID, name string, terms []dao.OrderTerm, page, pageSize int, includeHistory ...bool) ([]*entity.ChatSession, error)
+	ListByResourceIDs(ctx context.Context, db *gorm.DB, chatID string, sessionIDs []string, sessionID, name, filterUserID string, terms []dao.OrderTerm, page, pageSize int, includeHistory ...bool) ([]*entity.ChatSession, error)
 	GetDialogByID(ctx context.Context, db *gorm.DB, chatID string) (*entity.Chat, error)
 }
 
@@ -123,7 +124,7 @@ type ChatSessionPayload struct {
 }
 
 // ListChatSessions lists chat sessions for a dialog
-func (s *ChatSessionService) ListChatSessions(ctx context.Context, userID, chatID, sessionID, name string, terms []dao.OrderTerm, page, pageSize int, includeHistory ...bool) (*ListChatSessionsResponse, error) {
+func (s *ChatSessionService) ListChatSessions(ctx context.Context, userID, chatID, sessionID, name, filterUserID string, terms []dao.OrderTerm, page, pageSize int, includeHistory ...bool) (*ListChatSessionsResponse, error) {
 	sessionIDs, err := accessibleChatSessionIDs(ctx, s.permissionChecker, userID, chatID, permission.OperationRead)
 	if err != nil {
 		_, normalizedErr := normalizeChatPermissionError(err)
@@ -136,7 +137,7 @@ func (s *ChatSessionService) ListChatSessions(ctx context.Context, userID, chatI
 	}
 
 	// List chat sessions
-	sessions, err := s.chatSessionDAO.ListByResourceIDs(ctx, dao.DB, chatID, sessionIDs, sessionID, name, terms, page, pageSize, includeHistory...)
+	sessions, err := s.chatSessionDAO.ListByResourceIDs(ctx, dao.DB, chatID, sessionIDs, sessionID, name, filterUserID, terms, page, pageSize, includeHistory...)
 	if err != nil {
 		return nil, err
 	}
@@ -218,12 +219,20 @@ func (s *ChatSessionService) CreateSession(ctx context.Context, userID, chatID s
 
 	referenceJSON, _ := json.Marshal([]interface{}{})
 
+	// Prefer end-user id from request body; fall back to API-token owner (tenant).
+	sessionUserID := userID
+	if raw, ok := req["user_id"].(string); ok {
+		if trimmed := strings.TrimSpace(raw); trimmed != "" {
+			sessionUserID = trimmed
+		}
+	}
+
 	conv := &entity.ChatSession{
 		ID:        common.GenerateUUID(),
 		DialogID:  chatID,
 		Name:      &name,
 		Message:   messagesJSON,
-		UserID:    &userID,
+		UserID:    &sessionUserID,
 		Reference: referenceJSON,
 	}
 
@@ -262,7 +271,7 @@ func (s *ChatSessionService) DeleteSessions(ctx context.Context, userID, chatID 
 			if len(sessionIDs) == 0 {
 				return map[string]interface{}{}, "success", common.CodeSuccess, nil
 			}
-			sessions, err := s.chatSessionDAO.ListByResourceIDs(ctx, dao.DB, chatID, sessionIDs, "", "", []dao.OrderTerm{{Column: "create_time", Desc: true}}, 0, -1, false)
+			sessions, err := s.chatSessionDAO.ListByResourceIDs(ctx, dao.DB, chatID, sessionIDs, "", "", "", []dao.OrderTerm{{Column: "create_time", Desc: true}}, 0, -1, false)
 			if err != nil {
 				return nil, "", common.CodeServerError, err
 			}
@@ -286,7 +295,7 @@ func (s *ChatSessionService) DeleteSessions(ctx context.Context, userID, chatID 
 	for _, sid := range uniqueIDs {
 		session, err := s.chatSessionDAO.GetBySessionIDAndChatID(ctx, dao.DB, sid, chatID)
 		if err != nil {
-			errorsList = append(errorsList, fmt.Sprintf("The chat doesn't own the session %s", sid))
+			errorsList = append(errorsList, i18n.Translate(i18n.DefaultLocale, i18n.ChatSessionNotOwned, i18n.KV("id", sid)))
 			continue
 		}
 
@@ -1203,7 +1212,13 @@ func (s *ChatSessionService) ChatCompletions(
 				return fail(common.NewCodedError(code, normalizedErr.Error()))
 			}
 		} else if storeHistoryMessages {
-			session, err = s.createSessionForCompletion(ctx, chatID, dialog, userID)
+			sessionOwnerID := userID
+			if raw, ok := kwargs["user_id"].(string); ok {
+				if trimmed := strings.TrimSpace(raw); trimmed != "" {
+					sessionOwnerID = trimmed
+				}
+			}
+			session, err = s.createSessionForCompletion(ctx, chatID, dialog, sessionOwnerID)
 			if err != nil {
 				return fail(err)
 			}

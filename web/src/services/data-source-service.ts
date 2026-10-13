@@ -55,6 +55,16 @@ export const testDataSource = (
   data: { source: string; config?: Record<string, unknown> },
 ) => request.post(api.dataSourceTest(id), { data });
 
+/** Preview connector rows/items, or fetch enum options when enum_value_field is set. */
+export const queryDataSource = (
+  id: string,
+  data?: {
+    limit?: number;
+    enum_value_field?: string;
+    enum_description_field?: string;
+  },
+) => request.post(api.dataSourceQuery(id), { data: data || {} });
+
 export const startGoogleDriveWebAuth = (payload: {
   credentials: string;
   redirect_uri?: string;

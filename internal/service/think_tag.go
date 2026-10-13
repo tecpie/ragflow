@@ -19,6 +19,7 @@ package service
 import (
 	"context"
 	"strings"
+	"time"
 
 	"ragflow/internal/common"
 	"ragflow/internal/tokenizer"
@@ -38,6 +39,10 @@ type ThinkStreamState struct {
 	lastModelFull string
 	// inThink is true when we are currently inside a <think> block.
 	inThink bool
+	// thinkOpenEmitted is true only after a non-empty think delta caused
+	// the opening <think> marker to be sent. Empty <think></think> pairs
+	// (e.g. /no_think) therefore never surface StartToThink/EndToThink.
+	thinkOpenEmitted bool
 	// closePending defers emission of </think> when no visible text follows the tag
 	closePending bool
 	// pendingAfterClose collects text received after a deferred </think>
@@ -66,6 +71,32 @@ func (s *ThinkStreamState) EnterReasoning() bool {
 	s.inReasoning = true
 	s.fullText += "<think>"
 	return true
+}
+
+// emitReasonChannelDelta forwards a provider reasoning_content delta. The reason
+// channel is already delimited by StartToThink/EndToThink, so it must not pass
+// through NextThinkDelta (tag parser + answer-side token batching), which delayed
+// reasoning and dumped it as one answer blob when the model returned a large
+// reason chunk.
+func emitReasonChannelDelta(thinkState *ThinkStreamState, reason string, emit func(AsyncChatResult)) {
+	if thinkState == nil || reason == "" || emit == nil {
+		return
+	}
+	if thinkState.EnterReasoning() {
+		emit(AsyncChatResult{
+			Reference:    map[string]interface{}{},
+			CreatedAt:    float64(time.Now().Unix()),
+			Final:        false,
+			StartToThink: true,
+		})
+	}
+	thinkState.fullText += reason
+	emit(AsyncChatResult{
+		Reasoning: reason,
+		Reference: map[string]interface{}{},
+		CreatedAt: float64(time.Now().Unix()),
+		Final:     false,
+	})
 }
 
 // ExitReasoning marks the end of a reasoning block (model-level, not tag-based).
@@ -116,6 +147,29 @@ func emitText(state *ThinkStreamState, section string, text string, minTokens in
 		return out, ThinkDeltaText
 	}
 	return "", 0
+}
+
+// appendThinkTextDeltas emits a delayed <think> marker (once) then the think text.
+func appendThinkTextDeltas(state *ThinkStreamState, deltas []ThinkDelta, text string) []ThinkDelta {
+	if text == "" {
+		return deltas
+	}
+	if state.inThink && !state.thinkOpenEmitted {
+		state.thinkOpenEmitted = true
+		deltas = append(deltas, ThinkDelta{Kind: ThinkDeltaMarker, Value: thinkOpen})
+	}
+	return append(deltas, ThinkDelta{Kind: ThinkDeltaText, Value: text})
+}
+
+// appendThinkCloseDeltas emits </think> only when an opening marker was sent.
+func appendThinkCloseDeltas(state *ThinkStreamState, deltas []ThinkDelta) []ThinkDelta {
+	if state.thinkOpenEmitted {
+		deltas = append(deltas, ThinkDelta{Kind: ThinkDeltaMarker, Value: thinkClose})
+	}
+	state.inThink = false
+	state.thinkOpenEmitted = false
+	state.closePending = false
+	return deltas
 }
 
 func flushThinkBufferInternal(state *ThinkStreamState) ThinkDelta {
@@ -196,10 +250,9 @@ func NextThinkDelta(state *ThinkStreamState, chunk string, minTokens int) []Thin
 	if state.closePending {
 		state.closePending = false
 		if piece := flushThinkBufferInternal(state); piece.Value != "" {
-			deltas = append(deltas, piece)
+			deltas = appendThinkTextDeltas(state, deltas, piece.Value)
 		}
-		state.inThink = false
-		deltas = append(deltas, ThinkDelta{Kind: ThinkDeltaMarker, Value: thinkClose})
+		deltas = appendThinkCloseDeltas(state, deltas)
 		if state.pendingAfterClose != "" {
 			pending = state.pendingAfterClose + pending
 			state.pendingAfterClose = ""
@@ -219,7 +272,11 @@ func NextThinkDelta(state *ThinkStreamState, chunk string, minTokens int) []Thin
 					section = "think"
 				}
 				if out, kind := emitText(state, section, piece, minTokens); out != "" {
-					deltas = append(deltas, ThinkDelta{Kind: kind, Value: out})
+					if section == "think" {
+						deltas = appendThinkTextDeltas(state, deltas, out)
+					} else {
+						deltas = append(deltas, ThinkDelta{Kind: kind, Value: out})
+					}
 				}
 			}
 			break
@@ -235,7 +292,11 @@ func NextThinkDelta(state *ThinkStreamState, chunk string, minTokens int) []Thin
 					section = "think"
 				}
 				if out, kind := emitText(state, section, piece, minTokens); out != "" {
-					deltas = append(deltas, ThinkDelta{Kind: kind, Value: out})
+					if section == "think" {
+						deltas = appendThinkTextDeltas(state, deltas, out)
+					} else {
+						deltas = append(deltas, ThinkDelta{Kind: kind, Value: out})
+					}
 				}
 			}
 			pending = pending[openIdx+len(thinkOpen):]
@@ -244,10 +305,10 @@ func NextThinkDelta(state *ThinkStreamState, chunk string, minTokens int) []Thin
 					deltas = append(deltas, answerPiece)
 				}
 				if thinkPiece := flushThinkBufferInternal(state); thinkPiece.Value != "" {
-					deltas = append(deltas, thinkPiece)
+					deltas = appendThinkTextDeltas(state, deltas, thinkPiece.Value)
 				}
 				state.inThink = true
-				deltas = append(deltas, ThinkDelta{Kind: ThinkDeltaMarker, Value: thinkOpen})
+				state.thinkOpenEmitted = false
 			}
 			continue
 		}
@@ -262,15 +323,18 @@ func NextThinkDelta(state *ThinkStreamState, chunk string, minTokens int) []Thin
 				section = "think"
 			}
 			if out, kind := emitText(state, section, piece, minTokens); out != "" {
-				deltas = append(deltas, ThinkDelta{Kind: kind, Value: out})
+				if section == "think" {
+					deltas = appendThinkTextDeltas(state, deltas, out)
+				} else {
+					deltas = append(deltas, ThinkDelta{Kind: kind, Value: out})
+				}
 			}
 		}
 		if strings.TrimSpace(after) != "" {
 			if thinkPiece := flushThinkBufferInternal(state); thinkPiece.Value != "" {
-				deltas = append(deltas, thinkPiece)
+				deltas = appendThinkTextDeltas(state, deltas, thinkPiece.Value)
 			}
-			state.inThink = false
-			deltas = append(deltas, ThinkDelta{Kind: ThinkDeltaMarker, Value: thinkClose})
+			deltas = appendThinkCloseDeltas(state, deltas)
 			pending = after
 			continue
 		}
@@ -294,13 +358,15 @@ func FlushRemaining(state *ThinkStreamState) []ThinkDelta {
 	}
 	var deltas []ThinkDelta
 	if state.thinkBuffer != "" {
-		deltas = append(deltas, ThinkDelta{Kind: ThinkDeltaText, Value: state.thinkBuffer})
+		// Residual buffered think content implies we were inside a think
+		// block even if the opening marker was deferred across chunks.
+		state.inThink = true
+		text := state.thinkBuffer
 		state.thinkBuffer = ""
+		deltas = appendThinkTextDeltas(state, deltas, text)
 	}
-	if state.closePending {
-		state.inThink = false
-		state.closePending = false
-		deltas = append(deltas, ThinkDelta{Kind: ThinkDeltaMarker, Value: thinkClose})
+	if state.closePending || state.inThink {
+		deltas = appendThinkCloseDeltas(state, deltas)
 	}
 	if state.answerBuffer != "" {
 		deltas = append(deltas, ThinkDelta{Kind: ThinkDeltaText, Value: state.answerBuffer})

@@ -132,21 +132,30 @@ export const preprocessLaTeX = (content: string) => {
   return inlineProcessedContent;
 };
 
+const THINK_BLOCK_PATTERN =
+  /<(redacted_thinking|think)>([\s\S]*?)<\/(?:redacted_thinking|think)>/gi;
+
+export function stripEmptyThinkBlocks(text: string = '') {
+  return text.replace(THINK_BLOCK_PATTERN, (match, _tag, content: string) =>
+    content.trim() ? match : '',
+  );
+}
+
 export function replaceThinkToSection(
   text: string = '',
   summary: string = 'Thinking...',
 ) {
-  const pattern = /<think>([\s\S]*?)<\/think>/g;
-
   // An empty think section (the model replied without reasoning) must not
   // render as a bare "Thinking..." strip above the answer.
-  const result = text.replace(pattern, (_match, thinkContent: string) =>
-    thinkContent.trim().length === 0
-      ? ''
-      : `<details class="think"><summary>${summary}</summary>${thinkContent}</details>`,
-  );
+  const withoutEmptyBlocks = stripEmptyThinkBlocks(text);
 
-  return result;
+  return withoutEmptyBlocks.replace(
+    THINK_BLOCK_PATTERN,
+    (_match, _tag, content: string) =>
+      content.trim()
+        ? `<details class="think"><summary>${summary}</summary>${content}</details>`
+        : '',
+  );
 }
 
 // Strip <think> reasoning blocks so only the answer text remains.
@@ -167,6 +176,24 @@ export function replaceRetrievingToSection(text: string = '') {
   );
 
   return result;
+}
+
+export function replaceToolCallToSection(text: string = '') {
+  return text.replace(
+    /<tool_call>([\s\S]*?)<\/tool_call>/g,
+    (_match, body: string) => {
+      let summary = 'Tool call';
+      try {
+        const obj = JSON.parse(body);
+        if (obj?.name) {
+          summary = `Tool call: ${String(obj.name)}`;
+        }
+      } catch {
+        // keep default summary
+      }
+      return `<details class="tool_call"><summary>${summary}</summary><pre>${body.trim()}</pre></details>`;
+    },
+  );
 }
 
 // Placeholder markers used internally to protect standalone < and > from

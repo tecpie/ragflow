@@ -148,7 +148,8 @@ func (dao *ChatSessionDAO) DeleteByID(ctx context.Context, db *gorm.DB, id strin
 }
 
 // ListByResourceIDs lists only sessions authorized by the permission layer.
-func (dao *ChatSessionDAO) ListByResourceIDs(ctx context.Context, db *gorm.DB, chatID string, sessionIDs []string, sessionID, name string, terms []OrderTerm, page, pageSize int, includeHistory ...bool) ([]*entity.ChatSession, error) {
+// When filterUserID is non-empty, only sessions owned by that end-user are returned.
+func (dao *ChatSessionDAO) ListByResourceIDs(ctx context.Context, db *gorm.DB, chatID string, sessionIDs []string, sessionID, name, filterUserID string, terms []OrderTerm, page, pageSize int, includeHistory ...bool) ([]*entity.ChatSession, error) {
 	if len(sessionIDs) == 0 {
 		return []*entity.ChatSession{}, nil
 	}
@@ -159,6 +160,9 @@ func (dao *ChatSessionDAO) ListByResourceIDs(ctx context.Context, db *gorm.DB, c
 	}
 	if name != "" {
 		query = query.Where("name = ?", name)
+	}
+	if filterUserID != "" {
+		query = query.Where("user_id = ?", filterUserID)
 	}
 	query = query.Order(chatSessionOrderClause(terms))
 	if pageSize > 0 {

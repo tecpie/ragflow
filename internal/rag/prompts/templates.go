@@ -32,7 +32,7 @@ import (
 // every question, including the ones it cannot help.
 
 //go:embed action_run.md action_set.md action_initialize_state.md sca_select.md sca_query_rewrite.md citation_prompt.md
-//go:embed ask_summary.md keyword_prompt.md cross_languages_sys_prompt.md cross_languages_user_prompt.md meta_filter.md related_question.md vision_llm_describe_prompt.md vision_llm_figure_describe_prompt.md
+//go:embed ask_summary.md keyword_prompt.md cross_languages_sys_prompt.md cross_languages_user_prompt.md meta_filter.md related_question.md vision_llm_describe_prompt.md vision_llm_figure_describe_prompt.md vision_llm_table_describe_prompt.md vision_llm_signature_describe_prompt.md
 var templatesFS embed.FS
 
 // EmbeddedPromptLoader serves the bundled .md templates by name. Load returns

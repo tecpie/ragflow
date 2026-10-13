@@ -110,7 +110,7 @@ func (h *ChatSessionHandler) ListChatSessions(c *gin.Context) {
 	// Call service to list chat sessions
 	ctx := c.Request.Context()
 	includeHistory := c.DefaultQuery("include_history", "true")
-	result, err := h.chatSessionService.ListChatSessions(ctx, userID, chatID, c.Query("id"), c.Query("name"), terms, page, pageSize, includeHistory != "false" && includeHistory != "False")
+	result, err := h.chatSessionService.ListChatSessions(ctx, userID, chatID, c.Query("id"), c.Query("name"), c.Query("user_id"), terms, page, pageSize, includeHistory != "false" && includeHistory != "False")
 	if err != nil {
 		if respondPermissionErrorIf(c, err, true) {
 			return

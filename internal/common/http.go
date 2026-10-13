@@ -35,6 +35,13 @@ import (
 	"go.uber.org/zap"
 )
 
+// TranslateMessage localizes API error/success messages. The i18n package
+// installs a real implementation in init to avoid an import cycle with
+// common <- entity <- i18n.
+var TranslateMessage = func(c *gin.Context, message string) string {
+	return message
+}
+
 const (
 	redactedLogValue      = "[REDACTED]"
 	maxLoggedVectorFloats = 3
@@ -725,11 +732,18 @@ func SuccessWithMessage(c *gin.Context, message string) {
 	})
 }
 
+func translateMessage(c *gin.Context, message string) string {
+	if message == "" {
+		return message
+	}
+	return TranslateMessage(c, message)
+}
+
 // ErrorWithCode returns error response with code and message
 func ErrorWithCode(c *gin.Context, code ErrorCode, message string) {
 	c.JSON(http.StatusOK, errorResponse{
 		Code:    code,
-		Message: message,
+		Message: translateMessage(c, message),
 	})
 }
 
@@ -737,7 +751,7 @@ func ResponseWithCodeData(c *gin.Context, code ErrorCode, data interface{}, mess
 	c.JSON(http.StatusOK, response{
 		Code:    code,
 		Data:    data,
-		Message: message,
+		Message: translateMessage(c, message),
 	})
 }
 
@@ -745,7 +759,7 @@ func ResponseWithHttpCodeData(c *gin.Context, httpCode int, code ErrorCode, data
 	c.JSON(httpCode, response{
 		Code:    code,
 		Data:    data,
-		Message: message,
+		Message: translateMessage(c, message),
 	})
 }
 

@@ -23,20 +23,18 @@ import { useOwnerTenantId } from '../../../context';
 import { DescriptionField } from '../../components/description-field';
 import { FormWrapper } from '../../components/form-wrapper';
 import {
+  DocumentIdsFormField,
   MemoryDatasetForm,
   RetrievalPartialSchema,
-  refineRetrievalBindings,
   useHideKnowledgeGraphField,
 } from '../../retrieval-form/next';
 import { useValues } from '../use-values';
 import { useWatchFormChange } from '../use-watch-change';
 
-export const FormSchema = z
-  .object({
-    ...RetrievalPartialSchema,
-    description: z.string().optional(),
-  })
-  .superRefine(refineRetrievalBindings);
+export const FormSchema = z.object({
+  ...RetrievalPartialSchema,
+  description: z.string().optional(),
+});
 
 const RetrievalForm = () => {
   const defaultValues = omit(useValues(), 'top_k');
@@ -65,6 +63,7 @@ const RetrievalForm = () => {
     <Form {...form}>
       <FormWrapper>
         <DescriptionField></DescriptionField>
+        <DocumentIdsFormField></DocumentIdsFormField>
         <MemoryDatasetForm></MemoryDatasetForm>
         <Collapse defaultOpen title={<div>{t('flow.advancedSettings')}</div>}>
           <FormContainer>

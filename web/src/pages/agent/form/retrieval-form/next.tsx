@@ -56,45 +56,40 @@ export const RetrievalPartialSchema = {
   memory_ids: z.array(z.string()).optional(),
   retrieval_from: z.string(),
   user_id: z.string().optional(),
+  document_ids: z.string().optional(),
 };
-
-// A Retrieval node sourcing from datasets must name at least one dataset, and
-// one sourcing from memories must name at least one memory. The backend
-// otherwise rejects the run with a `dataset_ids`/`memory_ids is required`
-// error that only surfaces at runtime. Shared with the Agent-embedded
-// Retrieval tool form, which owns the same fields.
-export function refineRetrievalBindings(
-  data: Record<string, any>,
-  ctx: z.RefinementCtx,
-) {
-  if (
-    data.retrieval_from !== RetrievalFrom.Memory &&
-    (data.dataset_ids ?? []).length === 0
-  ) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['dataset_ids'],
-      message: t('flow.retrievalDatasetRequired'),
-    });
-  }
-  if (
-    data.retrieval_from === RetrievalFrom.Memory &&
-    (data.memory_ids ?? []).length === 0
-  ) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['memory_ids'],
-      message: t('flow.retrievalMemoryRequired'),
-    });
-  }
-}
 
 export const FormSchema = z
   .object({
     query: z.string().optional(),
     ...RetrievalPartialSchema,
   })
-  .superRefine(refineRetrievalBindings);
+  .superRefine((data, ctx) => {
+    // A Retrieval node sourcing from datasets must name at least one dataset,
+    // and one sourcing from memories must name at least one memory. The
+    // backend otherwise rejects the run with a `dataset_ids`/`memory_ids is
+    // required` error that only surfaces at runtime.
+    if (
+      data.retrieval_from === RetrievalFrom.Dataset &&
+      (data.dataset_ids ?? []).length === 0
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['dataset_ids'],
+        message: t('flow.retrievalDatasetRequired'),
+      });
+    }
+    if (
+      data.retrieval_from === RetrievalFrom.Memory &&
+      (data.memory_ids ?? []).length === 0
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['memory_ids'],
+        message: t('flow.retrievalMemoryRequired'),
+      });
+    }
+  });
 
 export type RetrievalFormSchemaType = z.infer<typeof FormSchema>;
 
@@ -146,6 +141,20 @@ export function useHideKnowledgeGraphField(form: UseFormReturn<any>) {
   return retrievalFrom === RetrievalFrom.Memory;
 }
 
+export function DocumentIdsFormField() {
+  const { t } = useTranslation();
+
+  return (
+    <RAGFlowFormItem
+      name="document_ids"
+      label={t('flow.documentIds')}
+      tooltip={t('flow.documentIdsTip')}
+    >
+      <PromptEditor multiLine={false} showToolbar={false}></PromptEditor>
+    </RAGFlowFormItem>
+  );
+}
+
 function RetrievalForm({ node }: INextOperatorForm) {
   const { t } = useTranslation();
   const ownerTenantId = useOwnerTenantId();
@@ -190,6 +199,7 @@ function RetrievalForm({ node }: INextOperatorForm) {
         <RAGFlowFormItem name="query" label={t('flow.query')}>
           <PromptEditor></PromptEditor>
         </RAGFlowFormItem>
+        <DocumentIdsFormField></DocumentIdsFormField>
         <MemoryDatasetForm></MemoryDatasetForm>
         <Collapse defaultOpen title={<div>{t('flow.advancedSettings')}</div>}>
           <section className="space-y-5">

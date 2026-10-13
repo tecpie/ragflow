@@ -1,7 +1,8 @@
 import { NextLLMSelect } from '@/components/llm-select/next';
+import { SelectWithSearch } from '@/components/originui/select-with-search';
 import { RAGFlowFormItem } from '@/components/ragflow-form';
 import { Form } from '@/components/ui/form';
-import { NumberInput } from '@/components/ui/input';
+import { Input, NumberInput } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { memo } from 'react';
@@ -21,9 +22,16 @@ const FormSchema = z.object({
   prompts: z.string(),
   max_steps: z.coerce.number().min(1),
   headless: z.boolean(),
+  use_cdp: z.boolean(),
+  cdp_url: z.string().optional(),
+  remote_staging_url: z.string().optional(),
+  remote_staging_token: z.string().optional(),
+  remote_upload_mode: z.enum(['auto', 'staging', 'blob_cdp']).optional(),
+  use_vision: z.boolean(),
   enable_default_extensions: z.boolean(),
   chromium_sandbox: z.boolean(),
   persist_session: z.boolean(),
+  enable_thinking: z.boolean(),
   upload_sources: z.string().optional(),
 });
 
@@ -39,6 +47,13 @@ function BrowserForm({ node }: INextOperatorForm) {
   });
 
   useWatchFormChange(node?.id, form);
+  const useCdp = form.watch('use_cdp');
+
+  const remoteUploadModeOptions = [
+    { label: t('flow.remoteUploadModeAuto'), value: 'auto' },
+    { label: t('flow.remoteUploadModeStaging'), value: 'staging' },
+    { label: t('flow.remoteUploadModeBlobCdp'), value: 'blob_cdp' },
+  ];
 
   const ownerTenantId = useOwnerTenantId();
 
@@ -55,6 +70,80 @@ function BrowserForm({ node }: INextOperatorForm) {
           {(field) => <NumberInput min={1} {...field}></NumberInput>}
         </RAGFlowFormItem>
         <RAGFlowFormItem label={t('flow.headless')} name="headless">
+          {(field) => (
+            <Switch
+              checked={field.value}
+              onCheckedChange={field.onChange}
+            ></Switch>
+          )}
+        </RAGFlowFormItem>
+        <RAGFlowFormItem
+          label={t('flow.useCdp')}
+          tooltip={t('flow.useCdpTip')}
+          name="use_cdp"
+        >
+          {(field) => (
+            <Switch
+              checked={field.value}
+              onCheckedChange={field.onChange}
+            ></Switch>
+          )}
+        </RAGFlowFormItem>
+        {useCdp && (
+          <>
+            <RAGFlowFormItem
+              label={t('flow.cdpUrl')}
+              tooltip={t('flow.cdpUrlTip')}
+              name="cdp_url"
+            >
+              {(field) => (
+                <Input
+                  {...field}
+                  placeholder="http://127.0.0.1:9222 or ws://127.0.0.1:9222/devtools/browser/<id>"
+                ></Input>
+              )}
+            </RAGFlowFormItem>
+            <RAGFlowFormItem
+              label={t('flow.remoteUploadMode')}
+              tooltip={t('flow.remoteUploadModeTip')}
+              name="remote_upload_mode"
+            >
+              {(field) => (
+                <SelectWithSearch
+                  {...field}
+                  options={remoteUploadModeOptions}
+                ></SelectWithSearch>
+              )}
+            </RAGFlowFormItem>
+            <RAGFlowFormItem
+              label={t('flow.remoteStagingUrl')}
+              tooltip={t('flow.remoteStagingUrlTip')}
+              name="remote_staging_url"
+            >
+              {(field) => (
+                <Input {...field} placeholder="http://chrome-host:8765"></Input>
+              )}
+            </RAGFlowFormItem>
+            <RAGFlowFormItem
+              label={t('flow.remoteStagingToken')}
+              tooltip={t('flow.remoteStagingTokenTip')}
+              name="remote_staging_token"
+            >
+              {(field) => (
+                <Input
+                  {...field}
+                  type="password"
+                  placeholder="staging token"
+                ></Input>
+              )}
+            </RAGFlowFormItem>
+          </>
+        )}
+        <RAGFlowFormItem
+          label={t('flow.useVision')}
+          tooltip={t('flow.useVisionTip')}
+          name="use_vision"
+        >
           {(field) => (
             <Switch
               checked={field.value}
@@ -90,6 +179,18 @@ function BrowserForm({ node }: INextOperatorForm) {
           label={t('flow.persistSession')}
           tooltip={t('flow.persistSessionTip')}
           name="persist_session"
+        >
+          {(field) => (
+            <Switch
+              checked={field.value}
+              onCheckedChange={field.onChange}
+            ></Switch>
+          )}
+        </RAGFlowFormItem>
+        <RAGFlowFormItem
+          label={t('flow.modelThinking')}
+          tooltip={t('flow.modelThinkingTip')}
+          name="enable_thinking"
         >
           {(field) => (
             <Switch

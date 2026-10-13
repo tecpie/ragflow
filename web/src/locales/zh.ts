@@ -40,7 +40,6 @@ export default {
       languagePlaceholder: '请选择语言',
       copy: '复制',
       copied: '复制成功',
-      readOnly: '只读',
       viewMore: '查看更多',
       viewLess: '收起',
       comingSoon: '即将推出',
@@ -419,6 +418,19 @@ export default {
         deleteManageValueSingleWarn: '此值将从此文件中删除。',
         deleteSettingFieldWarn: `此字段将被删除；现有元数据不会受到影响。`,
         deleteSettingValueWarn: `此值将被删除；现有元数据不会受到影响。`,
+        valueSourceMode: '值来源',
+        manual: '手动输入',
+        fromConnector: '从数据源获取',
+        selectConnector: '选择数据源',
+        enumValueField: '枚举值字段',
+        enumValueFieldTip:
+          'REST：每条记录 JSON 中的字段名。MySQL/PostgreSQL：SELECT 结果中的列名或别名（与 cursor.description 一致，同 RDBMSConnector._row_to_document）。',
+        enumValueFieldPlaceholder: '例如 id',
+        enumValueFieldRequired: '请填写该数据源的枚举值字段。',
+        enumDescriptionField: '枚举描述字段',
+        enumDescriptionFieldTip:
+          '可选。REST：JSON 字段名。MySQL/PostgreSQL：SELECT 结果中的描述列名或别名。',
+        enumDescriptionFieldPlaceholder: '例如 name',
       },
       redoAll: '清除现有分块',
       applyAutoMetadataSettings: '应用全局自动元数据设置',
@@ -454,7 +466,6 @@ export default {
       source: '来源',
       fileName: '文件名',
       datasetLogs: '知识库',
-      datasourceLogs: '数据源',
       fileLogs: '文件',
       overview: '日志',
       success: '成功',
@@ -606,11 +617,6 @@ export default {
       theDocumentBeingParsedCannotBeDeleted: '正在解析的文档不能被删除',
     },
     knowledgeConfiguration: {
-      builtInSuffix: '内置',
-      builtInBadge: '内置',
-      builtInPipelines: '内置解析流程',
-      parserSelectPlaceholder: '选择解析方式',
-      parserOptionUnavailable: '不可用',
       randomSeedTip:
         '种子是伪随机算法的起点，它确保在不同运行中产生相同的输出，从而保证可重复性。',
       datasetDescription: '你的知识库描述。',
@@ -865,6 +871,8 @@ export default {
       entityTypes: 'Entity 类型',
       compilationTemplate: '算子',
       compilationTemplateRequired: '请选择算子',
+      compilationTemplateTip:
+        '文档解析完成后自动运行所选编译算子（结构类模板）。Wiki 类模板仍需在 Artifacts 页手动生成。',
       compilationTemplateUnavailable:
         '所选算子不可用（已删除或无权限），请重新选择',
       createTemplate: '创建模板',
@@ -1061,6 +1069,14 @@ NER：使用 spaCy NER 和基于规则的关键词提取来抽取 Entities 和 R
       thinkingLevelNone: 'Naive',
       thinkingLevelAgentic: 'Agentic',
       thinkingLevelAgenticDescription: '自主探索语料库',
+      failoverModels: '备用模型',
+      failoverModelsTip:
+        '当主模型遇到服务商故障时，Agentic智能体按此列表顺序切换到下一个模型。',
+      failoverModelsPrimaryLabel: '主模型',
+      failoverModelsNoPrimary: '租户默认',
+      failoverModelsEmpty:
+        '暂无备用模型。至少添加一个，才能在服务商故障时继续服务。',
+      failoverModelsAdd: '添加备用模型',
       thinkingTip:
         '仅控制官方模型提供商中的 Qwen、Kimi 和 GLM 模型思考模式。系统默认会关闭 Qwen 思考，以避免任务长时间运行。',
       quote: '显示引文',
@@ -1129,7 +1145,10 @@ NER：使用 spaCy NER 和基于规则的关键词提取来抽取 Entities 和 R
       keywordTip: `应用 LLM 分析用户的问题，提取在相关性计算中要强调的关键词。对长查询效果较好，但会延长响应时间。`,
       reasoning: '推理',
       reasoningTip:
-        '在问答过程中是否启用推理工作流，类似 Deepseek-R1 等模型所采用的方式。启用后，该功能允许模型访问外部知识，并借助思维链推理等技术逐步解决复杂问题。通过将问题分解为可处理的步骤，这种方法增强了模型提供准确回答的能力，从而在需要逻辑推理和多步思考的任务上表现更优。',
+        '在问答过程中是否启用推理工作流，例如Deepseek-R1或OpenAI o1等模型所采用的方式。启用后，该功能允许模型访问外部知识，并借助思维链推理等技术逐步解决复杂问题。通过将问题分解为可处理的步骤，这种方法增强了模型提供准确回答的能力，从而在需要逻辑推理和多步思考的任务上表现更优。',
+      modelThinking: '深度思考',
+      modelThinkingTip:
+        '控制推理模型（如 DeepSeek-R1、Qwen3、Kimi K2.5）是否输出思考过程。关闭后模型将直接生成最终回答。',
       tavilyApiKeyTip:
         '如果 API 密钥设置正确，它将利用 Tavily 进行网络搜索作为知识库的补充。',
       tavilyApiKeyMessage: '请输入 Tavily API Key',
@@ -1159,9 +1178,6 @@ NER：使用 spaCy NER 和基于规则的关键词提取来抽取 Entities 和 R
       queritApiKeyTip:
         '选择 Querit 后，将使用 Querit 的网络搜索结果补充知识库检索。',
       queritApiKeyMessage: '请输入 Querit API Key',
-      search1apiApiKeyTip:
-        '选择 Search1API 后，将使用 Search1API 的网络搜索结果补充知识库检索。',
-      search1apiApiKeyMessage: '请输入 Search1API API Key',
       serplyApiKeyTip:
         '选择 Serply 后，将使用 Serply 的网络搜索结果补充知识库检索。',
       serplyApiKeyMessage: '请输入 Serply API Key',
@@ -1767,6 +1783,10 @@ NER：使用 spaCy NER 和基于规则的关键词提取来抽取 Entities 和 R
       mineruApiserver: 'MinerU API 服务器',
       mineruApiserverMessage: '请输入 MinerU API 服务器地址！',
       mineruApiserverPlaceholder: '例如：http://host.docker.internal:9987',
+      mineruApiToken: 'MinerU API Token',
+      mineruApiTokenPlaceholder: 'mineru.net API 管理页创建的 Token（可选）',
+      mineruApiTokenTip:
+        '填写后走官方精准解析（/api/v4，支持 vlm）。留空则使用免登录的 Agent 轻量接口。自建 MinerU 不需要填写。',
       mineruOutputDir: 'MinerU 输出目录',
       mineruOutputDirMessage: '请输入 MinerU 输出目录！',
       mineruOutputDirPlaceholder: '/tmp/mineru',
@@ -2384,6 +2404,27 @@ NER：使用 spaCy NER 和基于规则的关键词提取来抽取 Entities 和 R
         '单次工具调用（含 MCP 工具）的超时秒数。长时间运行的工具请调大该值。',
       maxSteps: '最大步数',
       headless: '无头模式',
+      useCdp: '使用 CDP 连接',
+      useCdpTip:
+        '通过 CDP 连接到已有的 Chromium/Chrome 浏览器，而不是启动新的本地浏览器进程。',
+      cdpUrl: 'CDP 地址',
+      cdpUrlTip:
+        '支持 HTTP 和 WebSocket 两种 CDP 端点，例如 http://127.0.0.1:9222 或 ws://127.0.0.1:9222/devtools/browser/<id>。',
+      remoteStagingUrl: '远程暂存地址',
+      remoteStagingUrlTip:
+        'HTTP 暂存模式时使用。若只能开放一个端口（常见于 Windows），在远程机器运行 tools/browser_remote_staging/gateway.py，并将 CDP 地址与本项都填为同一 URL。未配置且上传模式为 auto 时，将自动使用 Blob+CDP 传文件，无需部署暂存服务。',
+      remoteStagingToken: '远程暂存 Token',
+      remoteStagingTokenTip:
+        '与 Chrome 主机上 BROWSER_STAGING_TOKEN 保持一致，用于保护暂存接口。也可通过环境变量 RAGFLOW_BROWSER_REMOTE_STAGING_TOKEN 配置。',
+      remoteUploadMode: '远程上传模式',
+      remoteUploadModeAuto: '自动（有暂存地址用 HTTP，否则 Blob+CDP）',
+      remoteUploadModeStaging: 'HTTP 暂存',
+      remoteUploadModeBlobCdp: 'Blob+CDP（无需部署程序包）',
+      remoteUploadModeTip:
+        'RAGFlow 在 Docker、Chrome 在远程机器时，需先把文件写到 Chrome 主机。auto 模式：配置了远程暂存地址则用 HTTP staging，否则通过 CDP 注入 Blob 触发下载落盘。',
+      useVision: '启用视觉输入',
+      useVisionTip:
+        '开启后会将浏览器截图发送给视觉模型。纯文本模型（如 Qwen3-14B）请关闭，否则模型接口可能拒绝请求。',
       enableDefaultExtensions: '启用默认扩展',
       enableDefaultExtensionsTip:
         '启用 browser-use 默认扩展（uBlock、Cookie 处理、ClearURLs）。关闭后可避免运行时下载扩展。',
@@ -2440,7 +2481,7 @@ NER：使用 spaCy NER 和基于规则的关键词提取来抽取 Entities 和 R
         loadFailed: '版本加载失败，该版本可能已被删除',
         version: '版本',
       },
-      cite: '显示引文',
+      cite: '引用',
       citeTip: '引用',
       nameMessage: '请输入名称',
       lastSavedAt: '上次保存于',
@@ -2531,23 +2572,6 @@ NER：使用 spaCy NER 和基于规则的关键词提取来抽取 Entities 和 R
       sofyaSearchDepthBasic: '页面正文',
       sofyaSearchDepthSnippets: '仅摘要',
       sofyaApiKeyTip: '必填。请在 sofya.co 申请 API Key。',
-      search1APISearch: 'Search1API',
-      search1APISearchDescription:
-        '基于 Search1API 的网页与新闻搜索组件，覆盖 Google、Bing、百度、GitHub、arXiv、Reddit、YouTube、Hacker News、Reuters 等搜索服务。作为智能体工具时，智能体可以在每次调用时自行选择频道和搜索服务。需要配置 API Key。',
-      search1APIChannelTip:
-        '网页频道搜索通用网页，新闻频道搜索新闻来源。作为智能体工具时，智能体可以在每次调用时切换频道。',
-      search1APIChannelGeneral: '网页',
-      search1APIChannelNews: '新闻',
-      search1APIService: '搜索服务',
-      search1APIServiceTip:
-        '所选频道的默认搜索服务。作为智能体工具时，智能体可以在每次调用时改用该频道支持的其他服务。',
-      search1APIApiKeyTip: '必填。请在 app.s1.dev 申请 API Key。',
-      search1APICrawl: 'Search1API 网页读取',
-      search1APICrawlDescription:
-        '使用 Search1API 读取网页，返回页面标题和完整正文。需要配置 API Key。',
-      search1APICrawlUrl: '网页地址',
-      search1APICrawlUrlTip:
-        '要读取页面的完整 HTTP 或 HTTPS 地址。作为智能体工具时，由智能体提供地址。',
       docGenerator: '文档生成器',
       docGeneratorDescription: `从 Markdown 内容生成文件。`,
       browser: 'Browser',
@@ -2572,6 +2596,7 @@ NER：使用 spaCy NER 和基于规则的关键词提取来抽取 Entities 和 R
       watermarkText: '水印文本',
       headerText: '页眉文本',
       footerText: '页脚文本',
+      includeDownloadInfoInContent: '在内容末尾附加下载信息',
       contentPlaceholder: '输入 Markdown 内容...',
       filenamePlaceholder: 'document.ext（留空则自动生成）',
       contentRequired: '内容不能为空',
@@ -2999,6 +3024,8 @@ NER：使用 spaCy NER 和基于规则的关键词提取来抽取 Entities 和 R
       query: '查询变量',
       queryRequired: '查询变量是必填项',
       queryTip: '选择您想要使用的变量',
+      documentIds: '文档 ID 列表',
+      documentIdsTip: '可选，限制检索范围的文档 ID 列表，支持引用上游变量。',
       agent: '智能体',
       addAgent: '添加智能体',
       agentDescription: '构建具备推理、工具调用和多智能体协同的智能体组件。',

@@ -98,8 +98,10 @@ func TestVllmCompatibleQwen3ThinkingPayload(t *testing.T) {
 		{name: "default disabled", model: "qwen3-8b", want: false},
 		{name: "explicit enabled", model: "Qwen/Qwen3-8B", thinking: boolPointer(true), want: true},
 		{name: "explicit disabled", model: "qwen3-8b", thinking: boolPointer(false), want: false},
-		{name: "preview forced enabled", model: "qwen3.8-max-preview", thinking: boolPointer(false), want: true},
+		{name: "preview respects disable", model: "qwen3.8-max-preview", thinking: boolPointer(false), want: false},
+		// vLLM still forces the 2.4t-a95b flagship template to thinking-on.
 		{name: "flagship forced enabled", model: "qwen3.8-2.4t-a95b", thinking: boolPointer(false), want: true},
+		{name: "qwen3.7-plus respects disable", model: "qwen3.7-plus-2026-05-26", thinking: boolPointer(false), want: false},
 	}
 
 	for _, driverCase := range drivers {
@@ -193,5 +195,127 @@ func TestAliyunQwen3ThinkingPayloadRemainsProviderNative(t *testing.T) {
 	}
 	if _, exists := body["thinking"]; exists {
 		t.Errorf("thinking should be absent for native Aliyun Qwen3")
+	}
+}
+
+func TestAliyunDeepseekHybridThinkingDisable(t *testing.T) {
+	withSSRFBypass(t)
+
+	for _, stream := range []bool{false, true} {
+		name := "non-stream"
+		if stream {
+			name = "stream"
+		}
+		t.Run(name, func(t *testing.T) {
+			requestBody := make(chan map[string]interface{}, 1)
+			server := newThinkingPayloadServer(t, requestBody)
+			defer server.Close()
+
+			driver := NewAliyunModel(map[string]string{"default": server.URL}, URLSuffix{Chat: "chat/completions"})
+			runThinkingPayloadRequest(t, driver, "deepseek-v4-flash", stream, &ChatConfig{Thinking: boolPointer(false)})
+
+			body := <-requestBody
+			if got := body["enable_thinking"]; got != false {
+				t.Fatalf("enable_thinking=%#v, want false", got)
+			}
+			if _, exists := body["chat_template_kwargs"]; exists {
+				t.Errorf("chat_template_kwargs must be absent for DashScope deepseek")
+			}
+			if _, exists := body["thinking"]; exists {
+				t.Errorf("thinking must be absent for DashScope deepseek")
+			}
+		})
+	}
+}
+
+func TestAliyunQwen3ThinkingOnlyForcesEnable(t *testing.T) {
+	withSSRFBypass(t)
+
+	requestBody := make(chan map[string]interface{}, 1)
+	server := newThinkingPayloadServer(t, requestBody)
+	defer server.Close()
+
+	driver := NewAliyunModel(map[string]string{"default": server.URL}, URLSuffix{Chat: "chat/completions"})
+	runThinkingPayloadRequest(t, driver, "qwen3-235b-a22b-thinking-2507", false, &ChatConfig{Thinking: boolPointer(false)})
+
+	body := <-requestBody
+	if got := body["enable_thinking"]; got != true {
+		t.Fatalf("enable_thinking=%#v, want true for thinking-only Qwen3", got)
+	}
+}
+
+func TestAliyunQwen37PlusRespectsThinkingDisable(t *testing.T) {
+	withSSRFBypass(t)
+
+	requestBody := make(chan map[string]interface{}, 1)
+	server := newThinkingPayloadServer(t, requestBody)
+	defer server.Close()
+
+	driver := NewAliyunModel(map[string]string{"default": server.URL}, URLSuffix{Chat: "chat/completions"})
+	runThinkingPayloadRequest(t, driver, "qwen3.7-plus-2026-05-26", false, &ChatConfig{Thinking: boolPointer(false)})
+
+	body := <-requestBody
+	if got := body["enable_thinking"]; got != false {
+		t.Fatalf("enable_thinking=%#v, want false for qwen3.7-plus hybrid", got)
+	}
+}
+
+func TestOpenAIThinkingFamilyDisablePayload(t *testing.T) {
+	withSSRFBypass(t)
+
+	requestBody := make(chan map[string]interface{}, 1)
+	server := newThinkingPayloadServer(t, requestBody)
+	defer server.Close()
+
+	driver := NewOpenAIModel(map[string]string{"default": server.URL}, URLSuffix{Chat: "chat/completions"})
+	runThinkingPayloadRequest(t, driver, "deepseek-v4-flash", false, &ChatConfig{Thinking: boolPointer(false)})
+
+	body := <-requestBody
+	thinking, ok := body["thinking"].(map[string]interface{})
+	if !ok || thinking["type"] != "disabled" {
+		t.Fatalf("thinking=%#v, want {type: disabled}", body["thinking"])
+	}
+	if _, exists := body["enable_thinking"]; exists {
+		t.Errorf("enable_thinking must be absent for openai_thinking non-qwen3")
+	}
+}
+
+func TestGPUStackMultiEngineThinkingPayload(t *testing.T) {
+	withSSRFBypass(t)
+
+	requestBody := make(chan map[string]interface{}, 1)
+	server := newThinkingPayloadServer(t, requestBody)
+	defer server.Close()
+
+	driver := NewGPUStackModel(map[string]string{"default": server.URL}, URLSuffix{Chat: "v1/chat/completions"})
+	runThinkingPayloadRequest(t, driver, "qwen3-32b", false, &ChatConfig{Thinking: boolPointer(false)})
+
+	body := <-requestBody
+	thinking, ok := body["thinking"].(map[string]interface{})
+	if !ok || thinking["type"] != "disabled" {
+		t.Fatalf("thinking=%#v, want {type: disabled}", body["thinking"])
+	}
+	kwargs, ok := body["chat_template_kwargs"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("chat_template_kwargs missing: %#v", body)
+	}
+	if kwargs["enable_thinking"] != false || kwargs["thinking"] != false {
+		t.Errorf("chat_template_kwargs=%#v, want both false", kwargs)
+	}
+}
+
+func TestSiliconflowDeepseekHybridThinkingDisable(t *testing.T) {
+	withSSRFBypass(t)
+
+	requestBody := make(chan map[string]interface{}, 1)
+	server := newThinkingPayloadServer(t, requestBody)
+	defer server.Close()
+
+	driver := NewSiliconflowModel(map[string]string{"default": server.URL}, URLSuffix{Chat: "chat/completions"})
+	runThinkingPayloadRequest(t, driver, "deepseek-ai/DeepSeek-V3.2", false, &ChatConfig{Thinking: boolPointer(false)})
+
+	body := <-requestBody
+	if got := body["enable_thinking"]; got != false {
+		t.Fatalf("enable_thinking=%#v, want false", got)
 	}
 }

@@ -1321,7 +1321,6 @@ func splitGeneralChildren(chunks []schema.ChunkDoc, pattern *regexp.Regexp) []sc
 			result = append(result, chunk)
 			continue
 		}
-		mom := strings.TrimPrefix(chunk.Text, "\n")
 		raw := splitKeepingGeneralDelimiter(chunk.Text, pattern)
 		parts := make([]string, 0, len(raw))
 		for _, part := range raw {
@@ -1334,10 +1333,7 @@ func splitGeneralChildren(chunks []schema.ChunkDoc, pattern *regexp.Regexp) []sc
 			result = append(result, chunk)
 			continue
 		}
-		for _, piece := range sliceGeneralSplitPieces(chunk, parts) {
-			piece.Mom = mom
-			result = append(result, piece)
-		}
+		result = append(result, splitOneChunkByChildren(chunk, parts)...)
 	}
 	return result
 }

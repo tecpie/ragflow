@@ -18,7 +18,6 @@ package runtime
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -815,7 +814,7 @@ func runSearch(ctx context.Context, deps SearchDeps, p SearchParams, opts search
 			de = engine.Get()
 		}
 		if de != nil && len(chunks) > 0 {
-			chunks = nlp.RetrievalByChildren(chunks, []string{deps.TenantID}, de, ctx)
+			chunks = nlp.RetrievalByChildren(chunks, []string{deps.TenantID}, "aggregate", de, ctx)
 		}
 	}
 
@@ -1719,7 +1718,9 @@ func WebSearchTool(ctx context.Context, deps SearchDeps, args map[string]any) (T
 	// (the retrieval itself is awaited above it), so two sessions can never interleave
 	// here.
 	deps.KB.Admit(func(p *PoolAdmitter) {
-		for _, r := range results {
+		// The claim-coverage skip is provably unreachable here: web passages carry synthetic
+		// "web_N" ids, which no claim's source_chunk_ids can reference.
+		for i, r := range results {
 			if r == "" || seen[r] {
 				continue
 			}
@@ -1728,9 +1729,7 @@ func WebSearchTool(ctx context.Context, deps SearchDeps, args map[string]any) (T
 			if p.Full() {
 				continue
 			}
-			// Stable content identity deduplicates repeated passages across calls
-			// while preserving distinct results from concurrent sessions.
-			chunkID := fmt.Sprintf("web_%x", sha256.Sum256([]byte(r)))
+			chunkID := fmt.Sprintf("web_%d", i)
 			seen[r] = true
 			c := map[string]any{
 				"chunk_id": chunkID,

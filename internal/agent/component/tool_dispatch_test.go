@@ -103,7 +103,7 @@ func TestAgent_GoogleToolDSLParamsLoading(t *testing.T) {
 		t.Fatalf("google tool form missing q: %+v", googleForm)
 	}
 
-	if _, err := buildAgentTools(t.Context(), c.param); err != nil {
+	if _, _, err := buildAgentTools(t.Context(), c.param); err != nil {
 		t.Fatalf("buildAgentTools with google params: %v", err)
 	}
 }

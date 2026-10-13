@@ -39,9 +39,21 @@ type langfuseCtxKeyType struct{}
 
 var langfuseCtxKey = langfuseCtxKeyType{}
 
+// ResolveLangfuseUserID prefers the request/business user id for Langfuse
+// traces and falls back to tenantID when empty. Mirrors Python
+// resolve_langfuse_user_id.
+func ResolveLangfuseUserID(userID, tenantID string) string {
+	if strings.TrimSpace(userID) != "" {
+		return strings.TrimSpace(userID)
+	}
+	return strings.TrimSpace(tenantID)
+}
+
 // LangfuseClientFromTenant returns a tracing client for the given tenant,
 // or nil if Langfuse is not configured. Failures to look up credentials
 // are non-fatal; Langfuse is observability, not a chat path requirement.
+// userID/chatID/modelName are accepted for caller compatibility; PostTrace
+// sites should pass ResolveLangfuseUserID(userID, tenantID) as UserID.
 func LangfuseClientFromTenant(ctx context.Context, tenantID, userID, chatID, modelName string) *LangfuseClient {
 	if tenantID == "" {
 		return nil
@@ -53,6 +65,9 @@ func LangfuseClientFromTenant(ctx context.Context, tenantID, userID, chatID, mod
 	if creds.Host == "" || creds.PublicKey == "" || creds.SecretKey == "" {
 		return nil
 	}
+	_ = userID
+	_ = chatID
+	_ = modelName
 	return NewLangfuseClient(creds.Host, creds.PublicKey, creds.SecretKey)
 }
 

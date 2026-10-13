@@ -69,6 +69,9 @@ const (
 	EnvRerankTokenLimitMode              = "RERANK_TOKEN_LIMIT_MODE"
 	EnvComponentExecTimeout              = "COMPONENT_EXEC_TIMEOUT"
 	EnvMCPAllowPrivateHosts              = "RAGFLOW_MCP_ALLOW_PRIVATE_HOSTS"
+	// EnvMCPAllowPrivateIP is the Python-compatible alias for EnvMCPAllowPrivateHosts
+	// (Python historically used MCP_ALLOW_PRIVATE_IP).
+	EnvMCPAllowPrivateIP                 = "MCP_ALLOW_PRIVATE_IP"
 	EnvDocEngine                         = "DOC_ENGINE"
 	EnvMaxFileNumPerUser                 = "MAX_FILE_NUM_PER_USER"
 	EnvMaxContentLength                  = "MAX_CONTENT_LENGTH"

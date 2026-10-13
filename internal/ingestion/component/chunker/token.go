@@ -1695,8 +1695,7 @@ func splitByChildren(chunks []schema.ChunkDoc, pattern *regexp.Regexp, keepDelim
 			out = append(out, ck)
 			continue
 		}
-		mom := strings.TrimPrefix(ck.Text, "\n")
-		parts := splitByDelim(ck.Text, pattern, keepDelim)
+		raw := splitByDelim(ck.Text, pattern, keepDelim)
 		// Whitespace-only pieces from consecutive delimiters ("A\n\nB") must be
 		// folded into an adjacent child, not discarded — otherwise the repeated
 		// newline disappears from the child text. A leading whitespace-only
@@ -1704,13 +1703,12 @@ func splitByChildren(chunks []schema.ChunkDoc, pattern *regexp.Regexp, keepDelim
 		// prepended to the first real child. This only matters when the
 		// delimiter is retained (keepDelim); a dropped custom delimiter leaves
 		// no whitespace-only pieces behind.
+		var parts []string
 		var leading string
-		for _, p := range parts {
+		for _, p := range raw {
 			if strings.TrimSpace(p) == "" {
-				if n := len(out); n > 0 && out[n-1].Mom == mom {
-					prev := out[n-1]
-					setChunkText(&prev, prev.Text+p)
-					out[n-1] = prev
+				if n := len(parts); n > 0 {
+					parts[n-1] = parts[n-1] + p
 					continue
 				}
 				leading += p
@@ -1720,15 +1718,13 @@ func splitByChildren(chunks []schema.ChunkDoc, pattern *regexp.Regexp, keepDelim
 				p = leading + p
 				leading = ""
 			}
-			cp := cloneChunkDoc(ck)
-			// The count describes the child's own text. The delimiter branch
-			// attaches the media context after this split, and that walk is
-			// charged with TKNums, so an inherited parent count would spend the
-			// configured window on the first neighbour.
-			setChunkText(&cp, p)
-			cp.Mom = mom
-			out = append(out, cp)
+			parts = append(parts, p)
 		}
+		if len(parts) == 0 {
+			continue
+		}
+		// Assign per-child PDF positions (line-aligned or vertical ratio).
+		out = append(out, splitOneChunkByChildren(ck, parts)...)
 	}
 	return out
 }

@@ -36,7 +36,6 @@ import (
 	"ragflow/internal/entity"
 	"ragflow/internal/ingestion/component/schema"
 	"ragflow/internal/tokenizer"
-	"ragflow/internal/utility"
 )
 
 // stubExtractorChatInvoker is the test seam for the package-level
@@ -671,17 +670,18 @@ func newMetadataExtractor(fields ...common.MetadataFieldDef) *ExtractorComponent
 	}}
 }
 
-// TestExtractorComponent_runEnableMetadata_MergesIntoChunkMetadata verifies a
-// JSON object from the LLM is parsed and merged into the chunk's metadata map.
-func TestExtractorComponent_runEnableMetadata_MergesIntoChunkMetadata(t *testing.T) {
+// TestExtractorComponent_runDocumentMetadata_MergesIntoChunkMetadata verifies a
+// JSON object from the LLM is parsed and assigned onto the chunk metadata map.
+func TestExtractorComponent_runDocumentMetadata_MergesIntoChunkMetadata(t *testing.T) {
 	withStubChatInvoker(t, stubResponse{Content: `{"category":"finance","region":"east"}`})
 	c := newMetadataExtractor(
 		common.MetadataFieldDef{Key: "category", Type: "string"},
 		common.MetadataFieldDef{Key: "region", Type: "string"},
 	)
-	ck := map[string]any{}
-	if err := c.runEnableMetadata(t.Context(), nil, extractorInputs{llmID: "m"}, ck, "chunk text"); err != nil {
-		t.Fatalf("runEnableMetadata: %v", err)
+	ck := map[string]any{"text": "chunk text"}
+	in := extractorInputs{llmID: "m", chunks: []map[string]any{ck}}
+	if err := c.runDocumentMetadata(t.Context(), nil, in, fractionWindow{}); err != nil {
+		t.Fatalf("runDocumentMetadata: %v", err)
 	}
 	meta, ok := ck["metadata"].(map[string]any)
 	if !ok {
@@ -692,15 +692,16 @@ func TestExtractorComponent_runEnableMetadata_MergesIntoChunkMetadata(t *testing
 	}
 }
 
-// TestExtractorComponent_runEnableMetadata_DropsUndeclaredKeys verifies a model
+// TestExtractorComponent_runDocumentMetadata_DropsUndeclaredKeys verifies a model
 // that invents or re-cases a field cannot widen the dataset's metadata schema:
 // only keys from the declared field set survive.
-func TestExtractorComponent_runEnableMetadata_DropsUndeclaredKeys(t *testing.T) {
+func TestExtractorComponent_runDocumentMetadata_DropsUndeclaredKeys(t *testing.T) {
 	withStubChatInvoker(t, stubResponse{Content: `{"category":"finance","authors":["李白"],"Category":"finance"}`})
 	c := newMetadataExtractor(common.MetadataFieldDef{Key: "category", Type: "string"})
-	ck := map[string]any{}
-	if err := c.runEnableMetadata(t.Context(), nil, extractorInputs{llmID: "m"}, ck, "chunk text"); err != nil {
-		t.Fatalf("runEnableMetadata: %v", err)
+	ck := map[string]any{"text": "chunk text"}
+	in := extractorInputs{llmID: "m", chunks: []map[string]any{ck}}
+	if err := c.runDocumentMetadata(t.Context(), nil, in, fractionWindow{}); err != nil {
+		t.Fatalf("runDocumentMetadata: %v", err)
 	}
 	meta, ok := ck["metadata"].(map[string]any)
 	if !ok {
@@ -717,14 +718,15 @@ func TestExtractorComponent_runEnableMetadata_DropsUndeclaredKeys(t *testing.T) 
 	}
 }
 
-// TestExtractorComponent_runEnableMetadata_AllKeysUndeclared verifies a response
-// whose every key falls outside the declared set leaves existing metadata intact.
-func TestExtractorComponent_runEnableMetadata_AllKeysUndeclared(t *testing.T) {
+// TestExtractorComponent_runDocumentMetadata_AllKeysUndeclared verifies a response
+// whose every key falls outside the declared set leaves chunks without metadata.
+func TestExtractorComponent_runDocumentMetadata_AllKeysUndeclared(t *testing.T) {
 	withStubChatInvoker(t, stubResponse{Content: `{"authors":["李白"]}`})
 	c := newMetadataExtractor(common.MetadataFieldDef{Key: "category", Type: "string"})
-	ck := map[string]any{"metadata": map[string]any{"preexisting": "keep"}}
-	if err := c.runEnableMetadata(t.Context(), nil, extractorInputs{llmID: "m"}, ck, "chunk text"); err != nil {
-		t.Fatalf("runEnableMetadata: %v", err)
+	ck := map[string]any{"text": "chunk text", "metadata": map[string]any{"preexisting": "keep"}}
+	in := extractorInputs{llmID: "m", chunks: []map[string]any{ck}}
+	if err := c.runDocumentMetadata(t.Context(), nil, in, fractionWindow{}); err != nil {
+		t.Fatalf("runDocumentMetadata: %v", err)
 	}
 	meta, ok := ck["metadata"].(map[string]any)
 	if !ok {
@@ -735,14 +737,14 @@ func TestExtractorComponent_runEnableMetadata_AllKeysUndeclared(t *testing.T) {
 	}
 }
 
-// TestExtractorComponent_runEnableMetadata_StripsJSONFence verifies the
+// TestExtractorComponent_runDocumentMetadata_StripsJSONFence verifies the
 // extraction path tolerates a fenced ```json response.
-func TestExtractorComponent_runEnableMetadata_StripsJSONFence(t *testing.T) {
+func TestExtractorComponent_runDocumentMetadata_StripsJSONFence(t *testing.T) {
 	withStubChatInvoker(t, stubResponse{Content: "```json\n{\"category\":\"law\"}\n```"})
 	c := newMetadataExtractor(common.MetadataFieldDef{Key: "category", Type: "string"})
-	ck := map[string]any{}
-	if err := c.runEnableMetadata(t.Context(), nil, extractorInputs{llmID: "m"}, ck, "chunk text"); err != nil {
-		t.Fatalf("runEnableMetadata: %v", err)
+	ck := map[string]any{"text": "chunk text"}
+	if err := c.runDocumentMetadata(t.Context(), nil, extractorInputs{llmID: "m", chunks: []map[string]any{ck}}, fractionWindow{}); err != nil {
+		t.Fatalf("runDocumentMetadata: %v", err)
 	}
 	meta, ok := ck["metadata"].(map[string]any)
 	if !ok {
@@ -753,14 +755,14 @@ func TestExtractorComponent_runEnableMetadata_StripsJSONFence(t *testing.T) {
 	}
 }
 
-// TestExtractorComponent_runEnableMetadata_MidTextThink verifies the full
+// TestExtractorComponent_runDocumentMetadata_MidTextThink verifies the full
 // metadata path tolerates a mid-text reasoning block preceded by a preamble.
-func TestExtractorComponent_runEnableMetadata_MidTextThink(t *testing.T) {
+func TestExtractorComponent_runDocumentMetadata_MidTextThink(t *testing.T) {
 	withStubChatInvoker(t, stubResponse{Content: `preamble<think>reasoning</think>{"category":"finance"}`})
 	c := newMetadataExtractor(common.MetadataFieldDef{Key: "category", Type: "string"})
-	ck := map[string]any{}
-	if err := c.runEnableMetadata(t.Context(), nil, extractorInputs{llmID: "m"}, ck, "chunk text"); err != nil {
-		t.Fatalf("runEnableMetadata: %v", err)
+	ck := map[string]any{"text": "chunk text"}
+	if err := c.runDocumentMetadata(t.Context(), nil, extractorInputs{llmID: "m", chunks: []map[string]any{ck}}, fractionWindow{}); err != nil {
+		t.Fatalf("runDocumentMetadata: %v", err)
 	}
 	meta, ok := ck["metadata"].(map[string]any)
 	if !ok {
@@ -771,9 +773,9 @@ func TestExtractorComponent_runEnableMetadata_MidTextThink(t *testing.T) {
 	}
 }
 
-// TestExtractorComponent_runEnableMetadata_DegradesGracefully verifies that an
+// TestExtractorComponent_runDocumentMetadata_DegradesGracefully verifies that an
 // empty / **ERROR** / unparseable / think-only LLM response does NOT block ingestion.
-func TestExtractorComponent_runEnableMetadata_DegradesGracefully(t *testing.T) {
+func TestExtractorComponent_runDocumentMetadata_DegradesGracefully(t *testing.T) {
 	cases := []struct {
 		name    string
 		content string
@@ -788,9 +790,9 @@ func TestExtractorComponent_runEnableMetadata_DegradesGracefully(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			withStubChatInvoker(t, stubResponse{Content: tc.content})
 			c := newMetadataExtractor(common.MetadataFieldDef{Key: "category", Type: "string"})
-			ck := map[string]any{"metadata": map[string]any{"preexisting": "keep"}}
-			if err := c.runEnableMetadata(t.Context(), nil, extractorInputs{llmID: "m"}, ck, tc.name); err != nil {
-				t.Fatalf("runEnableMetadata returned error: %v", err)
+			ck := map[string]any{"text": tc.name, "metadata": map[string]any{"preexisting": "keep"}}
+			if err := c.runDocumentMetadata(t.Context(), nil, extractorInputs{llmID: "m", chunks: []map[string]any{ck}}, fractionWindow{}); err != nil {
+				t.Fatalf("runDocumentMetadata returned error: %v", err)
 			}
 			meta, ok := ck["metadata"].(map[string]any)
 			if !ok {
@@ -806,21 +808,20 @@ func TestExtractorComponent_runEnableMetadata_DegradesGracefully(t *testing.T) {
 	}
 }
 
-// TestExtractorComponent_runEnableMetadata_CrossChunkUnion simulates two chunks
-// whose extraction returns overlapping list values for the same key.
-func TestExtractorComponent_runEnableMetadata_CrossChunkUnion(t *testing.T) {
-	withStubChatInvoker(t,
-		stubResponse{Content: `{"people":["关羽","张辽"]}`},
-		stubResponse{Content: `{"people":["张辽","刘备"]}`},
-	)
+// TestExtractorComponent_runDocumentMetadata_OnceForNChunks verifies N chunks
+// produce a single metadata LLM call and share the same metadata map.
+func TestExtractorComponent_runDocumentMetadata_OnceForNChunks(t *testing.T) {
+	stub := withStubChatInvoker(t, stubResponse{Content: `{"people":["关羽","张辽","刘备"]}`})
 	c := newMetadataExtractor(common.MetadataFieldDef{Key: "people", Type: "string"})
-	ck1 := map[string]any{}
-	ck2 := map[string]any{}
-	if err := c.runEnableMetadata(t.Context(), nil, extractorInputs{llmID: "m"}, ck1, "chunk one"); err != nil {
-		t.Fatalf("ck1: %v", err)
+	ck1 := map[string]any{"text": "chunk one"}
+	ck2 := map[string]any{"text": "chunk two"}
+	ck3 := map[string]any{"text": "chunk three"}
+	in := extractorInputs{llmID: "m", chunks: []map[string]any{ck1, ck2, ck3}}
+	if err := c.runDocumentMetadata(t.Context(), nil, in, fractionWindow{}); err != nil {
+		t.Fatalf("runDocumentMetadata: %v", err)
 	}
-	if err := c.runEnableMetadata(t.Context(), nil, extractorInputs{llmID: "m"}, ck2, "chunk two"); err != nil {
-		t.Fatalf("ck2: %v", err)
+	if n := stub.Calls(); n != 1 {
+		t.Fatalf("LLM calls = %d, want 1 for document-level metadata", n)
 	}
 	m1, ok := ck1["metadata"].(map[string]any)
 	if !ok {
@@ -830,33 +831,37 @@ func TestExtractorComponent_runEnableMetadata_CrossChunkUnion(t *testing.T) {
 	if !ok {
 		t.Fatalf("ck2[metadata] missing: %T", ck2["metadata"])
 	}
-	docMeta := map[string]any{}
-	docMeta = utility.UpdateMetadataTo(docMeta, m1)
-	docMeta = utility.UpdateMetadataTo(docMeta, m2)
-	people, ok := docMeta["people"].([]string)
+	m3, ok := ck3["metadata"].(map[string]any)
 	if !ok {
-		t.Fatalf("people = %T, want []string", docMeta["people"])
+		t.Fatalf("ck3[metadata] missing: %T", ck3["metadata"])
 	}
-	want := map[string]bool{"关羽": true, "张辽": true, "刘备": true}
-	if len(people) != len(want) {
-		t.Fatalf("people = %v, want union of %v", people, want)
+	// Same map reference assigned to every chunk.
+	m1["__probe"] = true
+	if _, ok := m2["__probe"]; !ok {
+		t.Error("ck1 and ck2 must share the same metadata map")
 	}
-	for _, p := range people {
-		if !want[p] {
-			t.Errorf("unexpected person %q", p)
-		}
+	if _, ok := m3["__probe"]; !ok {
+		t.Error("ck1 and ck3 must share the same metadata map")
+	}
+	delete(m1, "__probe")
+	people, ok := m1["people"].([]any)
+	if !ok {
+		t.Fatalf("people = %T, want []any", m1["people"])
+	}
+	if len(people) != 3 {
+		t.Fatalf("people = %v, want 3 entries", people)
 	}
 }
 
-// TestExtractorComponent_runEnableMetadata_CombinedValueSplit verifies a value
+// TestExtractorComponent_runDocumentMetadata_CombinedValueSplit verifies a value
 // the LLM combines with Chinese/comma delimiters is split when passed through
 // common.SplitCombinedMetadataValues.
-func TestExtractorComponent_runEnableMetadata_CombinedValueSplit(t *testing.T) {
+func TestExtractorComponent_runDocumentMetadata_CombinedValueSplit(t *testing.T) {
 	withStubChatInvoker(t, stubResponse{Content: `{"people":["关羽、张辽、刘备"]}`})
 	c := newMetadataExtractor(common.MetadataFieldDef{Key: "people", Type: "string"})
-	ck := map[string]any{}
-	if err := c.runEnableMetadata(t.Context(), nil, extractorInputs{llmID: "m"}, ck, "chunk text"); err != nil {
-		t.Fatalf("runEnableMetadata: %v", err)
+	ck := map[string]any{"text": "chunk text"}
+	if err := c.runDocumentMetadata(t.Context(), nil, extractorInputs{llmID: "m", chunks: []map[string]any{ck}}, fractionWindow{}); err != nil {
+		t.Fatalf("runDocumentMetadata: %v", err)
 	}
 	rawMeta, ok := ck["metadata"].(map[string]any)
 	if !ok {
@@ -2138,7 +2143,7 @@ func TestExtractor_ParseMetadataFieldDefs_MapSlice(t *testing.T) {
 }
 
 func TestExtractorBuiltInDoesNotCallLLM(t *testing.T) {
-	// 1b39355c regressed by making runEnableMetadata fire when only built_in_metadata was configured.
+	// 1b39355c regressed by making document metadata fire when only built_in_metadata was configured.
 	// With the modular shape, BuiltInMetadata must never trigger an LLM call; it is applied by the finalizer.
 	stub := withStubChatInvoker(t)
 	params := map[string]any{

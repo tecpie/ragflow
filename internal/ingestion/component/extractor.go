@@ -22,8 +22,9 @@
 //     specific LLM provider. It dispatches every chat call through
 //     internal/entity/models.
 //
-//   - CONCURRENCY: auto extraction tasks (keywords, questions, summary, metadata)
-//     run concurrently across chunks via a bounded worker pool (extractorPool).
+//   - CONCURRENCY: keywords / questions / summary run concurrently across
+//     chunks via a bounded worker pool (extractorPool). Metadata is extracted
+//     once per document after those phases.
 //
 //   - TIMEOUT / ELAPSED: the call is wrapped in
 //     runtime.WithTimeout(600s) and runtime.TrackElapsed so the
@@ -44,6 +45,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/cespare/xxhash/v2"
 	eschema "github.com/cloudwego/eino/schema"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -55,6 +57,7 @@ import (
 	"ragflow/internal/entity/models"
 	"ragflow/internal/ingestion/chunkcache"
 	"ragflow/internal/ingestion/component/schema"
+	syncerconnector "ragflow/internal/syncer/connector"
 	"ragflow/internal/tokenizer"
 	"ragflow/internal/utility"
 )
@@ -676,8 +679,9 @@ func (c *ExtractorComponent) Invoke(ctx context.Context, db *gorm.DB, inputs map
 
 	keywordsOn := c.Param.Keywords.Enabled
 	tagsOn := c.Param.Tags.Enabled
-	remainingOn := c.Param.Questions.Enabled || c.Param.Summary.Enabled || c.Param.Metadata.Enabled
-	phaseWindows := newFractionSplit(keywordsOn, tagsOn, remainingOn)
+	remainingOn := c.Param.Questions.Enabled || c.Param.Summary.Enabled
+	metadataOn := c.Param.Metadata.Enabled && len(c.Param.Metadata.Metadata) > 0
+	phaseWindows := newFractionSplit(keywordsOn, tagsOn, remainingOn, metadataOn)
 
 	if err := runtime.WithTimeout(ctx, extractorTimeout, func(timeoutCtx context.Context) error {
 		// Phase 1: Keywords extraction (if enabled), running across chunks via extractorPool.
@@ -694,8 +698,13 @@ func (c *ExtractorComponent) Invoke(ctx context.Context, db *gorm.DB, inputs map
 			in.chunks = tagged
 		}
 
-		// Phase 3: Remaining extractions (Questions, Summary, Metadata) via extractorPool.
-		return c.runRemainingExtractions(timeoutCtx, db, in, phaseWindows.take(remainingOn))
+		// Phase 3: Per-chunk questions / summary via extractorPool.
+		if err := c.runRemainingExtractions(timeoutCtx, db, in, phaseWindows.take(remainingOn)); err != nil {
+			return err
+		}
+
+		// Phase 4: Document-level metadata — one LLM call over joined chunk text.
+		return c.runDocumentMetadata(timeoutCtx, db, in, phaseWindows.take(metadataOn))
 	}); err != nil {
 		return nil, fmt.Errorf("extractor: %w", err)
 	}
@@ -927,10 +936,11 @@ func (c *ExtractorComponent) runAutoKeywordsPool(ctx context.Context, db *gorm.D
 	return awaitFutures(ctx, futs, w)
 }
 
-// runRemainingExtractions dispatches auto questions / summary / metadata
-// extractions across all chunks concurrently using extractorPool.
+// runRemainingExtractions dispatches auto questions / summary across all
+// chunks concurrently using extractorPool. Metadata is document-level
+// (see runDocumentMetadata) and is intentionally not scheduled here.
 func (c *ExtractorComponent) runRemainingExtractions(ctx context.Context, db *gorm.DB, in extractorInputs, w fractionWindow) error {
-	if !c.Param.Questions.Enabled && !c.Param.Summary.Enabled && !c.Param.Metadata.Enabled {
+	if !c.Param.Questions.Enabled && !c.Param.Summary.Enabled {
 		return nil
 	}
 	futs := make([]utility.WorkerPoolFuture[extractorJob, struct{}], 0, len(in.chunks))
@@ -960,11 +970,6 @@ func (c *ExtractorComponent) remainingExtractionJob(ctx context.Context, db *gor
 		if c.Param.Summary.Enabled {
 			if err := c.runAutoSummary(ctx, db, in, ck, chunkText); err != nil {
 				return fmt.Errorf("chunk %d summary: %w", idx, err)
-			}
-		}
-		if c.Param.Metadata.Enabled {
-			if err := c.runEnableMetadata(ctx, db, in, ck, chunkText); err != nil {
-				return fmt.Errorf("chunk %d metadata: %w", idx, err)
 			}
 		}
 		return nil
@@ -1011,20 +1016,34 @@ func awaitFutures(ctx context.Context, futs []utility.WorkerPoolFuture[extractor
 	return firstErr
 }
 
-// runEnableMetadata extracts structured metadata for the current chunk and
-// merges the parsed JSON object into ck["metadata"]. It mirrors the
-// runAutoKeywords/runAutoQuestions shape but parses a JSON object and
-// merges into the chunk's metadata map.
-func (c *ExtractorComponent) runEnableMetadata(ctx context.Context, db *gorm.DB, in extractorInputs, ck map[string]any, chunkText string) error {
-	if strings.TrimSpace(chunkText) == "" {
-		return nil
-	}
+// runDocumentMetadata extracts structured metadata once per document by
+// joining chunk texts and issuing a single structured LLM call. The resulting
+// map is assigned to every chunk so indexdoc mergeChunkMetadata /
+// mergeDocMetadata still see document-level metadata. Mirrors Python
+// generate_metadata (e5a44a1f8) and the flow Extractor metadata path (d6cae2773).
+func (c *ExtractorComponent) runDocumentMetadata(ctx context.Context, db *gorm.DB, in extractorInputs, w fractionWindow) error {
 	if !c.Param.Metadata.Enabled || len(c.Param.Metadata.Metadata) == 0 {
 		return nil
 	}
-	// Render the field schema into the prompt, mirroring Python's
-	// turn2jsonschema(metadata_conf) rendered into the META_DATA template.
-	schemaMap := common.Turn2JSONSchema(c.Param.Metadata.Metadata)
+	defer w.report(ctx, 1)
+
+	fields := append([]common.MetadataFieldDef(nil), c.Param.Metadata.Metadata...)
+	if err := syncerconnector.PrefetchMetadataValueSources(ctx, fields, loadExtractorValueSourceConnector(db)); err != nil {
+		return err
+	}
+
+	parts := make([]string, 0, len(in.chunks))
+	for _, ck := range in.chunks {
+		if text := strings.TrimSpace(extractorChunkText(ck)); text != "" {
+			parts = append(parts, text)
+		}
+	}
+	docText := strings.Join(parts, "\n\n")
+	if strings.TrimSpace(docText) == "" {
+		return nil
+	}
+
+	schemaMap := common.Turn2JSONSchema(fields)
 	if len(schemaMap) == 0 {
 		return nil
 	}
@@ -1034,20 +1053,14 @@ func (c *ExtractorComponent) runEnableMetadata(ctx context.Context, db *gorm.DB,
 	}
 	schemaStr := string(schemaJSON)
 
-	// Per-chunk result cache: identical (model + chunk + schema) extractions
-	// are served from the cache so a resumed run — which re-executes every
-	// stage after the Parser checkpoint — doesn't re-pay the LLM call.
-	// Best-effort: a missing client or any cache error falls through to a live
-	// call instead of failing the extraction.
-	chunkID := chunkCacheID(ck)
-	// Prefer the run-level resolved identity; fall back only for direct unit
-	// callers that did not pre-resolve it.
 	modelID := in.modelID
 	if modelID == "" {
 		modelID = extractorCacheModelID(ctx, db, in.llmID)
 	}
+	docCacheID := documentMetadataCacheID(docText)
+
 	var parsed map[string]any
-	if cached, hit := getMetadataLLMCache(ctx, in.cache, modelID, schemaStr, chunkID); hit {
+	if cached, hit := getMetadataLLMCache(ctx, in.cache, modelID, schemaStr, docCacheID); hit {
 		parsed = cached
 	} else {
 		metaTemp := extractorTemperature
@@ -1058,28 +1071,21 @@ func (c *ExtractorComponent) runEnableMetadata(ctx context.Context, db *gorm.DB,
 			cache:       in.cache,
 		}
 		systemPrompt := fmt.Sprintf(autoMetadataPrompt, schemaStr)
-		parsed, err = c.callStructured(ctx, db, metaIn, systemPrompt, chunkText)
+		parsed, err = c.callStructured(ctx, db, metaIn, systemPrompt, docText)
 		if err != nil {
 			return err
 		}
 		if parsed == nil {
-			// Non-JSON or empty response — nothing to extract, not an error.
 			return nil
 		}
-		parsed = filterMetadataToDeclaredKeys(parsed, c.Param.Metadata.Metadata)
+		parsed = filterMetadataToDeclaredKeys(parsed, fields)
 		if len(parsed) == 0 {
-			// Every key fell outside the declared field set — nothing to keep.
 			return nil
 		}
-		setMetadataLLMCache(ctx, in.cache, modelID, schemaStr, chunkID, parsed)
+		setMetadataLLMCache(ctx, in.cache, modelID, schemaStr, docCacheID, parsed)
 	}
-	// Merge into the chunk metadata map, preserving existing keys.
-	var meta map[string]any
-	if existing, ok := ck["metadata"].(map[string]any); ok && existing != nil {
-		meta = existing
-	} else {
-		meta = make(map[string]any, len(parsed))
-	}
+
+	meta := make(map[string]any, len(parsed))
 	for k, v := range parsed {
 		if v == nil {
 			continue
@@ -1089,8 +1095,45 @@ func (c *ExtractorComponent) runEnableMetadata(ctx context.Context, db *gorm.DB,
 		}
 		meta[k] = v
 	}
-	ck["metadata"] = meta
+	if len(meta) == 0 {
+		return nil
+	}
+	// Same map on every chunk: mergeChunkMetadata unions identical maps into
+	// PipelineResult.Metadata without extra LLM cost or per-chunk drift.
+	for _, ck := range in.chunks {
+		ck["metadata"] = meta
+	}
 	return nil
+}
+
+// loadExtractorValueSourceConnector resolves a connector id for metadata
+// value_source prefetch. A nil db falls through to dao.DB so production
+// paths work when Invoke is called without an explicit handle.
+func loadExtractorValueSourceConnector(db *gorm.DB) syncerconnector.ConnectorLoader {
+	return func(ctx context.Context, id string) (syncerconnector.ConnectorRecord, error) {
+		if db == nil {
+			db = dao.DB
+		}
+		conn, err := dao.NewConnectorDAO().GetByID(ctx, db, id)
+		if err != nil {
+			return syncerconnector.ConnectorRecord{}, err
+		}
+		if conn == nil {
+			return syncerconnector.ConnectorRecord{}, fmt.Errorf("connector %s not found", id)
+		}
+		cfg := map[string]any(conn.Config)
+		if cfg == nil {
+			cfg = map[string]any{}
+		}
+		return syncerconnector.ConnectorRecord{ID: conn.ID, Source: conn.Source, Config: cfg}, nil
+	}
+}
+
+// documentMetadataCacheID builds a document-level cache identity from the
+// joined content so N chunks share one metadata cache entry (not per chunkID).
+func documentMetadataCacheID(docText string) string {
+	sum := xxhash.Sum64String(docText)
+	return fmt.Sprintf("doc:%x", sum)
 }
 
 // filterMetadataToDeclaredKeys drops every key that is not part of the
@@ -1151,17 +1194,18 @@ func chunkCacheID(ck map[string]any) string {
 	return id
 }
 
-// metadataLLMCacheKey builds the cache key for one metadata extraction. The
-// schema is part of the key so editing the field set invalidates results
-// extracted against the previous one.
-func metadataLLMCacheKey(llmID, schemaJSON, chunkID string) string {
-	return chunkcache.Key("meta", llmID, chunkID, schemaJSON)
+// metadataLLMCacheKey builds the cache key for one document-level metadata
+// extraction. docCacheID is document-scoped (see documentMetadataCacheID), not
+// a chunk id. The schema is part of the key so editing the field set
+// invalidates results extracted against the previous one.
+func metadataLLMCacheKey(llmID, schemaJSON, docCacheID string) string {
+	return chunkcache.Key("meta", llmID, docCacheID, schemaJSON)
 }
 
-// getMetadataLLMCache returns a cached extraction for the given chunk, or
+// getMetadataLLMCache returns a cached document-level extraction, or
 // (nil, false) on miss / cache unavailable / decode error. Best-effort.
-func getMetadataLLMCache(ctx context.Context, store chunkcache.Store, modelID, schemaJSON, chunkID string) (map[string]any, bool) {
-	data, hit := chunkcache.Get(ctx, store, metadataLLMCacheKey(modelID, schemaJSON, chunkID))
+func getMetadataLLMCache(ctx context.Context, store chunkcache.Store, modelID, schemaJSON, docCacheID string) (map[string]any, bool) {
+	data, hit := chunkcache.Get(ctx, store, metadataLLMCacheKey(modelID, schemaJSON, docCacheID))
 	if !hit {
 		return nil, false
 	}
@@ -1172,14 +1216,14 @@ func getMetadataLLMCache(ctx context.Context, store chunkcache.Store, modelID, s
 	return parsed, true
 }
 
-// setMetadataLLMCache stores an extraction result. Best-effort: an unavailable
-// cache or a marshal error is silently ignored.
-func setMetadataLLMCache(ctx context.Context, store chunkcache.Store, modelID, schemaJSON, chunkID string, parsed map[string]any) {
+// setMetadataLLMCache stores a document-level extraction result. Best-effort:
+// an unavailable cache or a marshal error is silently ignored.
+func setMetadataLLMCache(ctx context.Context, store chunkcache.Store, modelID, schemaJSON, docCacheID string, parsed map[string]any) {
 	data, err := json.Marshal(parsed)
 	if err != nil {
 		return
 	}
-	chunkcache.Set(ctx, store, metadataLLMCacheKey(modelID, schemaJSON, chunkID), string(data))
+	chunkcache.Set(ctx, store, metadataLLMCacheKey(modelID, schemaJSON, docCacheID), string(data))
 }
 
 // callRaw runs one chat call against the LLM (per chunk in the normal path)

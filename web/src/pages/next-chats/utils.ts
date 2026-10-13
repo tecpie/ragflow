@@ -16,9 +16,10 @@ export function resolveResendOptions(
   const {
     enableThinking = storage.getThinkingLevel(),
     enableInternet = false,
+    enableModelThinking = false,
   } = lastSendOptions;
 
-  return { enableThinking, enableInternet };
+  return { enableThinking, enableInternet, enableModelThinking };
 }
 
 export const isConversationIdExist = (conversationId: string) => {

@@ -375,13 +375,21 @@ func (s *DocumentService) InsertDocument(doc *entity.Document) error {
 	})
 }
 
+func (s *DocumentService) documentNameExistsInKB(ctx context.Context, kbID, name string) (bool, error) {
+	docs, err := s.documentDAO.GetByNameAndKBID(ctx, dao.DB, name, kbID)
+	if err != nil {
+		return false, err
+	}
+	return len(docs) > 0, nil
+}
+
 // UniqueDocumentName returns a non-colliding document name within the dataset,
 // mirroring Python duplicate_name(DocumentService.query, name=..., kb_id=...).
 // Returns an error when the existing-name lookup fails so callers never write
 // blind and risk duplicated document names.
 func (s *DocumentService) UniqueDocumentName(ctx context.Context, kbID, name string) (string, error) {
 	return common.UniqueFileName(name, 255, func(candidate string) (bool, error) {
-		return s.documentDAO.NameExistsInKB(ctx, dao.DB, kbID, candidate)
+		return s.documentNameExistsInKB(ctx, kbID, candidate)
 	})
 }
 

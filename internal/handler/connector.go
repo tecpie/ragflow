@@ -29,6 +29,7 @@ import (
 
 	"ragflow/internal/common"
 	"ragflow/internal/entity"
+	"ragflow/internal/i18n"
 	permissionresponse "ragflow/internal/permission/response"
 	"ragflow/internal/service"
 	syncerconnector "ragflow/internal/syncer/connector"
@@ -38,6 +39,7 @@ type connectorServiceIface interface {
 	ListConnectors(ctx context.Context, userID, tenantID string) (*service.ListConnectorsResponse, error)
 	CreateConnector(ctx context.Context, userID string, req *service.CreateConnectorRequest) (*entity.Connector, error)
 	GetConnector(ctx context.Context, connectorID, userID string) (*entity.Connector, error)
+	QueryConnector(ctx context.Context, connectorID, userID string, req *service.QueryConnectorRequest) (map[string]any, error)
 	ListLog(ctx context.Context, connectorID, userID string, page, pageSize int) ([]*entity.ConnectorSyncLog, int64, common.ErrorCode, error)
 	ListLogs(ctx context.Context, userID, datasetID string, page, pageSize int) ([]*entity.ConnectorSyncLog, int64, common.ErrorCode, error)
 	DeleteConnector(ctx context.Context, connectorID, userID string) (bool, common.ErrorCode, error)
@@ -111,7 +113,7 @@ func connectorErrorResponse(c *gin.Context, err error) bool {
 	case errors.Is(err, service.ErrConnectorIDRequired):
 		common.ResponseWithCodeData(c, common.CodeDataError, nil, err.Error())
 	case errors.Is(err, service.ErrConnectorNotFound):
-		common.ResponseWithCodeData(c, common.CodeDataError, nil, "Can't find this Connector!")
+		common.ResponseWithCodeData(c, common.CodeDataError, nil, i18n.ConnectorNotFound)
 	case errors.Is(err, service.ErrConnectorTestUnsupported):
 		common.ResponseWithCodeData(c, common.CodeNotImplemented, false, err.Error())
 	case errors.Is(err, service.ErrConnectorSourceNotImplemented):
@@ -351,6 +353,59 @@ func (h *ConnectorHandler) CreateConnector(c *gin.Context) {
 type testConnectorRequest struct {
 	Source string         `json:"source"`
 	Config entity.JSONMap `json:"config"`
+}
+
+// QueryConnector previews connector rows/items or resolves enum_options.
+// @Summary Query Connector
+// @Description Preview MySQL/PostgreSQL/REST data, or fetch enum options when enum_value_field is set
+// @Tags connector
+// @Accept json
+// @Produce json
+// @Param connector_id path string true "connector ID"
+// @Router /api/v1/connectors/{connector_id}/query [post]
+func (h *ConnectorHandler) QueryConnector(c *gin.Context) {
+	user, errorCode, errorMessage := GetUser(c)
+	if errorCode != common.CodeSuccess {
+		common.ErrorWithCode(c, errorCode, errorMessage)
+		return
+	}
+	connectorID := c.Param("connector_id")
+	if connectorID == "" {
+		common.ResponseWithHttpCodeData(c, http.StatusBadRequest, common.CodeBadRequest, nil, "connector_id is required")
+		return
+	}
+	var req service.QueryConnectorRequest
+	if c.Request.Body != nil && c.Request.ContentLength != 0 {
+		if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+			common.ResponseWithHttpCodeData(c, http.StatusBadRequest, common.CodeBadRequest, nil, err.Error())
+			return
+		}
+	}
+	data, err := h.connectorService.QueryConnector(c.Request.Context(), connectorID, user.ID, &req)
+	if connectorErrorResponse(c, err) {
+		return
+	}
+	if err != nil {
+		var (
+			valErr  *syncerconnector.ConnectorValidationError
+			credErr *syncerconnector.ConnectorMissingCredentialError
+		)
+		if errors.As(err, &valErr) || errors.As(err, &credErr) || errors.Is(err, service.ErrConnectorTestUnsupported) {
+			common.ResponseWithCodeData(c, common.CodeDataError, false, err.Error())
+			return
+		}
+		// ValueError-equivalent query failures (missing column, empty options).
+		if strings.Contains(err.Error(), "value_source") ||
+			strings.Contains(err.Error(), "unsupported") ||
+			strings.Contains(err.Error(), "no options") ||
+			strings.Contains(err.Error(), "query is required") {
+			common.ResponseWithCodeData(c, common.CodeDataError, false, err.Error())
+			return
+		}
+		common.ResponseWithCodeData(c, common.CodeServerError, false, "Connector query failed, please check logs.")
+		return
+	}
+	common.SuccessWithData(c, data, "success")
 }
 
 // TestConnector validates connector settings.

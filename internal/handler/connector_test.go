@@ -49,6 +49,10 @@ func (s fakeConnectorService) CreateConnector(context.Context, string, *service.
 	return s.connector, nil
 }
 
+func (s fakeConnectorService) QueryConnector(context.Context, string, string, *service.QueryConnectorRequest) (map[string]any, error) {
+	return map[string]any{}, nil
+}
+
 func (s fakeConnectorService) GetConnector(context.Context, string, string) (*entity.Connector, error) {
 	if s.err != nil {
 		return nil, s.err

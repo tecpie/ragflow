@@ -76,14 +76,7 @@ func (o *OpenAIModel) ChatWithMessages(ctx context.Context, modelName string, me
 
 	// Build request body
 	reqBody := buildRequestBody(chatModelConfig, modelName, messages, false)
-
-	if strings.Contains(strings.ToLower(modelName), "qwen3") {
-		if chatModelConfig != nil && chatModelConfig.Thinking != nil {
-			reqBody["enable_thinking"] = *chatModelConfig.Thinking
-		} else {
-			reqBody["enable_thinking"] = false
-		}
-	}
+	applyOpenAIChatThinking(modelName, chatModelConfig, reqBody)
 
 	body, err := o.baseModel.doRequest(ctx, url, apiConfig, reqBody, nonStreamCallTimeout)
 	if err != nil {
@@ -119,17 +112,9 @@ func (o *OpenAIModel) ChatStreamlyWithSender(ctx context.Context, modelName stri
 		if chatModelConfig.Stream != nil && !*chatModelConfig.Stream {
 			return fmt.Errorf("stream must be true in ChatStreamlyWithSender")
 		}
-
 	}
 
-	// Qwen3 family: disable thinking unless explicitly enabled.
-	if strings.Contains(strings.ToLower(modelName), "qwen3") {
-		if chatModelConfig != nil && chatModelConfig.Thinking != nil {
-			reqBody["enable_thinking"] = *chatModelConfig.Thinking
-		} else {
-			reqBody["enable_thinking"] = false
-		}
-	}
+	applyOpenAIChatThinking(modelName, chatModelConfig, reqBody)
 
 	return o.baseModel.doStreamRequest(ctx, url, apiConfig, reqBody, streamCallTimeout, func(body io.ReadCloser) error {
 		return HandleStreamingResponse(body, modelUsage, chatModelConfig, OpenAIParserConfig, sender)

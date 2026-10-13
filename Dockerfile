@@ -1,5 +1,5 @@
 # base stage
-FROM ubuntu:24.04 AS base
+FROM registry.cn-hangzhou.aliyuncs.com/tecpie/ubuntu:24.04 AS base
 USER root
 SHELL ["/bin/bash", "-c"]
 
@@ -17,7 +17,7 @@ WORKDIR /ragflow
 # exclude them from the tar extract and symlink them to layout.onnx instead,
 # saving ~219MB in the image.
 RUN mkdir -p /ragflow/internal/rag/res/deepdoc /root/.ragflow
-RUN --mount=type=bind,from=infiniflow/ragflow_deps:latest,source=/huggingface.co,target=/huggingface.co \
+RUN --mount=type=bind,from=registry.cn-hangzhou.aliyuncs.com/tecpie/ragflow_deps:latest,source=/huggingface.co,target=/huggingface.co \
     tar --exclude='.*' \
         --exclude='layout.laws.onnx' \
         --exclude='layout.manual.onnx' \
@@ -45,7 +45,7 @@ RUN --mount=type=bind,from=infiniflow/ragflow_deps:latest,source=/huggingface.co
 # silently returned 0. localBpeLoader resolves it from <workdir>/ragflow_deps/,
 # so dropping it here makes the table load offline at startup (see
 # InitCL100KEncoder fail-fast guard).
-RUN --mount=type=bind,from=infiniflow/ragflow_deps:latest,source=/cl100k_base.tiktoken,target=/tmp/cl100k_base.tiktoken \
+RUN --mount=type=bind,from=registry.cn-hangzhou.aliyuncs.com/tecpie/ragflow_deps:latest,source=/cl100k_base.tiktoken,target=/tmp/cl100k_base.tiktoken \
     mkdir -p /ragflow/ragflow_deps && \
     cp /tmp/cl100k_base.tiktoken /ragflow/ragflow_deps/cl100k_base.tiktoken
 
@@ -55,7 +55,7 @@ RUN --mount=type=bind,from=infiniflow/ragflow_deps:latest,source=/cl100k_base.ti
 # missing asset FAILS THE BUILD here rather than shipping an image where every tagged
 # model silently counts with the calibrated cl100k estimate. The tokenizer.json files
 # that exist only as cross-check oracles are deliberately not shipped.
-RUN --mount=type=bind,from=infiniflow/ragflow_deps:latest,source=/huggingface.co,target=/huggingface.co \
+RUN --mount=type=bind,from=registry.cn-hangzhou.aliyuncs.com/tecpie/ragflow_deps:latest,source=/huggingface.co,target=/huggingface.co \
     for asset in \
         BAAI/bge-m3/sentencepiece.bpe.model \
         BAAI/bge-large-en-v1.5/vocab.txt \
@@ -103,10 +103,11 @@ RUN --mount=type=cache,id=ragflow_apt,target=/var/cache/apt,sharing=locked \
     apt-get install -y --no-install-recommends git && \
     mkdir -p /usr/share/infinity/resource && \
     if [ "$NEED_MIRROR" == "1" ]; then \
+        GITEE_TOKEN=$(cat /run/secrets/gitee_token 2>/dev/null || echo "$GITEE_TOKEN"); \
         if [ -n "$GITEE_TOKEN" ]; then \
             git clone --depth 1 --single-branch "https://oauth2:${GITEE_TOKEN}@gitee.com/infiniflow/resource" /tmp/resource; \
         else \
-            git clone --depth 1 --single-branch https://github.com/infiniflow/resource.git /tmp/resource; \
+            git clone --depth 1 --single-branch https://gitee.com/infiniflow/resource.git /tmp/resource; \
         fi; \
     else \
         git clone --depth 1 --single-branch https://github.com/infiniflow/resource.git /tmp/resource; \
@@ -169,15 +170,8 @@ USER root
 SHELL ["/bin/bash", "-c"]
 WORKDIR /ragflow
 
-# Pin GOMODCACHE/GOCACHE to the BuildKit cache-mount paths for the whole stage.
-# Without this, the `GOMODCACHE=... GOCACHE=...` prefix on the RUN lines below only
-# applies to the command before `&&`, so `./build.sh --go` (the command after `&&`)
-# falls back to the default /root/go/pkg/mod and re-downloads every module that
-# `go mod download` already fetched. Exporting them as ENV makes every go command in
-# this stage — including the `go build` inside build.sh — share the same persistent
-# cache mount, so the download happens once and is reused across builds (the CI
-# runner shares the host Docker daemon, so the mount persists across jobs/replicas).
-ENV GOMODCACHE=/root/.cache/gomod GOCACHE=/root/.cache/gobuild
+# Overridable; goproxy.cn sometimes returns unexpected EOF from this network.
+ARG GOPROXY=https://goproxy.io,https://proxy.golang.org,direct
 
 # Cache Go modules BEFORE copying source (mirrors the Dockerfile_ci fix):
 # copy only the manifests, download the full module graph into a persistent
@@ -185,14 +179,15 @@ ENV GOMODCACHE=/root/.cache/gomod GOCACHE=/root/.cache/gobuild
 # mounted paths so `go mod download` and `build.sh --go` share the same cache and
 # dependencies are never re-fetched when only source changes.
 COPY go.mod go.sum ./
-RUN --mount=type=cache,id=ragflow_gomod,target=/root/.cache/gomod,sharing=locked \
+RUN --mount=type=cache,id=ragflow_gomod,target=/root/.cache/gomod \
     --mount=type=cache,id=ragflow_gobuild,target=/root/.cache/gobuild \
     GOMODCACHE=/root/.cache/gomod GOCACHE=/root/.cache/gobuild \
-    GOPROXY=${GOPROXY:-https://goproxy.cn,https://proxy.golang.org,direct} \
+    GOPROXY=${GOPROXY} \
     go mod download
 
 COPY internal internal
 COPY cmd cmd
+COPY locales locales
 COPY build.sh ./
 # build.sh's check_ort_version_consistency (run via `./build.sh --go`) greps the
 # ORT version pin from this file; without it the --go build fails with
@@ -227,9 +222,26 @@ RUN set -eux; \
 RUN git config --global safe.directory "*" && \
     cd /ragflow && ./build.sh --cpp
 
-RUN --mount=type=cache,id=ragflow_gomod,target=/root/.cache/gomod,sharing=locked \
+# github_action_runner pins tuna (403 here) and may ship a non-writable /tmp
+# that breaks apt-key. Fix /tmp, drop broken llvm mirror, switch ubuntu to
+# aliyun, preinstall libpcre2-dev so build.sh --go does not apt-get at link time.
+RUN set -eux; \
+    chmod 1777 /tmp; \
+    find /etc/apt -type f \( -name '*.list' -o -name '*.sources' \) -print0 \
+      | xargs -0 -r grep -l -E 'llvm-apt|llvm-toolchain' \
+      | xargs -r rm -f; \
+    find /etc/apt -type f \( -name '*.list' -o -name '*.sources' \) -print0 \
+      | xargs -0 -r sed -i \
+        -e 's|mirrors.tuna.tsinghua.edu.cn|mirrors.aliyun.com|g' \
+        -e 's|mirrors.ustc.edu.cn|mirrors.aliyun.com|g'; \
+    apt-get update && \
+    apt-get install -y --no-install-recommends libpcre2-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN --mount=type=cache,id=ragflow_gomod,target=/root/.cache/gomod \
     --mount=type=cache,id=ragflow_gobuild,target=/root/.cache/gobuild \
     GOMODCACHE=/root/.cache/gomod GOCACHE=/root/.cache/gobuild \
+    GOPROXY=${GOPROXY} \
     git config --global safe.directory "*" && \
     ./build.sh --go
 
