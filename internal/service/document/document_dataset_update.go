@@ -434,12 +434,12 @@ func validateMetaFields(meta map[string]any) error {
 
 	for _, v := range meta {
 		switch typed := v.(type) {
-		case string, float64, int, int64, float32:
+		case string, float64, int, int64, float32, bool:
 			continue
 		case []any:
 			for _, item := range typed {
 				switch item.(type) {
-				case string, float64, int, int64, float32:
+				case string, float64, int, int64, float32, bool:
 					continue
 				default:
 					return fmt.Errorf("Field: <meta_fields> - Message: <The type is not supported in list: %s> - Value: <%s>", pyRepr(typed), pyRepr(map[string]interface{}(meta)))
