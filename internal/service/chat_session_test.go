@@ -304,11 +304,15 @@ type fakePipeline struct {
 	err        error
 	userID     string
 	messages   []map[string]interface{}
+	chat       *entity.Chat
+	kwargs     map[string]interface{}
 }
 
 func (f *fakePipeline) AsyncChat(ctx context.Context, userID string, chat *entity.Chat, messages []map[string]interface{}, stream bool, kwargs map[string]interface{}) (<-chan AsyncChatResult, error) {
 	f.userID = userID
 	f.messages = messages
+	f.chat = chat
+	f.kwargs = kwargs
 	return f.resultChan, f.err
 }
 
@@ -1343,6 +1347,175 @@ func TestChatCompletionsModelIDOverrideUsesModelResolver(t *testing.T) {
 	}
 	if store.dialogs["dialog-1"].LLMID != modelID {
 		t.Fatalf("dialog LLMID=%q, want model id %q", store.dialogs["dialog-1"].LLMID, modelID)
+	}
+}
+
+func TestChatCompletionsKbIDsOverrideReplacesDialogDatasets(t *testing.T) {
+	store := newFakeSessionStore()
+	store.sessions["session-1"] = &entity.ChatSession{
+		ID:        "session-1",
+		DialogID:  "dialog-1",
+		UserID:    strPtr("user-1"),
+		Message:   json.RawMessage(`[]`),
+		Reference: json.RawMessage(`[]`),
+	}
+	store.dialogs["dialog-1"] = &entity.Chat{
+		ID:           "dialog-1",
+		TenantID:     "tenant-owner",
+		LLMID:        "model@default@Provider",
+		LLMSetting:   entity.JSONMap{},
+		PromptConfig: entity.JSONMap{"parameters": []interface{}{}},
+		KBIDs:        entity.JSONSlice{"bound-kb-1", "bound-kb-2"},
+	}
+	store.dialogExists["tenant-owner|dialog-1"] = true
+
+	pipeline := &fakePipeline{
+		resultChan: makeResultChan(
+			AsyncChatResult{Answer: "ok", Final: true, Reference: map[string]interface{}{"chunks": []interface{}{}}},
+		),
+	}
+	svc := &ChatSessionService{
+		chatSessionDAO:    store,
+		permissionChecker: store,
+		pipeline:          pipeline,
+	}
+
+	_, err := svc.ChatCompletions(
+		t.Context(),
+		"user-1",
+		"dialog-1",
+		"session-1",
+		[]map[string]interface{}{{"role": "user", "content": "hi"}},
+		"",
+		nil,
+		"",
+		nil,
+		map[string]interface{}{"kb_ids": []interface{}{"override-kb-a", "override-kb-b"}},
+		false,
+		false,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("ChatCompletions failed: %v", err)
+	}
+	if pipeline.chat == nil {
+		t.Fatal("pipeline did not receive chat")
+	}
+	got, _ := stringSliceFromValue([]interface{}(pipeline.chat.KBIDs))
+	want := []string{"override-kb-a", "override-kb-b"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("pipeline chat.KBIDs=%v, want %v", got, want)
+	}
+}
+
+func TestChatCompletionsKbIDsOverrideEmptyClearsBoundDatasets(t *testing.T) {
+	store := newFakeSessionStore()
+	store.sessions["session-1"] = &entity.ChatSession{
+		ID:        "session-1",
+		DialogID:  "dialog-1",
+		UserID:    strPtr("user-1"),
+		Message:   json.RawMessage(`[]`),
+		Reference: json.RawMessage(`[]`),
+	}
+	store.dialogs["dialog-1"] = &entity.Chat{
+		ID:           "dialog-1",
+		TenantID:     "tenant-owner",
+		LLMID:        "model@default@Provider",
+		LLMSetting:   entity.JSONMap{},
+		PromptConfig: entity.JSONMap{"parameters": []interface{}{}},
+		KBIDs:        entity.JSONSlice{"bound-kb-1"},
+	}
+	store.dialogExists["tenant-owner|dialog-1"] = true
+
+	pipeline := &fakePipeline{
+		resultChan: makeResultChan(
+			AsyncChatResult{Answer: "ok", Final: true, Reference: map[string]interface{}{"chunks": []interface{}{}}},
+		),
+	}
+	svc := &ChatSessionService{
+		chatSessionDAO:    store,
+		permissionChecker: store,
+		pipeline:          pipeline,
+	}
+
+	_, err := svc.ChatCompletions(
+		t.Context(),
+		"user-1",
+		"dialog-1",
+		"session-1",
+		[]map[string]interface{}{{"role": "user", "content": "hi"}},
+		"",
+		nil,
+		"",
+		nil,
+		map[string]interface{}{"kb_ids": []interface{}{}},
+		false,
+		false,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("ChatCompletions failed: %v", err)
+	}
+	if pipeline.chat == nil {
+		t.Fatal("pipeline did not receive chat")
+	}
+	if len(pipeline.chat.KBIDs) != 0 {
+		t.Fatalf("pipeline chat.KBIDs=%v, want empty override", pipeline.chat.KBIDs)
+	}
+}
+
+func TestChatCompletionsAbsentKbIDsKeepsDialogDatasets(t *testing.T) {
+	store := newFakeSessionStore()
+	store.sessions["session-1"] = &entity.ChatSession{
+		ID:        "session-1",
+		DialogID:  "dialog-1",
+		UserID:    strPtr("user-1"),
+		Message:   json.RawMessage(`[]`),
+		Reference: json.RawMessage(`[]`),
+	}
+	store.dialogs["dialog-1"] = &entity.Chat{
+		ID:           "dialog-1",
+		TenantID:     "tenant-owner",
+		LLMID:        "model@default@Provider",
+		LLMSetting:   entity.JSONMap{},
+		PromptConfig: entity.JSONMap{"parameters": []interface{}{}},
+		KBIDs:        entity.JSONSlice{"bound-kb-1"},
+	}
+	store.dialogExists["tenant-owner|dialog-1"] = true
+
+	pipeline := &fakePipeline{
+		resultChan: makeResultChan(
+			AsyncChatResult{Answer: "ok", Final: true, Reference: map[string]interface{}{"chunks": []interface{}{}}},
+		),
+	}
+	svc := &ChatSessionService{
+		chatSessionDAO:    store,
+		permissionChecker: store,
+		pipeline:          pipeline,
+	}
+
+	_, err := svc.ChatCompletions(
+		t.Context(),
+		"user-1",
+		"dialog-1",
+		"session-1",
+		[]map[string]interface{}{{"role": "user", "content": "hi"}},
+		"",
+		nil,
+		"",
+		nil,
+		map[string]interface{}{},
+		false,
+		false,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("ChatCompletions failed: %v", err)
+	}
+	got, _ := stringSliceFromValue([]interface{}(pipeline.chat.KBIDs))
+	want := []string{"bound-kb-1"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("pipeline chat.KBIDs=%v, want %v", got, want)
 	}
 }
 

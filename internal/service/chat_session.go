@@ -1253,7 +1253,7 @@ func (s *ChatSessionService) ChatCompletions(
 		reference = s.initializeReference(&entity.ChatSession{})
 	}
 
-	// --- 5. LLM override ---
+	// --- 5. Per-turn overrides (in-memory only; do not persist) ---
 	if genConfig == nil {
 		genConfig = map[string]interface{}{}
 	}
@@ -1283,6 +1283,13 @@ func (s *ChatSessionService) ChatCompletions(
 	}
 	for k, v := range genConfig {
 		kwargs[k] = v
+	}
+	// kb_ids: when present, replace the assistant's bound datasets for this turn only.
+	if ids, ok := stringSliceFromValue(kwargs["kb_ids"]); ok {
+		dialog.KBIDs = make(entity.JSONSlice, len(ids))
+		for i, id := range ids {
+			dialog.KBIDs[i] = id
+		}
 	}
 
 	// --- 6. Run pipeline ---
