@@ -226,7 +226,7 @@ func CompileDocumentFromSourceChunks(ctx context.Context, tenantID, datasetID, d
 	}
 
 	if len(compiled) > 0 {
-		if _, err := docEngine.InsertChunks(ctx, compiled, indexName, datasetID); err != nil {
+		if _, err := docEngine.InsertChunks(ctx, compiled, indexName, datasetID, ""); err != nil {
 			return fmt.Errorf("doc compile: write products: %w", err)
 		}
 	}
