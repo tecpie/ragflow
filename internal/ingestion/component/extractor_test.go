@@ -36,6 +36,7 @@ import (
 	"ragflow/internal/entity"
 	"ragflow/internal/ingestion/component/schema"
 	"ragflow/internal/tokenizer"
+	"ragflow/internal/ingestion/component/progress"
 )
 
 // stubExtractorChatInvoker is the test seam for the package-level
@@ -680,7 +681,7 @@ func TestExtractorComponent_runDocumentMetadata_MergesIntoChunkMetadata(t *testi
 	)
 	ck := map[string]any{"text": "chunk text"}
 	in := extractorInputs{llmID: "m", chunks: []map[string]any{ck}}
-	if err := c.runDocumentMetadata(t.Context(), nil, in, fractionWindow{}); err != nil {
+	if err := c.runDocumentMetadata(t.Context(), nil, in, progress.Window{}); err != nil {
 		t.Fatalf("runDocumentMetadata: %v", err)
 	}
 	meta, ok := ck["metadata"].(map[string]any)
@@ -700,7 +701,7 @@ func TestExtractorComponent_runDocumentMetadata_DropsUndeclaredKeys(t *testing.T
 	c := newMetadataExtractor(common.MetadataFieldDef{Key: "category", Type: "string"})
 	ck := map[string]any{"text": "chunk text"}
 	in := extractorInputs{llmID: "m", chunks: []map[string]any{ck}}
-	if err := c.runDocumentMetadata(t.Context(), nil, in, fractionWindow{}); err != nil {
+	if err := c.runDocumentMetadata(t.Context(), nil, in, progress.Window{}); err != nil {
 		t.Fatalf("runDocumentMetadata: %v", err)
 	}
 	meta, ok := ck["metadata"].(map[string]any)
@@ -725,7 +726,7 @@ func TestExtractorComponent_runDocumentMetadata_AllKeysUndeclared(t *testing.T) 
 	c := newMetadataExtractor(common.MetadataFieldDef{Key: "category", Type: "string"})
 	ck := map[string]any{"text": "chunk text", "metadata": map[string]any{"preexisting": "keep"}}
 	in := extractorInputs{llmID: "m", chunks: []map[string]any{ck}}
-	if err := c.runDocumentMetadata(t.Context(), nil, in, fractionWindow{}); err != nil {
+	if err := c.runDocumentMetadata(t.Context(), nil, in, progress.Window{}); err != nil {
 		t.Fatalf("runDocumentMetadata: %v", err)
 	}
 	meta, ok := ck["metadata"].(map[string]any)
@@ -743,7 +744,7 @@ func TestExtractorComponent_runDocumentMetadata_StripsJSONFence(t *testing.T) {
 	withStubChatInvoker(t, stubResponse{Content: "```json\n{\"category\":\"law\"}\n```"})
 	c := newMetadataExtractor(common.MetadataFieldDef{Key: "category", Type: "string"})
 	ck := map[string]any{"text": "chunk text"}
-	if err := c.runDocumentMetadata(t.Context(), nil, extractorInputs{llmID: "m", chunks: []map[string]any{ck}}, fractionWindow{}); err != nil {
+	if err := c.runDocumentMetadata(t.Context(), nil, extractorInputs{llmID: "m", chunks: []map[string]any{ck}}, progress.Window{}); err != nil {
 		t.Fatalf("runDocumentMetadata: %v", err)
 	}
 	meta, ok := ck["metadata"].(map[string]any)
@@ -761,7 +762,7 @@ func TestExtractorComponent_runDocumentMetadata_MidTextThink(t *testing.T) {
 	withStubChatInvoker(t, stubResponse{Content: `preamble<think>reasoning</think>{"category":"finance"}`})
 	c := newMetadataExtractor(common.MetadataFieldDef{Key: "category", Type: "string"})
 	ck := map[string]any{"text": "chunk text"}
-	if err := c.runDocumentMetadata(t.Context(), nil, extractorInputs{llmID: "m", chunks: []map[string]any{ck}}, fractionWindow{}); err != nil {
+	if err := c.runDocumentMetadata(t.Context(), nil, extractorInputs{llmID: "m", chunks: []map[string]any{ck}}, progress.Window{}); err != nil {
 		t.Fatalf("runDocumentMetadata: %v", err)
 	}
 	meta, ok := ck["metadata"].(map[string]any)
@@ -791,7 +792,7 @@ func TestExtractorComponent_runDocumentMetadata_DegradesGracefully(t *testing.T)
 			withStubChatInvoker(t, stubResponse{Content: tc.content})
 			c := newMetadataExtractor(common.MetadataFieldDef{Key: "category", Type: "string"})
 			ck := map[string]any{"text": tc.name, "metadata": map[string]any{"preexisting": "keep"}}
-			if err := c.runDocumentMetadata(t.Context(), nil, extractorInputs{llmID: "m", chunks: []map[string]any{ck}}, fractionWindow{}); err != nil {
+			if err := c.runDocumentMetadata(t.Context(), nil, extractorInputs{llmID: "m", chunks: []map[string]any{ck}}, progress.Window{}); err != nil {
 				t.Fatalf("runDocumentMetadata returned error: %v", err)
 			}
 			meta, ok := ck["metadata"].(map[string]any)
@@ -817,7 +818,7 @@ func TestExtractorComponent_runDocumentMetadata_OnceForNChunks(t *testing.T) {
 	ck2 := map[string]any{"text": "chunk two"}
 	ck3 := map[string]any{"text": "chunk three"}
 	in := extractorInputs{llmID: "m", chunks: []map[string]any{ck1, ck2, ck3}}
-	if err := c.runDocumentMetadata(t.Context(), nil, in, fractionWindow{}); err != nil {
+	if err := c.runDocumentMetadata(t.Context(), nil, in, progress.Window{}); err != nil {
 		t.Fatalf("runDocumentMetadata: %v", err)
 	}
 	if n := stub.Calls(); n != 1 {
@@ -860,7 +861,7 @@ func TestExtractorComponent_runDocumentMetadata_CombinedValueSplit(t *testing.T)
 	withStubChatInvoker(t, stubResponse{Content: `{"people":["关羽、张辽、刘备"]}`})
 	c := newMetadataExtractor(common.MetadataFieldDef{Key: "people", Type: "string"})
 	ck := map[string]any{"text": "chunk text"}
-	if err := c.runDocumentMetadata(t.Context(), nil, extractorInputs{llmID: "m", chunks: []map[string]any{ck}}, fractionWindow{}); err != nil {
+	if err := c.runDocumentMetadata(t.Context(), nil, extractorInputs{llmID: "m", chunks: []map[string]any{ck}}, progress.Window{}); err != nil {
 		t.Fatalf("runDocumentMetadata: %v", err)
 	}
 	rawMeta, ok := ck["metadata"].(map[string]any)

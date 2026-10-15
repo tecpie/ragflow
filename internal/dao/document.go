@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"ragflow/internal/common"
+	"ragflow/internal/dao/transaction"
 	"ragflow/internal/entity"
 	"strings"
 
@@ -178,8 +179,18 @@ func buildDocumentListIngestionStatusExpression(db *gorm.DB) string {
 	END`
 }
 
+// documentCircuit projects opts onto the query circuit so every document query
+// agrees on what "this request can match nothing" means.
+func (opts DocumentListOptions) documentCircuit() transaction.DocumentQueryCircuit {
+	return transaction.NewDocumentQueryCircuit(opts.DocIDFilterApplied, opts.DocIDs)
+}
+
 // ListByKBIDWithOptions lists documents by knowledge base ID with filters.
 func (dao *DocumentDAO) ListByKBIDWithOptions(ctx context.Context, db *gorm.DB, opts DocumentListOptions) ([]*entity.DocumentListItem, int64, error) {
+	if opts.documentCircuit().IsCircuitOpen() {
+		return nil, 0, nil
+	}
+
 	var documents []*entity.DocumentListItem
 	var total int64
 	ingestionStatus := buildDocumentListIngestionStatusExpression(db)
@@ -226,6 +237,10 @@ func (dao *DocumentDAO) ListByKBIDWithOptions(ctx context.Context, db *gorm.DB, 
 
 // GetFilterByKBID returns aggregate filter counts for documents in a dataset.
 func (dao *DocumentDAO) GetFilterByKBID(ctx context.Context, db *gorm.DB, opts DocumentListOptions) (map[string]interface{}, int64, error) {
+	if circuit := opts.documentCircuit(); circuit.IsCircuitOpen() {
+		return circuit.CircuitOpenFilters(), 0, nil
+	}
+
 	var rows []struct {
 		ID              string  `gorm:"column:id"`
 		IngestionStatus *string `gorm:"column:ingestion_status"`
@@ -266,6 +281,10 @@ func (dao *DocumentDAO) GetFilterByKBID(ctx context.Context, db *gorm.DB, opts D
 
 // ListIDsByKBIDWithOptions lists matching document IDs without pagination.
 func (dao *DocumentDAO) ListIDsByKBIDWithOptions(ctx context.Context, db *gorm.DB, opts DocumentListOptions) ([]string, error) {
+	if opts.documentCircuit().IsCircuitOpen() {
+		return nil, nil
+	}
+
 	var ids []string
 	var ingestionStatus string
 	query := db.WithContext(ctx).Table("document").
@@ -310,12 +329,12 @@ func applyDocumentListFilters(query *gorm.DB, opts DocumentListOptions, qualifie
 	if opts.ContentHash != "" {
 		query = query.Where(column("content_hash")+" = ?", opts.ContentHash)
 	}
-	if opts.DocIDFilterApplied {
-		if len(opts.DocIDs) == 0 {
-			query = query.Where("1 = 0")
-		} else {
-			query = query.Where(column("id")+" IN ?", opts.DocIDs)
-		}
+	// The document ID clause is not gated on DocIDFilterApplied here: with the
+	// flag false and IDs present, applying them narrows the query instead of
+	// silently widening it, which is the safe direction to fail in.
+	// Empty DocIDs with DocIDFilterApplied is handled by documentCircuit().
+	if len(opts.DocIDs) > 0 {
+		query = query.Where(column("id")+" IN ?", opts.DocIDs)
 	}
 	// Note: create_time_from / create_time_to are NOT applied at DB level.
 	// They are filtered post-query in the handler so total reflects the

@@ -330,8 +330,6 @@ export const useManageMetaDataModal = (
     resetOperations,
   } = useMetadataOperations();
 
-  // const { setDocumentMeta } = useSetDocumentMeta();
-
   useEffect(() => {
     if (fetchTypeList.includes(type)) {
       if (data) {

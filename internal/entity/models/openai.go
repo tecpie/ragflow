@@ -67,12 +67,10 @@ func (o *OpenAIModel) ChatWithMessages(ctx context.Context, modelName string, me
 		return nil, fmt.Errorf("messages is empty")
 	}
 
-	baseURL, err := o.baseModel.GetBaseURL(apiConfig)
+	url, err := o.baseModel.EndpointURL(apiConfig, o.baseModel.URLSuffix.Chat)
 	if err != nil {
 		return nil, err
 	}
-	baseURL = strings.TrimSuffix(baseURL, "/")
-	url := fmt.Sprintf("%s/%s", baseURL, o.baseModel.URLSuffix.Chat)
 
 	// Build request body
 	reqBody := buildRequestBody(chatModelConfig, modelName, messages, false)
@@ -96,12 +94,10 @@ func (o *OpenAIModel) ChatStreamlyWithSender(ctx context.Context, modelName stri
 		return fmt.Errorf("messages is empty")
 	}
 
-	baseURL, err := o.baseModel.GetBaseURL(apiConfig)
+	url, err := o.baseModel.EndpointURL(apiConfig, o.baseModel.URLSuffix.Chat)
 	if err != nil {
 		return err
 	}
-	baseURL = strings.TrimSuffix(baseURL, "/")
-	url := fmt.Sprintf("%s/%s", baseURL, o.baseModel.URLSuffix.Chat)
 
 	reqBody := buildRequestBody(chatModelConfig, modelName, messages, true)
 	reqBody["stream_options"] = map[string]interface{}{
@@ -153,12 +149,10 @@ func (o *OpenAIModel) Embed(ctx context.Context, modelName *string, request Embe
 		return nil, fmt.Errorf("model name is required")
 	}
 
-	baseURL, err := o.baseModel.GetBaseURL(apiConfig)
+	url, err := o.baseModel.EndpointURL(apiConfig, o.baseModel.URLSuffix.Embedding)
 	if err != nil {
 		return nil, err
 	}
-	baseURL = strings.TrimSuffix(baseURL, "/")
-	url := fmt.Sprintf("%s/%s", baseURL, o.baseModel.URLSuffix.Embedding)
 
 	reqBody := map[string]interface{}{
 		"model": *modelName,
@@ -234,12 +228,10 @@ func (o *OpenAIModel) ListModels(ctx context.Context, apiConfig *APIConfig) ([]L
 		return nil, err
 	}
 
-	baseURL, err := o.baseModel.GetBaseURL(apiConfig)
+	url, err := o.baseModel.EndpointURL(apiConfig, o.baseModel.URLSuffix.Models)
 	if err != nil {
 		return nil, err
 	}
-	baseURL = strings.TrimSuffix(baseURL, "/")
-	url := fmt.Sprintf("%s/%s", baseURL, o.baseModel.URLSuffix.Models)
 
 	ctx, cancel := context.WithTimeout(ctx, nonStreamCallTimeout)
 	defer cancel()
@@ -510,12 +502,10 @@ func (o *OpenAIModel) newOpenAIASRRequest(ctx context.Context, modelName *string
 		return nil, "", fmt.Errorf("openai ASR URL suffix is required")
 	}
 
-	baseURL, err := o.baseModel.GetBaseURL(apiConfig)
+	url, err := o.baseModel.EndpointURL(apiConfig, o.baseModel.URLSuffix.ASR)
 	if err != nil {
 		return nil, "", err
 	}
-	baseURL = strings.TrimSuffix(baseURL, "/")
-	url := fmt.Sprintf("%s/%s", strings.TrimSuffix(baseURL, "/"), strings.TrimPrefix(o.baseModel.URLSuffix.ASR, "/"))
 
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
@@ -586,12 +576,10 @@ func (o *OpenAIModel) newOpenAITTSRequest(ctx context.Context, modelName *string
 		return nil, "", fmt.Errorf("openai TTS URL suffix is required")
 	}
 
-	baseURL, err := o.baseModel.GetBaseURL(apiConfig)
+	url, err := o.baseModel.EndpointURL(apiConfig, o.baseModel.URLSuffix.TTS)
 	if err != nil {
 		return nil, "", err
 	}
-	baseURL = strings.TrimSuffix(baseURL, "/")
-	url := fmt.Sprintf("%s/%s", strings.TrimSuffix(baseURL, "/"), strings.TrimPrefix(o.baseModel.URLSuffix.TTS, "/"))
 
 	reqBody := map[string]interface{}{
 		"model": *modelName,

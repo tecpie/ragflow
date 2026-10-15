@@ -35,6 +35,7 @@ import (
 	deepdoctype "ragflow/internal/deepdoc/parser/type"
 	"ragflow/internal/entity"
 	modelModule "ragflow/internal/entity/models"
+	"ragflow/internal/ingestion/component/progress"
 	"ragflow/internal/ingestion/component/schema"
 	"ragflow/internal/parser/parser"
 	"ragflow/internal/utility"
@@ -233,7 +234,7 @@ func TestVisionEnhancement_AppendsVLMToExistingText(t *testing.T) {
 	res, handled, err := maybeDispatchVisionEnhancement(
 		t.Context(), dao.DB, utility.FileTypeXLSX, dispatched,
 		map[string]any{"tenant_id": "t1"},
-		visionSettings{}, fractionWindow{})
+		visionSettings{}, progress.Window{})
 	if err != nil {
 		t.Fatalf("maybeDispatchVisionEnhancement: %v", err)
 	}
@@ -269,7 +270,7 @@ func TestVisionEnhancementPreparesPDFSourceBeforeImageAdmission(t *testing.T) {
 	}
 	if _, _, err := maybeDispatchVisionEnhancement(
 		t.Context(), dao.DB, utility.FileTypePDF, dispatched,
-		map[string]any{"tenant_id": "t1"}, visionSettings{}, fractionWindow{},
+		map[string]any{"tenant_id": "t1"}, visionSettings{}, progress.Window{},
 	); err != nil {
 		t.Fatalf("maybeDispatchVisionEnhancement: %v", err)
 	}
@@ -292,7 +293,7 @@ func TestVisionEnhancement_ReportsVLMInvocationFailure(t *testing.T) {
 	}
 	result, _, err := maybeDispatchVisionEnhancement(t.Context(), dao.DB, utility.FileTypeDOCX, dispatched,
 		map[string]any{"tenant_id": "t1"},
-		visionSettings{}, fractionWindow{})
+		visionSettings{}, progress.Window{})
 	if err != nil {
 		t.Fatalf("maybeDispatchVisionEnhancement: %v", err)
 	}
@@ -320,7 +321,7 @@ func TestVisionEnhancement_CropFailureFallsBackToInlineImage(t *testing.T) {
 	}
 	result, handled, err := maybeDispatchVisionEnhancement(
 		t.Context(), dao.DB, utility.FileTypePDF, dispatched,
-		map[string]any{"tenant_id": "t1"}, visionSettings{}, fractionWindow{})
+		map[string]any{"tenant_id": "t1"}, visionSettings{}, progress.Window{})
 	if err != nil {
 		t.Fatalf("maybeDispatchVisionEnhancement: %v", err)
 	}
@@ -355,7 +356,7 @@ func TestVisionEnhancement_EnhancesPDFTablesRegardlessOfOCRProvider(t *testing.T
 			res, handled, err := maybeDispatchVisionEnhancement(
 				t.Context(), dao.DB, utility.FileTypePDF, dispatched,
 				map[string]any{"tenant_id": "t1"},
-				visionSettings{}, fractionWindow{})
+				visionSettings{}, progress.Window{})
 			if err != nil {
 				t.Fatalf("maybeDispatchVisionEnhancement: %v", err)
 			}
@@ -391,7 +392,7 @@ func TestVisionEnhancement_EnhancesTableAndCellImages(t *testing.T) {
 
 	result, handled, err := maybeDispatchVisionEnhancement(
 		t.Context(), dao.DB, utility.FileTypePDF, dispatched,
-		map[string]any{"tenant_id": "t1"}, visionSettings{}, fractionWindow{})
+		map[string]any{"tenant_id": "t1"}, visionSettings{}, progress.Window{})
 	if err != nil {
 		t.Fatalf("maybeDispatchVisionEnhancement: %v", err)
 	}
@@ -420,7 +421,7 @@ func TestVisionEnhancement_EnhancesExternalPDFImage(t *testing.T) {
 
 	result, handled, err := maybeDispatchVisionEnhancement(
 		t.Context(), dao.DB, utility.FileTypePDF, dispatched,
-		map[string]any{"tenant_id": "t1"}, visionSettings{}, fractionWindow{})
+		map[string]any{"tenant_id": "t1"}, visionSettings{}, progress.Window{})
 	if err != nil {
 		t.Fatalf("maybeDispatchVisionEnhancement: %v", err)
 	}
@@ -471,7 +472,7 @@ func TestVisionEnhancement_EnhancesJSONImagesAndTables(t *testing.T) {
 				tc.fileType,
 				dispatched,
 				map[string]any{"tenant_id": "t1", "lang": "Japanese"},
-				visionSettings{}, fractionWindow{})
+				visionSettings{}, progress.Window{})
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -551,7 +552,7 @@ func TestVisionEnhancement_LanguagePriority(t *testing.T) {
 
 			_, handled, err := maybeDispatchVisionEnhancement(
 				t.Context(), dao.DB, utility.FileTypePDF, dispatched, tc.inputs,
-				visionSettings{}, fractionWindow{})
+				visionSettings{}, progress.Window{})
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -592,7 +593,7 @@ func TestVisionEnhancement_MarkdownOutputUntouched(t *testing.T) {
 		utility.FileTypeDOCX,
 		dispatched,
 		map[string]any{"tenant_id": "t1"},
-		visionSettings{}, fractionWindow{})
+		visionSettings{}, progress.Window{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -623,7 +624,7 @@ func TestVisionEnhancement_UsesVisualPayloadRegardlessOfFileType(t *testing.T) {
 		utility.FileTypeOTHER,
 		dispatched,
 		map[string]any{"tenant_id": "t1"},
-		visionSettings{}, fractionWindow{})
+		visionSettings{}, progress.Window{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -653,7 +654,7 @@ func TestVisionEnhancement_EmptyOrNoTenantSkipped(t *testing.T) {
 		utility.FileTypeDOCX,
 		dispatched,
 		map[string]any{},
-		visionSettings{}, fractionWindow{})
+		visionSettings{}, progress.Window{})
 	if err != nil || handled {
 		t.Errorf("handled=%v, err=%v, want false, nil for missing tenant_id", handled, err)
 	}
@@ -680,7 +681,7 @@ func TestVisionEnhancement_DispatchedErrSkipped(t *testing.T) {
 		utility.FileTypePDF,
 		dispatched,
 		map[string]any{"tenant_id": "t1"},
-		visionSettings{}, fractionWindow{})
+		visionSettings{}, progress.Window{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -718,7 +719,7 @@ func TestVisionEnhancement_ContextCancellation(t *testing.T) {
 		utility.FileTypePDF,
 		dispatched,
 		map[string]any{"tenant_id": "t1"},
-		visionSettings{}, fractionWindow{})
+		visionSettings{}, progress.Window{})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
@@ -760,7 +761,7 @@ func TestVisionEnhancement_NonStringImageFieldFiltered(t *testing.T) {
 		utility.FileTypePDF,
 		dispatched,
 		map[string]any{"tenant_id": "t1"},
-		visionSettings{}, fractionWindow{})
+		visionSettings{}, progress.Window{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -803,7 +804,7 @@ func TestVisionEnhancement_MoreThanConcurrencyItems(t *testing.T) {
 		utility.FileTypePDF,
 		dispatched,
 		map[string]any{"tenant_id": "t1"},
-		visionSettings{}, fractionWindow{})
+		visionSettings{}, progress.Window{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -844,7 +845,7 @@ func TestVisionEnhancement_PlainTextResponseNotTruncated(t *testing.T) {
 		utility.FileTypePDF,
 		dispatched,
 		map[string]any{"tenant_id": "t1"},
-		visionSettings{}, fractionWindow{})
+		visionSettings{}, progress.Window{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -883,7 +884,7 @@ func TestVisionEnhancement_PromptBuilderErrorSkipped(t *testing.T) {
 		utility.FileTypePDF,
 		dispatched,
 		map[string]any{"tenant_id": "t1"},
-		visionSettings{}, fractionWindow{})
+		visionSettings{}, progress.Window{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -922,7 +923,7 @@ func TestVisionEnhancement_ModelResolveFailureSkipped(t *testing.T) {
 		utility.FileTypePDF,
 		dispatched,
 		map[string]any{"tenant_id": "t1"},
-		visionSettings{}, fractionWindow{})
+		visionSettings{}, progress.Window{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -974,7 +975,7 @@ func TestVisionEnhancement_CancellationStopsSchedulingWithManyItems(t *testing.T
 		utility.FileTypePDF,
 		dispatched,
 		map[string]any{"tenant_id": "t1"},
-		visionSettings{}, fractionWindow{})
+		visionSettings{}, progress.Window{})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
@@ -1203,7 +1204,7 @@ func TestVisionEnhancement_GlobalModelPreferredOverPDFParser(t *testing.T) {
 		utility.FileTypePDF,
 		dispatched,
 		map[string]any{"tenant_id": "t1"},
-		visionSettings{modelID: "custom-vlm@provider"}, fractionWindow{})
+		visionSettings{modelID: "custom-vlm@provider"}, progress.Window{})
 	if err != nil {
 		t.Fatalf("maybeDispatchVisionEnhancement: %v", err)
 	}
@@ -1245,7 +1246,7 @@ func TestVisionEnhancement_InvalidImageDataSkipped(t *testing.T) {
 		utility.FileTypePDF,
 		dispatched,
 		map[string]any{"tenant_id": "t1"},
-		visionSettings{}, fractionWindow{})
+		visionSettings{}, progress.Window{})
 	if err != nil {
 		t.Fatalf("maybeDispatchVisionEnhancement: %v", err)
 	}

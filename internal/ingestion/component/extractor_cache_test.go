@@ -31,6 +31,7 @@ import (
 	"ragflow/internal/ingestion/chunkcache"
 	"ragflow/internal/ingestion/component/globals"
 	"ragflow/internal/ingestion/component/schema"
+	"ragflow/internal/ingestion/component/progress"
 )
 
 // fakeCacheStore is an in-memory chunkcache.Store for the extractor cache
@@ -333,7 +334,7 @@ func TestMetadataLLMCache_KeyedByDocumentContent(t *testing.T) {
 	docCacheID := documentMetadataCacheID("part-a\n\npart-b")
 	setMetadataLLMCache(cacheTaskCtx("task-9"), in.cache, "model-1", string(schemaJSON), docCacheID, map[string]any{"category": "cached"})
 
-	if err := c.runDocumentMetadata(t.Context(), nil, in, fractionWindow{}); err != nil {
+	if err := c.runDocumentMetadata(t.Context(), nil, in, progress.Window{}); err != nil {
 		t.Fatalf("runDocumentMetadata: %v", err)
 	}
 	meta, _ := in.chunks[0]["metadata"].(map[string]any)

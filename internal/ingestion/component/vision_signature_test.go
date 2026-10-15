@@ -24,6 +24,7 @@ import (
 	pdf "ragflow/internal/deepdoc/parser/pdf/type"
 	"ragflow/internal/dao"
 	"ragflow/internal/parser/parser"
+	"ragflow/internal/ingestion/component/progress"
 	"ragflow/internal/utility"
 
 	"gorm.io/gorm"
@@ -157,7 +158,7 @@ func TestVisionEnhancement_UsesTableAndSignaturePrompts(t *testing.T) {
 	res, handled, err := maybeDispatchVisionEnhancement(
 		t.Context(), dao.DB, utility.FileTypePDF, dispatched,
 		map[string]any{"tenant_id": "t1", "lang": "Chinese"},
-		visionSettings{}, fractionWindow{},
+		visionSettings{}, progress.Window{},
 	)
 	if err != nil {
 		t.Fatalf("maybeDispatchVisionEnhancement: %v", err)

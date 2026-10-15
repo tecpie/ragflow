@@ -46,6 +46,8 @@ export default {
       arabic: 'Arabic',
       turkish: 'Turkish',
       dutch: 'Dutch',
+      slovak: 'Slovak',
+      czech: 'Czech',
       language: 'Language',
       languageMessage: 'Please input your language!',
       languagePlaceholder: 'select your language',
@@ -409,8 +411,16 @@ Example: A 1 KB message with 1024-dim embedding uses ~9 KB. The 5 MB default lim
       uploadUnsupportedTypesTitle: 'Some file types cannot be parsed',
       fileTypeUnsupported:
         '{{name}} ({{fileType}}): not supported by the current parser configuration',
+      fileTypeUnsupportedAutoSwitch:
+        '{{name}} ({{fileType}}): not supported by the current parser configuration; it will automatically switch to the built-in {{parser}} configuration',
+      fileTypeUnsupportedManualSwitch:
+        '{{name}} ({{fileType}}): not supported by the current parser configuration; switch its parsing method manually after upload',
       reselectParserAfterUploadHint:
         'Continue uploading, then system will automatically switch these files to a supported built-in parsing configuration.',
+      manualSwitchAfterUploadHint:
+        'Continue uploading, then switch the parsing method for these files manually.',
+      mixedSwitchAfterUploadHint:
+        'Continue uploading. Some files will switch to a supported built-in parsing configuration automatically; switch the rest manually after upload.',
       reselectParserToParseHint:
         'Reselect a parse method for the affected files, then parse again.',
       addModelAfterUploadHint:
@@ -1326,12 +1336,6 @@ This auto-tagging feature enhances retrieval by adding another layer of domain-s
       tocEnhanceTip: `During the parsing of the document, table of contents information was generated (see the 'Enable Table of Contents Extraction' option in the General method). This allows the large model to return table of contents items relevant to the user's query, thereby using these items to retrieve related chunks and apply weighting to these chunks during the sorting process. This approach mimics human information-searching behavior in books.`,
       batchDeleteSessions: 'Batch delete',
       deleteSelectedConfirm: 'Delete the selected {{count}} session(s)?',
-      showChunkMetadata: 'Show chunk metadata',
-      showChunkMetadataTip:
-        'Display document metadata (e.g., title, page number, upload date) alongside retrieved text chunks',
-      metadataFields: 'Metadata fields',
-      metadataFieldsTip:
-        'Select which metadata fields to display with each chunk',
     },
     setting: {
       Verify: 'Verify',
@@ -3588,6 +3592,8 @@ This process aggregates variables from multiple branches into a single variable 
       tokenizer: 'Indexer',
       tokenizerRequired: 'Please add the Indexer node first',
       nodeFormInvalid: 'Invalid settings, please fix them first',
+      apiKeyRequired: 'Please enter the API Key',
+      apiKeyMissing: 'No API key configured, please enter one first',
       agentModelMissing: 'No model selected, please choose one first',
       extractorModelMissing: 'No model selected, please choose one first',
       extractorKeywordsTopNMissing:
@@ -3794,6 +3800,9 @@ Important structured information may include: names, dates, locations, events, k
         removeFirst: 'Remove first',
         removeLast: 'Remove last',
       },
+      variableAssignerVariableMissing: 'Variable is required',
+      variableAssignerOperatorMissing: 'Operator is required',
+      variableAssignerParameterMissing: 'Parameter is required',
       webhook: {
         name: 'Webhook',
         methods: 'Methods',
@@ -3927,6 +3936,8 @@ Important structured information may include: names, dates, locations, events, k
       arabic: 'Arabic',
       turkish: 'Turkish',
       dutch: 'Dutch',
+      slovak: 'Slovak',
+      czech: 'Czech',
     },
     pagination: {
       total: 'Total {{total}}',

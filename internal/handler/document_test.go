@@ -256,6 +256,10 @@ func (f *fakeDocumentService) HasActiveIngestionTasks(ctx context.Context, datas
 	return f.hasActiveTasks, f.hasActiveTasksErr
 }
 
+func (f *fakeDocumentService) GetDocumentMetadataByID(ctx context.Context, docID string) (map[string]interface{}, error) {
+	return nil, nil
+}
+
 func (f *fakeDocumentService) SetDocumentMetadata(ctx context.Context, docID string, meta map[string]interface{}) error {
 	f.setMetaCalled = true
 	f.setMetaDocID = docID
@@ -267,9 +271,6 @@ func (f *fakeDocumentService) DeleteDocumentMetadata(ctx context.Context, docID 
 }
 func (f *fakeDocumentService) DeleteDocumentAllMetadata(ctx context.Context, docID string) error {
 	return nil
-}
-func (f *fakeDocumentService) GetDocumentMetadataByID(ctx context.Context, docID string) (map[string]interface{}, error) {
-	return nil, nil
 }
 func (f *fakeDocumentService) UploadLocalDocuments(ctx context.Context, kb *entity.Knowledgebase, tenantID string, files []*multipart.FileHeader, parentPath string, parserConfigOverride map[string]interface{}) ([]map[string]interface{}, []string) {
 	f.uploadLocalKB = kb
@@ -425,6 +426,53 @@ func TestSetMetaHandler_Accessible(t *testing.T) {
 	}
 	if fake.setMetaValue["category"] != "tech" || fake.setMetaValue["year"] != float64(2026) {
 		t.Fatalf("unexpected meta: %#v", fake.setMetaValue)
+	}
+}
+
+func TestDocumentReadHandlersForbidden(t *testing.T) {
+	setupDocumentPermissionDB(t, false)
+	fake := &fakeDocumentService{
+		doc: &document.DocumentResponse{ID: "doc-1", KbID: "kb-owner"},
+	}
+	h := &DocumentHandler{
+		documentService: fake,
+		datasetService:  dataset.NewDatasetService(),
+	}
+	tests := []struct {
+		name    string
+		method  string
+		path    string
+		body    string
+		params  gin.Params
+		handler gin.HandlerFunc
+		status  int
+	}{
+		{"document detail", http.MethodGet, "/api/v1/documents/doc-1", "", gin.Params{{Key: "id", Value: "doc-1"}}, h.GetDocumentByID, http.StatusForbidden},
+		{"metadata summary", http.MethodGet, "/api/v1/datasets/kb-owner/metadata/summary?doc_ids=doc-1", "", gin.Params{{Key: "dataset_id", Value: "kb-owner"}}, h.MetadataSummaryByDataset, http.StatusOK},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, w := setupGinContextWithUser(tt.method, tt.path, tt.body)
+			c.Params = tt.params
+			tt.handler(c)
+			if w.Code != tt.status {
+				t.Fatalf("status = %d, want %d: %s", w.Code, tt.status, w.Body.String())
+			}
+			var resp struct {
+				Code    common.ErrorCode `json:"code"`
+				Message string           `json:"message"`
+				Data    interface{}      `json:"data"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+				t.Fatal(err)
+			}
+			if resp.Code != common.CodeForbidden || resp.Message != "Permission denied" || resp.Data != nil {
+				t.Fatalf("unexpected response: %s", w.Body.String())
+			}
+			if fake.metadataKBID != "" {
+				t.Fatal("GetMetadataSummary should not be called without dataset access")
+			}
+		})
 	}
 }
 
