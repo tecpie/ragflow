@@ -524,6 +524,14 @@ func dispatchMinerUPDF(
 	backend := modelModule.ResolveMinerUBackend(getStringOr(setup, "mineru_backend", ""), apiKeyRaw)
 	serverURL := modelModule.ResolveMinerUServerURL(getStringOr(setup, "mineru_server_url", ""), apiKeyRaw)
 
+	if modelModule.IsMinerUCloudBase(baseURL) {
+		result, err := modelModule.ParseMinerUCloud(ctx, baseURL, apiKeyRaw, filename, binary, backend, parseMethod, mineruLang)
+		if err != nil {
+			return parser.ParseResult{}, fmt.Errorf("parser: MinerU cloud: %w", err)
+		}
+		return finishMinerURemoteResult(filename, result)
+	}
+
 	v1, err := modelModule.MinerUSupportsV1(ctx, baseURL, apiKeyRaw)
 	if err != nil {
 		return parser.ParseResult{}, fmt.Errorf("parser: MinerU probe: %w", err)
@@ -537,23 +545,7 @@ func dispatchMinerUPDF(
 		if err != nil {
 			return parser.ParseResult{}, fmt.Errorf("parser: MinerU V1: %w", err)
 		}
-		v1Markdown := ""
-		var zipBytes []byte
-		if result != nil {
-			v1Markdown = strings.TrimSpace(result.Markdown)
-			zipBytes = result.Zip
-		}
-		items, extractErr := mineruExtractJSONItems(zipBytes)
-		if extractErr == nil && len(items) > 0 {
-			return mineruJSONParseResult(filename, items), nil
-		}
-		if v1Markdown != "" {
-			return buildMarkdownOCRDispatchResult(result.Markdown), nil
-		}
-		if extractErr != nil {
-			return parser.ParseResult{}, fmt.Errorf("parser: MinerU extract: %w", extractErr)
-		}
-		return parser.ParseResult{}, fmt.Errorf("parser: MinerU extract: no sections")
+		return finishMinerURemoteResult(filename, result)
 	}
 
 	apiURL := strings.TrimRight(baseURL, "/") + "/file_parse"
@@ -568,6 +560,35 @@ func dispatchMinerUPDF(
 	}
 
 	return mineruJSONParseResult(filename, items), nil
+}
+
+func finishMinerURemoteResult(filename string, result *modelModule.MinerUV1Result) (parser.ParseResult, error) {
+	markdown := ""
+	var zipBytes []byte
+	if result != nil {
+		markdown = strings.TrimSpace(result.Markdown)
+		zipBytes = result.Zip
+	}
+	items, extractErr := mineruExtractJSONItems(zipBytes)
+	if extractErr == nil && len(items) > 0 {
+		return mineruJSONParseResult(filename, items), nil
+	}
+	if markdown != "" {
+		return buildMarkdownOCRDispatchResult(markdown), nil
+	}
+	if extractErr != nil {
+		return parser.ParseResult{}, fmt.Errorf("parser: MinerU extract: %w", extractErr)
+	}
+	return parser.ParseResult{}, fmt.Errorf("parser: MinerU extract: no sections")
+}
+
+func mineruHTTPErrorText(raw []byte) string {
+	text := strings.TrimSpace(string(raw))
+	lower := strings.ToLower(text)
+	if strings.HasPrefix(lower, "<!doctype") || strings.HasPrefix(lower, "<html") {
+		return "HTML error page; the MinerU base URL is not an API endpoint"
+	}
+	return text
 }
 
 // resolveMinerUModelForDispatch resolves the OCR model used by the MinerU PDF
@@ -760,8 +781,8 @@ func mineruStreamParse(apiURL string, apiKey string, binary []byte, parseMethod,
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		raw, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(raw))
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, mineruHTTPErrorText(raw))
 	}
 
 	zipBytes, err := io.ReadAll(resp.Body)
