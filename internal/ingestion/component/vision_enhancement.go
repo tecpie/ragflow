@@ -250,7 +250,7 @@ func maybeDispatchVisionEnhancement(
 		}
 		var resource *visionImage
 		func() {
-			item := visionCropItem(dispatched.JSON[target.idx], target.kind)
+			item := visionCropItem(dispatched.JSON[target.idx].ToMap(), target.kind)
 			if err := cropper.Prepare(ctx, item); err != nil {
 				if ctx.Err() == nil {
 					if payload, _ := item["image"].(string); isUsableVisionImage(payload) {
@@ -385,20 +385,21 @@ func maybeDispatchVisionEnhancement(
 		if desc == "" {
 			continue
 		}
-		item := dispatched.JSON[target.idx]
+		item := dispatched.JSON[target.idx].ToMap()
 		if target.kind == visionKindSignature {
 			existing, _ := item["text"].(string)
 			item["text"] = mergeSignatureVisionText(existing, desc)
 		} else {
 			appendItemText(item, desc)
 		}
+		dispatched.JSON[target.idx] = parser.DocItemFromMap(item)
 		modified = true
 	}
 
 	return dispatched, modified, nil
 }
 
-func collectVisionEnhanceTargets(items []map[string]any, tableVisionOn, signatureVisionOn bool) []visionEnhanceTarget {
+func collectVisionEnhanceTargets(items []parser.DocItem, tableVisionOn, signatureVisionOn bool) []visionEnhanceTarget {
 	seen := make(map[int]struct{}, len(items))
 	var targets []visionEnhanceTarget
 	add := func(idx int, kind string) {
@@ -408,7 +409,8 @@ func collectVisionEnhanceTargets(items []map[string]any, tableVisionOn, signatur
 		seen[idx] = struct{}{}
 		targets = append(targets, visionEnhanceTarget{idx: idx, kind: kind})
 	}
-	for i, item := range items {
+	for i, raw := range items {
+		item := raw.ToMap()
 		kd, _ := item["doc_type_kwd"].(string)
 		if img, _ := item["image"].(string); img != "" {
 			kind := visionKindFigure
@@ -438,10 +440,11 @@ func collectVisionEnhanceTargets(items []map[string]any, tableVisionOn, signatur
 	if !signatureVisionOn {
 		return targets
 	}
-	for i, item := range items {
+	for i, raw := range items {
 		if _, ok := seen[i]; ok {
 			continue
 		}
+		item := raw.ToMap()
 		text, _ := item["text"].(string)
 		if !isSignatureLabelText(text) || alreadyHasSignatureName(text) {
 			continue

@@ -1,9 +1,12 @@
 import {
+  decodeAngleBracketEntities,
+  escapeUnmatchedAngleBrackets,
   mergeAnswerChunk,
   preprocessLaTeX,
   replaceThinkToSection,
   replaceToolCallToSection,
   stripEmptyThinkBlocks,
+  unescapeAngleBrackets,
 } from '../chat';
 
 describe('mergeAnswerChunk', () => {
@@ -123,6 +126,34 @@ describe('stripEmptyThinkBlocks', () => {
   it('keeps non-empty think blocks', () => {
     const input = '<think>推理内容</think>答案';
     expect(stripEmptyThinkBlocks(input)).toBe(input);
+  });
+});
+
+describe('decodeAngleBracketEntities', () => {
+  it('decodes the entities restored by unescapeAngleBrackets', () => {
+    expect(decodeAngleBracketEntities('a &lt; b &gt; c')).toBe('a < b > c');
+  });
+
+  it('round-trips raw angle brackets through the escape helpers', () => {
+    // Code renderers rely on this: unescapeAngleBrackets restores entities
+    // (so prose parsing keeps <, > as text), and code content is literal,
+    // so the entities must be decoded back at render time.
+    const original = 'if (a > b) return a - b < c;';
+    const escaped = unescapeAngleBrackets(
+      escapeUnmatchedAngleBrackets(original),
+    );
+    expect(escaped).toBe('if (a &gt; b) return a - b &lt; c;');
+    expect(decodeAngleBracketEntities(escaped)).toBe(original);
+  });
+
+  it('does not touch &amp; or double-encoded entities', () => {
+    expect(decodeAngleBracketEntities('a &amp; b &amp;gt; c')).toBe(
+      'a &amp; b &amp;gt; c',
+    );
+  });
+
+  it.each(['', 'no entities here'])('passes through %j unchanged', (input) => {
+    expect(decodeAngleBracketEntities(input)).toBe(input);
   });
 });
 
