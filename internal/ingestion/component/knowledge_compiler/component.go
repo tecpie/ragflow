@@ -328,8 +328,8 @@ func resolveTemplateSpecs(ctx context.Context, db *gorm.DB, tenantID string, par
 		}
 		return []common.TemplateInfo{info}, nil
 	}
-	if param.CompilationTemplateGroupID != "" {
-		ids, err := common.ResolveGroupTemplateIDs(ctx, db, tenantID, []string{param.CompilationTemplateGroupID})
+	if groupIDs := param.TemplateGroupIDs(); len(groupIDs) > 0 {
+		ids, err := common.ResolveGroupTemplateIDs(ctx, db, tenantID, groupIDs)
 		if err != nil {
 			return nil, err
 		}

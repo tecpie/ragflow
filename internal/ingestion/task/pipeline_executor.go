@@ -1067,7 +1067,7 @@ func warnUnknownComponentParams(dsl string, parserConfig map[string]any) {
 		dslCPNs[s.CpnID] = struct{}{}
 	}
 	for cpnID := range parserConfig {
-		if _, ok := dslCPNs[cpnID]; !ok {
+		if _, ok := dslCPNs[cpnID]; !ok && !pipelinepkg.IsCompilationGroupKey(cpnID) {
 			common.Warn(fmt.Sprintf(
 				"parser_config references cpnID %q not present in the pipeline DSL; it will be ignored at runtime", cpnID))
 		}
@@ -1099,6 +1099,15 @@ func (s *PipelineExecutor) runPipelineWithDSL(ctx context.Context, dsl string) (
 	// API-side validation already rejects unknown ids on write, so this is a
 	// defensive guard for legacy/stale rows.
 	warnUnknownComponentParams(dsl, parserConfig)
+
+	// Builtin templates have no Compiler node. Knowledge bases select compilation
+	// operators (mind map and the rest) through parser_config.compilation_template_group_id;
+	// attach the Compiler for this run so those operators execute after chunking.
+	attached, attachErr := pipelinepkg.AttachCompilationCompiler(dsl, parserConfig, map[string]any(s.taskCtx.KB.ParserConfig))
+	if attachErr != nil {
+		return nil, dsl, fmt.Errorf("attach compilation compiler: %w", attachErr)
+	}
+	dsl = attached
 
 	pipelineID := "pipeline_" + s.taskCtx.Doc.ID
 	if s.taskCtx.IngestionTask != nil && s.taskCtx.IngestionTask.ID != "" {

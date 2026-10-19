@@ -382,7 +382,7 @@ func BuildParserConfig(dslJSON []byte, rawConfig map[string]interface{}) entity.
 	if err != nil {
 		common.Warn("BuildParserConfig: failed to extract DSL defaults, using cleaned only",
 			zap.Error(err))
-		return entity.JSONMap(cleaned)
+		return preserveCompilationGroup(entity.JSONMap(cleaned), rawConfig)
 	}
 	result := make(entity.JSONMap, len(defaults))
 	for cpnID, params := range defaults {
@@ -399,6 +399,21 @@ func BuildParserConfig(dslJSON []byte, rawConfig map[string]interface{}) entity.
 		}
 		result[cpnID] = base
 	}
+	return preserveCompilationGroup(result, rawConfig)
+}
+
+func preserveCompilationGroup(result entity.JSONMap, raw map[string]interface{}) entity.JSONMap {
+	if raw == nil {
+		return result
+	}
+	value, ok := raw[compilationGroupKey]
+	if !ok || len(compilationGroupIDs(value)) == 0 {
+		return result
+	}
+	if result == nil {
+		result = entity.JSONMap{}
+	}
+	result[compilationGroupKey] = value
 	return result
 }
 

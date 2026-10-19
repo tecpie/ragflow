@@ -207,18 +207,20 @@ func validateDatasetParserConfigSize(parserConfig map[string]interface{}) error 
 // consumes keys keyed by a component id (e.g. "Parser:abc123" or
 // "Extractor:AutoExtractDefault"). Flat keys are legacy transport artifacts
 // that downstream consumers (CleanComponentParams) never read, so they are
-// dropped rather than rejected. Only top-level keys are affected; a key nested
-// inside a component node (e.g. "Extractor:AutoExtractDefault.metadata") keeps
-// its existing name. It mutates the provided map in place and returns the names
-// of the dropped keys so callers can log the silent drop. A nil or empty map is
-// returned untouched with a nil result.
+// dropped rather than rejected. compilation_template_group_id is kept: builtin
+// pipelines have no Compiler node, and the parse run reads this key to attach
+// one. Only top-level keys are affected; a key nested inside a component node
+// (e.g. "Extractor:AutoExtractDefault.metadata") keeps its existing name. It
+// mutates the provided map in place and returns the names of the dropped keys
+// so callers can log the silent drop. A nil or empty map is returned untouched
+// with a nil result.
 func DropUnscopedParserConfigKeys(parserConfig map[string]any) []string {
 	if len(parserConfig) == 0 {
 		return nil
 	}
 	var dropped []string
 	for key := range parserConfig {
-		if !strings.Contains(key, ":") {
+		if !strings.Contains(key, ":") && !pipelinepkg.IsCompilationGroupKey(key) {
 			dropped = append(dropped, key)
 		}
 	}

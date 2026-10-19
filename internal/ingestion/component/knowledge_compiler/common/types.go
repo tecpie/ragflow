@@ -53,6 +53,10 @@ type Param struct {
 	// CompilationTemplateID wins (priority: id > group_id).
 	CompilationTemplateID      string
 	CompilationTemplateGroupID string
+	// CompilationTemplateGroupIDs is the full set when the caller selects more
+	// than one compilation-template group. A single group stays on
+	// CompilationTemplateGroupID.
+	CompilationTemplateGroupIDs []string
 
 	LLMID          string
 	EmbeddingModel string
@@ -164,10 +168,16 @@ func ParseParam(m map[string]any) (Param, error) {
 	if v, ok := m["compilation_template_id"].(string); ok && strings.TrimSpace(v) != "" {
 		p.CompilationTemplateID = strings.TrimSpace(v)
 	}
-	if v, ok := m["compilation_template_group_id"].(string); ok && strings.TrimSpace(v) != "" {
-		p.CompilationTemplateGroupID = strings.TrimSpace(v)
+	groups := compilationGroupIDs(m["compilation_template_group_id"])
+	groups = append(groups, compilationGroupIDs(m["compilation_template_group_ids"])...)
+	groups = uniqueStrings(groups)
+	switch len(groups) {
+	case 1:
+		p.CompilationTemplateGroupID = groups[0]
+	default:
+		p.CompilationTemplateGroupIDs = groups
 	}
-	if p.CompilationTemplateID == "" && p.CompilationTemplateGroupID == "" {
+	if p.CompilationTemplateID == "" && len(p.TemplateGroupIDs()) == 0 {
 		return p, fmt.Errorf("knowledge_compiler: one of 'compilation_template_id' or 'compilation_template_group_id' is required")
 	}
 	if v, ok := m["llm_id"].(string); ok {
@@ -194,6 +204,52 @@ func ParseParam(m map[string]any) (Param, error) {
 		p.Extra = raw
 	}
 	return p, nil
+}
+
+// TemplateGroupIDs returns every compilation-template group selected on p.
+func (p Param) TemplateGroupIDs() []string {
+	return uniqueStrings(append(compilationGroupIDs(p.CompilationTemplateGroupID), p.CompilationTemplateGroupIDs...))
+}
+
+func compilationGroupIDs(raw any) []string {
+	switch v := raw.(type) {
+	case string:
+		if s := strings.TrimSpace(v); s != "" {
+			return []string{s}
+		}
+	case []string:
+		out := make([]string, 0, len(v))
+		for _, s := range v {
+			if s = strings.TrimSpace(s); s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				if s = strings.TrimSpace(s); s != "" {
+					out = append(out, s)
+				}
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+func uniqueStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
 }
 
 // PlanEnabled reports whether wiki topic mode is selected. An unset value

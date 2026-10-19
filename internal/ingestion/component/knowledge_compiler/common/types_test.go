@@ -1,6 +1,9 @@
 package common
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 // TestKindToVariant_WhitelistCoversAllValidKinds covers O2a: every whitelisted
 // template kind maps to a non-empty variant without error.
@@ -70,5 +73,19 @@ func TestKindToTaskTypePreservesFrontendCategories(t *testing.T) {
 		if got != want {
 			t.Errorf("KindToTaskType(%q) = %q, want %q", kind, got, want)
 		}
+	}
+}
+
+func TestParseParam_CompilationGroupList(t *testing.T) {
+	p, err := ParseParam(map[string]any{
+		"compilation_template_group_id": []any{"mindmap-group", "graph-group"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := p.TemplateGroupIDs()
+	want := []string{"mindmap-group", "graph-group"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("groups = %#v, want %#v", got, want)
 	}
 }
