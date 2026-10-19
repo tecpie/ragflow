@@ -1,13 +1,14 @@
-# Sync local RAGFlow files to the test server and restart ragflow-cpu.
+# Deploy RAGFlow to the test server.
 #
 # Usage:
-#   .\.agents\skills\deploy-test-server\sync-to-test-server.ps1 --incremental
+#   .\.agents\skills\deploy-test-server\sync-to-test-server.ps1              # debug package (Go rebuild)
+#   .\.agents\skills\deploy-test-server\sync-to-test-server.ps1 --package
 #   .\.agents\skills\deploy-test-server\sync-to-test-server.ps1 --build-web
 #   .\.agents\skills\deploy-test-server\sync-to-test-server.ps1 --full --migrate
 #   .\.agents\skills\deploy-test-server\sync-to-test-server.ps1 --release-stable --target stable
 #
 # Windows shortcut (same script):
-#   .\scripts\sync-to-test-server.ps1 --incremental
+#   .\scripts\sync-to-test-server.ps1
 #
 # First-time setup (install SSH key, needs SYNC_PASS in test-server.env):
 #   .\scripts\sync-to-test-server.ps1 --setup-ssh

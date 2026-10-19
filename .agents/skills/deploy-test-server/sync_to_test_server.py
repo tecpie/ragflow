@@ -22,6 +22,20 @@ DEFAULT_KEY_NAME = "id_ed25519_ragflow"
 WEB_DIR = REPO_ROOT / "web"
 WEB_DIST_DIR = WEB_DIR / "dist"
 WEB_DIST_ZIP = REPO_ROOT / ".tmp-deploy" / "web-dist.zip"
+GO_PACKAGE_ZIP = REPO_ROOT / ".tmp-deploy" / "go-package.tar.gz"
+# Sources required to rebuild bin/ragflow_server on the debug host.
+GO_PACKAGE_INCLUDE = (
+    "go.mod",
+    "go.sum",
+    "build.sh",
+    "Dockerfile",
+    "cmd",
+    "internal",
+    "locales",
+    "ragflow_deps/download_deps.py",
+)
+DEFAULT_REMOTE_BUILD_DIR = "/data/src/ragflow-build"
+DEFAULT_RUNNER_IMAGE = "docker.m.daocloud.io/infiniflow/github_action_runner:latest"
 
 TARGETS = {
     "debug": {
@@ -294,30 +308,7 @@ def _git_all_files(excludes: list[str]) -> list[Path]:
     return sorted(files)
 
 
-def _git_changed_files() -> list[Path]:
-    cmds = [
-        ["git", "diff", "--name-only", "HEAD"],
-        ["git", "diff", "--name-only", "--cached"],
-        ["git", "ls-files", "--others", "--exclude-standard"],
-    ]
-    seen: set[str] = set()
-    files: list[Path] = []
-    for cmd in cmds:
-        proc = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True, check=False)
-        if proc.returncode != 0:
-            continue
-        for line in proc.stdout.splitlines():
-            rel = line.strip().replace("\\", "/")
-            if not rel or rel in seen:
-                continue
-            seen.add(rel)
-            path = REPO_ROOT / rel
-            if path.is_file():
-                files.append(path)
-    return sorted(files)
-
-
-def _resolve_files(explicit: list[str], use_changed: bool, use_all: bool, excludes: list[str]) -> list[Path]:
+def _resolve_files(explicit: list[str], use_all: bool, excludes: list[str]) -> list[Path]:
     if explicit:
         files: list[Path] = []
         for item in explicit:
@@ -335,13 +326,7 @@ def _resolve_files(explicit: list[str], use_changed: bool, use_all: bool, exclud
     if use_all:
         return _git_all_files(excludes)
 
-    if use_changed:
-        files = _git_changed_files()
-        if not files:
-            raise SystemExit("No changed files to sync.")
-        return files
-
-    raise SystemExit("Specify files, pass --changed, or pass --all.")
+    raise SystemExit("Specify files or pass --all.")
 
 
 def _ensure_remote_dir(sftp: paramiko.SFTPClient, remote_dir: str) -> None:
@@ -735,7 +720,7 @@ def _upload_files(
 ) -> None:
     for local_path in files:
         rel = local_path.relative_to(REPO_ROOT).as_posix()
-        if rel.startswith("web/dist/") or rel.startswith(".tmp-deploy/"):
+        if rel.startswith(("web/dist/", ".tmp-deploy/")):
             print(f"skip {rel} (deployed via web-dist zip)")
             continue
         if rel == "docker/.env":
@@ -868,11 +853,163 @@ def _run_remote_script(client: paramiko.SSHClient, script: str, *, timeout: int 
     out = stdout.read().decode("utf-8", errors="replace").strip()
     err = stderr.read().decode("utf-8", errors="replace").strip()
     if out:
-        print(out)
+        _safe_print(out)
     if exit_code != 0:
         raise SystemExit(err or out or f"Remote command failed with exit code {exit_code}")
     if err:
-        print(err)
+        _safe_print(err)
+
+
+def _go_package_exclude(name: str) -> bool:
+    skip = {
+        ".git",
+        "__pycache__",
+        "node_modules",
+        ".tmp-deploy",
+        "cmake-build-debug",
+        "cmake-build-release",
+        "cmake-build-relwithdebinfo",
+    }
+    return any(part in skip for part in Path(name).parts)
+
+
+def _pack_go_sources() -> Path:
+    import tarfile
+    import time
+
+    GO_PACKAGE_ZIP.parent.mkdir(parents=True, exist_ok=True)
+    print(f"packing Go sources -> {GO_PACKAGE_ZIP}")
+    t0 = time.time()
+    with tarfile.open(GO_PACKAGE_ZIP, "w:gz") as tar:
+        for rel in GO_PACKAGE_INCLUDE:
+            path = REPO_ROOT / rel
+            if not path.exists():
+                raise SystemExit(f"Missing package path: {rel}")
+            tar.add(
+                path,
+                arcname=rel,
+                filter=lambda ti: None if _go_package_exclude(ti.name) else ti,
+            )
+    print(f"packed {GO_PACKAGE_ZIP.stat().st_size / 1e6:.1f} MB in {time.time() - t0:.1f}s")
+    return GO_PACKAGE_ZIP
+
+
+def _package_deploy_debug(
+    cfg: dict[str, str],
+    client: paramiko.SSHClient,
+    sftp: paramiko.SFTPClient,
+) -> None:
+    """Pack Go sources, build bin/ragflow_server on the debug host, replace binary."""
+    import time
+
+    remote_build = (os.environ.get("SYNC_REMOTE_BUILD_DIR", "").strip() or DEFAULT_REMOTE_BUILD_DIR).rstrip("/")
+    runner_img = os.environ.get("SYNC_GO_RUNNER_IMAGE", "").strip() or DEFAULT_RUNNER_IMAGE
+    remote_tar = "/tmp/ragflow-go-package.tar.gz"
+    remote_bin = f"{cfg['remote_base']}/bin/ragflow_server"
+
+    local_tar = _pack_go_sources()
+    print(f"uploading package -> {cfg['host']}:{remote_tar}")
+    t0 = time.time()
+    sftp.put(str(local_tar), remote_tar)
+    print(f"upload done in {time.time() - t0:.1f}s")
+
+    script = f"""set -euo pipefail
+remote_dir={remote_build!r}
+remote_tar={remote_tar!r}
+remote_bin={remote_bin!r}
+runner_img={runner_img!r}
+docker_dir={cfg["docker_dir"]!r}
+compose={cfg["docker_compose"]!r}
+service={cfg["docker_service"]!r}
+container={cfg["container"]!r}
+
+echo "=== refresh build workspace (keep cpp cmake-build-release) ==="
+mkdir -p "$remote_dir"
+find "$remote_dir" -mindepth 1 -maxdepth 1 \
+  ! -name 'internal' ! -name 'bin' -exec rm -rf {{}} +
+if [ -d "$remote_dir/internal" ]; then
+  find "$remote_dir/internal" -mindepth 1 -maxdepth 1 \
+    ! -name 'binding' -exec rm -rf {{}} +
+  if [ -d "$remote_dir/internal/binding" ]; then
+    find "$remote_dir/internal/binding" -mindepth 1 -maxdepth 1 \
+      ! -name 'cpp' -exec rm -rf {{}} +
+    if [ -d "$remote_dir/internal/binding/cpp" ]; then
+      find "$remote_dir/internal/binding/cpp" -mindepth 1 -maxdepth 1 \
+        ! -name 'cmake-build-release' ! -name 'cmake-build-relwithdebinfo' \
+        -exec rm -rf {{}} +
+    fi
+  fi
+fi
+tar -xzf "$remote_tar" -C "$remote_dir"
+sed -i 's/\\r$//' "$remote_dir/build.sh" || true
+rm -f "$remote_tar"
+
+echo "=== ensure runner image ==="
+if ! docker image inspect "$runner_img" >/dev/null 2>&1; then
+  docker pull "$runner_img"
+fi
+
+echo "=== build go (reuse cpp static libs when present) ==="
+mkdir -p /data/src/ragflow-gomod
+docker run --rm --entrypoint bash -u 0 \\
+  -v "$remote_dir:/ragflow" \\
+  -v /data/src/ragflow-gomod:/go/pkg/mod \\
+  -w /ragflow \\
+  -e HOME=/root \\
+  -e GOMODCACHE=/go/pkg/mod \\
+  -e GOPROXY=https://goproxy.cn,https://goproxy.io,direct \\
+  "$runner_img" \\
+  -lc '
+    set -euo pipefail
+    mkdir -p "$HOME/ragflow-native-libs/onnxruntime/static_lib"
+    _src=/opt/ragflow-native-libs/onnxruntime/static_lib
+    _v=$(ls -d "$_src"/onnxruntime-linux-x64-static_lib-1.29.0-* 2>/dev/null | head -1 || true)
+    if [ -z "$_v" ]; then
+      _v=$(ls -d "$_src"/onnxruntime-linux-x64-static_lib-* 2>/dev/null | head -1 || true)
+    fi
+    if [ -n "$_v" ] && [ ! -e "$HOME/ragflow-native-libs/onnxruntime/static_lib/$(basename "$_v")" ]; then
+      cp -a "$_v" "$HOME/ragflow-native-libs/onnxruntime/static_lib/"
+    fi
+    chmod 1777 /tmp || true
+    find /etc/apt -type f \\( -name "*.list" -o -name "*.sources" \\) -print0 \\
+      | xargs -0 -r grep -l -E "llvm-apt|llvm-toolchain" \\
+      | xargs -r rm -f || true
+    find /etc/apt -type f \\( -name "*.list" -o -name "*.sources" \\) -print0 \\
+      | xargs -0 -r sed -i \\
+        -e "s|mirrors.tuna.tsinghua.edu.cn|mirrors.aliyun.com|g" \\
+        -e "s|mirrors.ustc.edu.cn|mirrors.aliyun.com|g" || true
+    if ! pkg-config --exists libpcre2-8 2>/dev/null; then
+      apt-get update -qq
+      DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libpcre2-dev
+    fi
+    git config --global --add safe.directory /ragflow || true
+    chmod +x ./build.sh
+    sed -i "s/\\r$//" ./build.sh
+    if [ ! -f internal/binding/cpp/cmake-build-release/librag_tokenizer_c_api.a ]; then
+      echo "cpp static lib missing; building cpp first"
+      ./build.sh --cpp
+    fi
+    ./build.sh --go
+    ls -lh bin/ragflow_server
+  '
+
+echo "=== install binary and restart debug ==="
+mkdir -p "$(dirname "$remote_bin")"
+cd "$docker_dir"
+$compose stop "$service"
+cp -f "$remote_dir/bin/ragflow_server" "$remote_bin"
+chmod +x "$remote_bin"
+ls -lh "$remote_bin"
+stat -c "%y %s %n" "$remote_bin"
+$compose start "$service"
+sleep 12
+curl -sS -m 15 http://127.0.0.1:9390/api/v1/system/ping || true
+echo
+docker logs "$container" --since 45s 2>&1 | tail -40
+echo "=== package deploy complete ==="
+"""
+    print(f"package deploy debug -> {cfg['host']} (build {remote_build})")
+    _run_remote_script(client, script, timeout=3600)
 
 
 def _full_update_debug(
@@ -996,6 +1133,17 @@ def _release_image_target(
     image = _release_image_for_target(target)
 
     force_env: dict[str, str] = {"RAGFLOW_IMAGE": image}
+    if target == "stable":
+        # Go stack needs kvrocks+nats. Host 6379 is usually Redis; publish Kvrocks on 6381.
+        force_env.update(
+            {
+                "COMPOSE_PROFILES": "elasticsearch,cpu,sandbox,ragflow-go",
+                "KVROCKS_HOST": "kvrocks",
+                "KVROCKS_PORT": "6381",
+                "EXPOSE_NATS_PORT": "4222",
+                "EXPOSE_NATS_MONITORING_PORT": "8222",
+            }
+        )
     if target == "prod":
         force_env.update(
             {
@@ -1046,7 +1194,8 @@ echo "=== pull image ==="
 $compose pull "$service"
 
 echo "=== recreate $target container ==="
-$compose --profile cpu up -d --force-recreate "$service"
+$compose --profile cpu --profile ragflow-go up -d --pull never kvrocks nats
+$compose --profile cpu --profile ragflow-go up -d --pull never --force-recreate "$service"
 echo "$target release complete (image=$image)"
 """
     print(f"releasing {target} -> {cfg['host']} (image {image})")
@@ -1077,19 +1226,14 @@ def main() -> int:
         help="Skip paths with this prefix (repeatable)",
     )
     parser.add_argument(
-        "--changed",
+        "--package",
         action="store_true",
-        help="Incremental: upload git changed/untracked files (default when no files given)",
-    )
-    parser.add_argument(
-        "--incremental",
-        action="store_true",
-        help="Incremental update: sync files into the debug bind-mount directory (alias for --changed)",
+        help="Debug default: pack Go sources, remote build.sh --go, replace bin/ragflow_server",
     )
     parser.add_argument(
         "--full",
         action="store_true",
-        help="Debug full update: pull image, seed host ragflow/ via docker cp, restore mount",
+        help="Debug image refresh: pull amd64-dev image, seed host ragflow/ via docker cp, restore mount",
     )
     parser.add_argument(
         "--migrate",
@@ -1148,8 +1292,8 @@ def main() -> int:
     if args.full:
         if cfg["target"] != "debug":
             raise SystemExit("--full is only supported for --target debug")
-        if args.files or args.all or args.changed or args.incremental:
-            raise SystemExit("--full cannot be combined with file upload flags")
+        if args.files or args.all or args.package:
+            raise SystemExit("--full cannot be combined with file upload / --package flags")
         client, sftp = _connect(cfg)
         try:
             _full_update_debug(cfg, client, sftp, run_migrate=args.migrate)
@@ -1158,12 +1302,39 @@ def main() -> int:
             client.close()
         return 0
 
-    use_changed = args.changed or args.incremental or (not args.files and not args.all and not args.build_web)
+    # Debug default is package deploy (Go binary). Explicit file lists / --all
+    # remain for rare config-only uploads into the bind mount.
+    use_file_sync = bool(args.files or args.all)
+    use_package = args.package or (cfg["target"] == "debug" and not use_file_sync and not args.build_web)
+    if use_package:
+        if cfg["target"] != "debug":
+            raise SystemExit("--package is only supported for --target debug")
+        if use_file_sync:
+            raise SystemExit("--package cannot be combined with file upload flags")
+        client, sftp = _connect(cfg)
+        try:
+            _package_deploy_debug(cfg, client, sftp)
+            if args.build_web:
+                _deploy_web_dist(cfg, client, sftp)
+        finally:
+            sftp.close()
+            client.close()
+        return 0
+
     excludes = args.exclude or (["web/"] if args.all else [])
-    if args.build_web and not args.files and not args.all and not args.changed and not args.incremental:
+    if args.build_web and not use_file_sync:
         files = []
     else:
-        files = _resolve_files(args.files, use_changed, args.all, excludes)
+        files = _resolve_files(args.files, args.all, excludes)
+
+    if cfg["target"] == "debug" and files:
+        goish = [
+            f
+            for f in files
+            if f.suffix == ".go" or f.as_posix().endswith("go.mod") or f.as_posix().endswith("go.sum") or "internal/" in f.as_posix().replace("\\", "/") or "cmd/" in f.as_posix().replace("\\", "/")
+        ]
+        if goish:
+            print("WARNING: uploading Go sources without rebuilding. Prefer --package (default) so bin/ragflow_server is rebuilt.")
 
     print(f"target {cfg['target']} -> {cfg['user']}@{cfg['host']}:{cfg['remote_base']}")
     print(f"files {len(files)}")
