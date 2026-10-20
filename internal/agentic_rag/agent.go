@@ -18,6 +18,7 @@ package agentic_rag
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -37,6 +38,25 @@ import (
 	"ragflow/internal/common"
 	"ragflow/internal/entity/models"
 )
+
+// agenticToolDisplayNames maps model-facing tool ids to chat-UI labels so the
+// ToolCallSection title matches the Agent canvas (“知识检索” etc.).
+var agenticToolDisplayNames = map[string]string{
+	"search_bm25_chunks":     "知识检索",
+	"search_chunks":          "知识检索",
+	"search_semantic_chunks": "语义检索",
+	"grep_chunks":            "全文检索",
+	"list_chunks":            "阅读文档",
+	"search_metadata":        "元数据检索",
+	"graph_explore":          "知识图谱",
+	"graph_doc_outline":      "文档大纲",
+	"navigate_tree":          "目录导航",
+	"navigate_structure":     "结构导航",
+	"web_search":             "联网搜索",
+	"think":                  "思考",
+	"todo_write":             "待办",
+	"run_javascript":         "代码执行",
+}
 
 // Input carries everything Run needs to spin up a one-shot ReAct conversation
 // turn. It is intentionally decoupled from the canvas runtime: the caller
@@ -573,6 +593,9 @@ func consumeAgentEvents(
 	// the call id, so the name is captured here when the model issues the call
 	// and joined back when the result arrives.
 	toolNames := make(map[string]string)
+	// pendingToolCalls keeps the assistant tool_call args so a later tool-result
+	// event can be rendered as a <tool_call> card (same markup as the Agent canvas).
+	pendingToolCalls := make(map[string]schema.ToolCall)
 	// Everything the agent says goes out LIVE, but on the THINKING channel.
 	// A ReAct turn emits many messages, any of which can already look like an
 	// answer — the loop often renders one, keeps retrieving, and renders a
@@ -582,6 +605,10 @@ func consumeAgentEvents(
 	// emitted exactly once, at the end of the run, by Run itself (the only
 	// place that knows which deliverable is actually being shipped — the gate
 	// may adopt a different one).
+	//
+	// Tool results are the exception: they ride the ANSWER channel as
+	// <tool_call>…</tool_call> so the chat UI can render ToolCallSection cards
+	// (knowledge retrieval etc.) the same way the Agent canvas does.
 	live := func(content, reasoning string) {
 		emit(ctx, onDelta, "", content+reasoning)
 	}
@@ -631,6 +658,12 @@ func consumeAgentEvents(
 					}
 					evidence.WriteString(truncateForLog(trimmed, 4000))
 				}
+				if mo.Role == schema.Tool {
+					emit(ctx, onDelta, formatAgenticToolCall(mo.Message, pendingToolCalls), "")
+					if mo.Message.ToolCallID != "" {
+						delete(pendingToolCalls, mo.Message.ToolCallID)
+					}
+				}
 			}
 			continue
 		}
@@ -643,6 +676,7 @@ func consumeAgentEvents(
 				name := tc.Function.Name
 				if tc.ID != "" {
 					toolNames[tc.ID] = name
+					pendingToolCalls[tc.ID] = *tc
 				}
 				common.DebugCtx(ctx, "agentic_rag: tool call",
 					zap.String("tool", name),
@@ -688,6 +722,7 @@ func consumeAgentEvents(
 				name := tc.Function.Name
 				if tc.ID != "" {
 					toolNames[tc.ID] = name
+					pendingToolCalls[tc.ID] = *tc
 				}
 				if toolCallCounts != nil && name != "" {
 					toolCallCounts[name]++
@@ -751,6 +786,49 @@ func emit(
 		return
 	}
 	runtime.EmitAgentMessage(ctx, content, reasoning)
+}
+
+// formatAgenticToolCall builds the chat-UI <tool_call>{json}</tool_call> block
+// for one tool result, matching the Agent canvas verbose markup.
+func formatAgenticToolCall(msg *schema.Message, pending map[string]schema.ToolCall) string {
+	name := ""
+	argsRaw := ""
+	if msg != nil {
+		if tc, ok := pending[msg.ToolCallID]; ok {
+			name = tc.Function.Name
+			argsRaw = tc.Function.Arguments
+		}
+	}
+	if name == "" {
+		name = "tool"
+	} else if display := strings.TrimSpace(agenticToolDisplayNames[name]); display != "" {
+		name = display
+	}
+	var args any
+	if argsRaw != "" {
+		if err := json.Unmarshal([]byte(argsRaw), &args); err != nil {
+			args = argsRaw
+		}
+	} else {
+		args = map[string]any{}
+	}
+	result := ""
+	if msg != nil {
+		result = msg.Content
+	}
+	const maxResultRunes = 4000
+	if runes := []rune(result); len(runes) > maxResultRunes {
+		result = string(runes[:maxResultRunes]) + "…"
+	}
+	payload, err := json.MarshalIndent(map[string]any{
+		"name":   name,
+		"args":   args,
+		"result": result,
+	}, "", "  ")
+	if err != nil {
+		payload = []byte(fmt.Sprintf(`{"name":%q,"args":{},"result":%q}`, name, result))
+	}
+	return "<tool_call>" + string(payload) + "</tool_call>"
 }
 
 // finalizeTimeout is the synthesis fallback's own budget. It runs on a context

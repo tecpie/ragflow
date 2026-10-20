@@ -849,6 +849,26 @@ func (s *ChatPipelineService) AsyncChat(
 		}
 		timer.Exit(common.PhaseRetrieval)
 
+		// Naive RAG has no ReAct tool loop, but it still retrieved from the KB.
+		// Emit one <tool_call> card so the chat UI matches Agentic / Agent canvas
+		// (“已调用 知识检索”) instead of looking like a silent black box.
+		var retrievalToolCall string
+		if hasKnowledgeParam {
+			retrievalToolCall = formatNaiveKnowledgeToolCall(strings.Join(questions, " "), kbinfos)
+			if stream && retrievalToolCall != "" {
+				select {
+				case out <- AsyncChatResult{
+					Answer:    retrievalToolCall,
+					Reference: map[string]interface{}{},
+					CreatedAt: float64(time.Now().Unix()),
+					Final:     false,
+				}:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
+
 		// === Phase 10: Build LLM Request ===
 		// Sub-steps: empty_response check → formatPrompt → citationPrompt →
 		// messageFitIn (95% token budget) → multimodal conversion → adjust max_tokens.
@@ -887,12 +907,16 @@ func (s *ChatPipelineService) AsyncChat(
 				if !quote {
 					finalReference = map[string]interface{}{}
 				}
+				ans := emptyResp
+				if !stream && retrievalToolCall != "" {
+					ans = retrievalToolCall + emptyResp
+				}
 				out <- AsyncChatResult{
-					Answer:    emptyResp,
+					Answer:    ans,
 					Reference: map[string]interface{}{},
 				}
 				out <- AsyncChatResult{
-					Answer:      emptyResp,
+					Answer:      ans,
 					Reference:   finalReference,
 					AudioBinary: s.synthesizeTTS(ctx, ttsModel, emptyResp),
 					Prompt:      fmt.Sprintf("\n\n### Query:\n%s", strings.Join(questions, " ")),
@@ -1341,6 +1365,9 @@ func (s *ChatPipelineService) AsyncChat(
 
 			// Synthesize TTS for the full answer (non-stream, one-shot).
 			final := s.decorateAnswer(ctx, answer, kbinfos, prompt, questions, usedTokenCount, timer, embModel, chat.VectorSimilarityWeight, quote, ttsModel, langfuseTraceID, llmModelConfig, chat.TenantID, kbTenantIDStrings(kbs), len(knowledges) > 0)
+			if retrievalToolCall != "" {
+				final.Answer = retrievalToolCall + final.Answer
+			}
 			final.Final = true
 			timer.Exit(common.PhaseGenerateAnswer)
 			out <- final
@@ -4287,6 +4314,53 @@ func (s *ChatPipelineService) buildSQLReference(
 // file's imports tidy.
 func jsonMarshal(v interface{}) ([]byte, error) {
 	return json.Marshal(v)
+}
+
+// formatNaiveKnowledgeToolCall builds the same <tool_call> card the Agentic /
+// Agent canvas paths emit, so Naive RAG surfaces “已调用 知识检索” in the chat UI.
+func formatNaiveKnowledgeToolCall(question string, kbinfos map[string]interface{}) string {
+	chunkCount := 0
+	switch chunks := kbinfos["chunks"].(type) {
+	case []map[string]interface{}:
+		chunkCount = len(chunks)
+	case []interface{}:
+		chunkCount = len(chunks)
+	}
+	docNames := make([]string, 0, 8)
+	switch aggs := kbinfos["doc_aggs"].(type) {
+	case []interface{}:
+		for _, raw := range aggs {
+			doc, ok := raw.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			name, _ := doc["doc_name"].(string)
+			if name == "" {
+				name, _ = doc["doc_id"].(string)
+			}
+			if name == "" {
+				continue
+			}
+			docNames = append(docNames, name)
+			if len(docNames) >= 8 {
+				break
+			}
+		}
+	}
+	result := fmt.Sprintf("检索到 %d 个片段", chunkCount)
+	if len(docNames) > 0 {
+		result += "，来源：" + strings.Join(docNames, "、")
+	}
+	payload, err := json.MarshalIndent(map[string]any{
+		"name":   "知识检索",
+		"status": "done",
+		"args":   map[string]any{"query": question},
+		"result": result,
+	}, "", "  ")
+	if err != nil {
+		return ""
+	}
+	return "<tool_call>" + string(payload) + "</tool_call>"
 }
 
 // kbIDStrings extracts the string KB IDs from a slice of Knowledgebase.

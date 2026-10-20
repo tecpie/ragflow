@@ -92,6 +92,67 @@ func TestAliyunChatWithMessagesSupportsToolCalls(t *testing.T) {
 	}
 }
 
+// TestAliyunPreservesNamedToolChoiceObject pins the Agentic RAG wire form:
+// ToolChoiceValue must reach DashScope as {"type":"function","function":{"name":…}}.
+// Flattening it to a bare tool-name string is rejected with HTTP 400 and aborts
+// the stream before any thinking delta (session 4e8bf55f…).
+func TestAliyunPreservesNamedToolChoiceObject(t *testing.T) {
+	withSSRFBypass(t)
+	requestBody := make(chan map[string]interface{}, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		requestBody <- body
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"ok"}}]}`))
+	}))
+	defer server.Close()
+
+	model := NewAliyunModel(
+		map[string]string{"default": server.URL},
+		URLSuffix{Chat: "compatible-mode/v1/chat/completions"},
+	)
+	apiKey := "test-key"
+	toolName := "search_bm25_chunks"
+	tools := []map[string]interface{}{{
+		"type": "function",
+		"function": map[string]interface{}{
+			"name":       toolName,
+			"parameters": map[string]interface{}{"type": "object"},
+		},
+	}}
+	_, err := model.ChatWithMessages(
+		t.Context(),
+		"qwen3.7-plus-2026-05-26",
+		[]Message{{Role: "user", Content: "find"}},
+		&APIConfig{ApiKey: &apiKey},
+		&ChatConfig{
+			Tools:      tools,
+			ToolChoice: &toolName,
+			ToolChoiceValue: map[string]any{
+				"type":     "function",
+				"function": map[string]any{"name": toolName},
+			},
+		},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("ChatWithMessages: %v", err)
+	}
+	body := <-requestBody
+	got, ok := body["tool_choice"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("tool_choice = %#v (%T), want named-function object", body["tool_choice"], body["tool_choice"])
+	}
+	fn, _ := got["function"].(map[string]interface{})
+	if got["type"] != "function" || fn["name"] != toolName {
+		t.Fatalf("tool_choice = %#v, want function/%s", got, toolName)
+	}
+}
+
 func TestAliyunChatWithMessagesStopsQwenFlashAfterToolResult(t *testing.T) {
 	withSSRFBypass(t)
 	ctx := t.Context()

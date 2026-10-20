@@ -170,6 +170,39 @@ func TestConsumeAgentEventsStreamsEverythingAsThinking(t *testing.T) {
 	}
 }
 
+// Tool results must surface as <tool_call> on the answer channel so the chat
+// UI can render knowledge-retrieval cards (Agent canvas parity).
+func TestConsumeAgentEventsEmitsToolCallMarkup(t *testing.T) {
+	var answers, thinkings strings.Builder
+	iter, gen := adk.NewAsyncIteratorPair[*adk.AgentEvent]()
+	go func() {
+		gen.Send(assistantMsgEvent("looking up", []schema.ToolCall{
+			{ID: "call-1", Function: schema.FunctionCall{Name: "search_bm25_chunks", Arguments: `{"query":"x"}`}},
+		}))
+		gen.Send(toolResultEvent("call-1", "chunk: evidence"))
+		gen.Send(assistantMsgEvent("Final Answer: **ok**\n", nil))
+		gen.Close()
+	}()
+
+	final, _, err := consumeAgentEvents(context.Background(), iter,
+		func(contentDelta, thinkingDelta string) {
+			answers.WriteString(contentDelta)
+			thinkings.WriteString(thinkingDelta)
+		}, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("consumeAgentEvents: %v", err)
+	}
+	if final != "Final Answer: **ok**\n" {
+		t.Errorf("final = %q", final)
+	}
+	if !strings.Contains(answers.String(), "<tool_call>") || !strings.Contains(answers.String(), "知识检索") {
+		t.Errorf("answer channel = %q, want <tool_call> with 知识检索", answers.String())
+	}
+	if !strings.Contains(thinkings.String(), "looking up") {
+		t.Errorf("thinking channel = %q, want assistant narration", thinkings.String())
+	}
+}
+
 // Nothing may be held back: a single-message run still streams live (as
 // thinking) rather than waiting for a second message that never comes.
 func TestConsumeAgentEventsStreamsSingleMessageLive(t *testing.T) {

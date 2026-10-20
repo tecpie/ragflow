@@ -1738,6 +1738,24 @@ func TestAsyncChatEmptyResponseQuoteDisabled(t *testing.T) {
 	}
 }
 
+func TestFormatNaiveKnowledgeToolCall(t *testing.T) {
+	got := formatNaiveKnowledgeToolCall("审批流程", map[string]interface{}{
+		"chunks": []map[string]interface{}{{"id": "c1"}, {"id": "c2"}},
+		"doc_aggs": []interface{}{
+			map[string]interface{}{"doc_name": "技改管理办法.pdf"},
+		},
+	})
+	if !strings.Contains(got, "<tool_call>") || !strings.Contains(got, "</tool_call>") {
+		t.Fatalf("missing tool_call tags: %q", got)
+	}
+	if !strings.Contains(got, `"name": "知识检索"`) && !strings.Contains(got, `"name":"知识检索"`) {
+		t.Fatalf("missing display name: %q", got)
+	}
+	if !strings.Contains(got, "检索到 2 个片段") || !strings.Contains(got, "技改管理办法.pdf") {
+		t.Fatalf("missing result summary: %q", got)
+	}
+}
+
 // TestThinkEventWireKeys pins the JSON keys of a fully populated step: they ARE
 // the client contract (the SSE `think_event` field), so renaming or dropping a tag
 // breaks every client while neither the compiler nor any Go caller notices.

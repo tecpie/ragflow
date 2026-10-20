@@ -182,6 +182,10 @@ func (s *ChatPipelineService) agenticRag(
 		// agent's final answer arrives.
 		thinking := false
 		var reasoning strings.Builder
+		// toolTrace keeps <tool_call> cards streamed on the answer channel so
+		// the authoritative Final (and session reload) still show knowledge
+		// retrieval the way the Agent canvas does.
+		var toolTrace strings.Builder
 		final, runErr := agentic_rag.Run(runCtx, agentic_rag.Input{
 			Model:           model,
 			SynthModel:      synth,
@@ -196,6 +200,9 @@ func (s *ChatPipelineService) agenticRag(
 			ToolCallErrors:  toolErrors,
 			OnDelta: func(contentDelta, thinkingDelta string) {
 				reasoning.WriteString(thinkingDelta)
+				if strings.Contains(contentDelta, "<tool_call>") {
+					toolTrace.WriteString(contentDelta)
+				}
 				startToThink, endToThink := false, false
 				if thinkingDelta != "" {
 					if !thinking {
@@ -245,6 +252,9 @@ func (s *ChatPipelineService) agenticRag(
 		answer := final
 		if reasoning.Len() > 0 {
 			answer = agentSessionMessageContent("\n\n"+final, reasoning.String())
+		}
+		if toolTrace.Len() > 0 {
+			answer = toolTrace.String() + answer
 		}
 		reference := map[string]interface{}{}
 		if quote {

@@ -79,7 +79,7 @@ func (a *AliyunModel) ChatWithMessages(ctx context.Context, modelName string, me
 	applyEnableThinkingPolicy(modelName, a.Name(), chatConfigThinking(chatModelConfig), reqBody)
 
 	if chatModelConfig != nil && chatModelConfig.Tools != nil {
-		reqBody["tool_choice"] = aliyunToolChoice(modelName, messages, chatModelConfig.ToolChoice)
+		reqBody["tool_choice"] = resolveAliyunToolChoice(modelName, messages, chatModelConfig)
 	}
 
 	// For qwen3 models on DashScope, enable_thinking defaults to true when
@@ -121,7 +121,7 @@ func (a *AliyunModel) ChatStreamlyWithSender(ctx context.Context, modelName stri
 		chatModelConfig.ToolCallsResult = nil
 
 		if chatModelConfig.Tools != nil {
-			reqBody["tool_choice"] = aliyunToolChoice(modelName, messages, chatModelConfig.ToolChoice)
+			reqBody["tool_choice"] = resolveAliyunToolChoice(modelName, messages, chatModelConfig)
 		}
 	}
 
@@ -135,6 +135,22 @@ func (a *AliyunModel) ChatStreamlyWithSender(ctx context.Context, modelName stri
 	return a.baseModel.doStreamRequest(ctx, url, apiConfig, reqBody, streamCallTimeout, func(body io.ReadCloser) error {
 		return HandleStreamingResponse(body, modelUsage, chatModelConfig, OpenAIParserConfig, sender)
 	})
+}
+
+// resolveAliyunToolChoice keeps the OpenAI named-function object form when
+// ToolChoiceValue is set. buildRequestBody already writes that object, but the
+// previous string-only overwrite flattened it to a bare tool name (e.g.
+// "search_bm25_chunks"), which DashScope rejects with HTTP 400 — Agentic RAG
+// then failed before the first thinking delta.
+func resolveAliyunToolChoice(modelName string, messages []Message, cfg *ChatConfig) any {
+	if cfg == nil {
+		return aliyunToolChoice(modelName, messages, nil)
+	}
+	stringChoice := aliyunToolChoice(modelName, messages, cfg.ToolChoice)
+	if cfg.ToolChoiceValue != nil && stringChoice != "none" {
+		return cfg.ToolChoiceValue
+	}
+	return stringChoice
 }
 
 // aliyunToolChoice prevents qwen-flash from repeatedly issuing another tool call
