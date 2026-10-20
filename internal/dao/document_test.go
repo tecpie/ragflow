@@ -503,6 +503,40 @@ func TestDocumentGetByDocumentIDAndDatasetIDUsesKBID(t *testing.T) {
 	}
 }
 
+func TestListByKBIDWithOptions_FiltersByStatus(t *testing.T) {
+	db := setupDocumentTestDB(t)
+	db.Create(&entity.Document{ID: "doc-enabled", KbID: "kb-status-filter", Name: sp("enabled"), Status: sp("1"), ParserConfig: entity.JSONMap{}})
+	db.Create(&entity.Document{ID: "doc-disabled", KbID: "kb-status-filter", Name: sp("disabled"), Status: sp("0"), ParserConfig: entity.JSONMap{}})
+
+	dao := NewDocumentDAO()
+	docs, total, err := dao.ListByKBIDWithOptions(t.Context(), db, DocumentListOptions{
+		KbID:     "kb-status-filter",
+		Statuses: []string{"1"},
+		Limit:    10,
+	})
+	if err != nil || total != 1 || len(docs) != 1 || docs[0].ID != "doc-enabled" {
+		t.Fatalf("filter enabled: docs=%v total=%d err=%v", docs, total, err)
+	}
+
+	docs, total, err = dao.ListByKBIDWithOptions(t.Context(), db, DocumentListOptions{
+		KbID:     "kb-status-filter",
+		Statuses: []string{"0"},
+		Limit:    10,
+	})
+	if err != nil || total != 1 || len(docs) != 1 || docs[0].ID != "doc-disabled" {
+		t.Fatalf("filter disabled: docs=%v total=%d err=%v", docs, total, err)
+	}
+
+	ids, err := dao.ListIDsByKBIDWithOptions(t.Context(), db, DocumentListOptions{
+		KbID:     "kb-status-filter",
+		Statuses: []string{"0", "1"},
+		Limit:    10,
+	})
+	if err != nil || len(ids) != 2 {
+		t.Fatalf("filter both statuses: ids=%v err=%v", ids, err)
+	}
+}
+
 func TestDocumentGetChunkingConfigScansParserConfig(t *testing.T) {
 	db := setupDocumentTestDB(t)
 

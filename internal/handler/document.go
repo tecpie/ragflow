@@ -732,6 +732,13 @@ func parseDocumentListOptions(c *gin.Context, datasetID string) (dao.DocumentLis
 		return opts, fmt.Sprintf("Invalid filter run status conditions: %s", strings.Join(invalidRunStatuses(queryValues(c, "run", "run_status", "ingestion_status")), ", "))
 	}
 
+	rawStatuses := queryValues(c, "status")
+	statuses, statusErr := normalizeDocumentStatusFilter(rawStatuses)
+	if statusErr != "" {
+		return opts, statusErr
+	}
+	opts.Statuses = statuses
+
 	opts.Name = c.Query("name")
 	opts.ContentHash = c.Query("content_hash")
 	docID := c.Query("id")
@@ -970,6 +977,27 @@ func queryValues(c *gin.Context, names ...string) []string {
 		}
 	}
 	return out
+}
+
+// normalizeDocumentStatusFilter keeps enable/disable values as "0"/"1".
+func normalizeDocumentStatusFilter(statuses []string) ([]string, string) {
+	if len(statuses) == 0 {
+		return nil, ""
+	}
+	out := make([]string, 0, len(statuses))
+	seen := make(map[string]struct{}, len(statuses))
+	for _, status := range statuses {
+		normalized := strings.TrimSpace(status)
+		if normalized != "0" && normalized != "1" {
+			return nil, fmt.Sprintf(`"status" must be either 0 or 1:%s!`, status)
+		}
+		if _, ok := seen[normalized]; ok {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		out = append(out, normalized)
+	}
+	return out, ""
 }
 
 var runStatusMap = map[string]string{

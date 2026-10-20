@@ -122,6 +122,7 @@ type DocumentListOptions struct {
 	KbID               string
 	Keywords           string
 	RunStatuses        []string
+	Statuses           []string
 	Types              []string
 	Suffixes           []string
 	Name               string
@@ -316,6 +317,9 @@ func applyDocumentListFilters(query *gorm.DB, opts DocumentListOptions, qualifie
 	}
 	if len(opts.RunStatuses) > 0 {
 		query = query.Where("("+ingestionStatus+") IN ?", opts.RunStatuses)
+	}
+	if len(opts.Statuses) > 0 {
+		query = query.Where(column("status")+" IN ?", opts.Statuses)
 	}
 	if len(opts.Types) > 0 {
 		query = query.Where(column("type")+" IN ?", opts.Types)

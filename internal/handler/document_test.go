@@ -2243,3 +2243,20 @@ func TestDownloadDocument_ForeignUserRejected(t *testing.T) {
 		t.Fatalf("foreign user must get the same message as a missing document, got %v", resp["message"])
 	}
 }
+
+func TestNormalizeDocumentStatusFilter(t *testing.T) {
+	got, errMsg := normalizeDocumentStatusFilter(nil)
+	if errMsg != "" || got != nil {
+		t.Fatalf("nil input: got=%v err=%q", got, errMsg)
+	}
+
+	got, errMsg = normalizeDocumentStatusFilter([]string{"1", "0", "1"})
+	if errMsg != "" || len(got) != 2 || got[0] != "1" || got[1] != "0" {
+		t.Fatalf("dedupe: got=%v err=%q", got, errMsg)
+	}
+
+	got, errMsg = normalizeDocumentStatusFilter([]string{"2"})
+	if errMsg == "" || got != nil {
+		t.Fatalf("invalid status should fail: got=%v err=%q", got, errMsg)
+	}
+}
