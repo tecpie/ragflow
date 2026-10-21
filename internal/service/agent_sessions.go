@@ -653,8 +653,9 @@ type CreateAgentSessionRequest struct {
 //   - user_id     : caller's id
 //   - message     : ordered rows in api_4_conversation_message
 //   - reference   : ordered rows in api_4_conversation_reference
-//   - dsl         : JSON map; copied from user_canvas.dsl if the
-//     caller did not pass one
+//   - dsl         : omitted unless the caller supplies one. The canvas
+//     graph is loaded at run time; a completed run stores only
+//     history, memory, globals, path, and retrieval.
 //   - create_time : unix-millis
 //   - update_time : unix-millis
 //   - create_date : local-time.Truncate(time.Second)
@@ -687,8 +688,9 @@ func (s *AgentService) CreateAgentSession(ctx context.Context, req *CreateAgentS
 	reference := json.RawMessage(`[]`)
 
 	var dsl entity.JSONMap
-	if len(req.DSL) > 0 {
-		_ = json.Unmarshal(req.DSL, &dsl)
+	var persistedDSL entity.JSONMap
+	if len(req.DSL) > 0 && json.Unmarshal(req.DSL, &dsl) == nil && len(dsl) > 0 {
+		persistedDSL = dsl
 	}
 	if len(dsl) == 0 {
 		dsl = canvas.DSL
@@ -742,7 +744,7 @@ func (s *AgentService) CreateAgentSession(ctx context.Context, req *CreateAgentS
 		Message:      messages,
 		Reference:    reference,
 		Source:       sourcePtr,
-		DSL:          dsl,
+		DSL:          persistedDSL,
 		VersionTitle: versionTitle,
 	}
 	if err := s.api4ConversationDAO.Create(ctx, dao.DB, row); err != nil {

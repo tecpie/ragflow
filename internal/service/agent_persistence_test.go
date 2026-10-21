@@ -71,7 +71,7 @@ func TestAgentRunSessionUpdateFailurePreventsSuccessEvents(t *testing.T) {
 		"path": []any{"begin_0", "message_0"},
 	}
 	events := make(chan canvas.RunEvent, 32)
-	_, err := NewAgentService().buildRunFunc("canvas-update-failure", nil, dsl)(context.Background(), map[string]any{
+	_, err := NewAgentService().buildRunFunc("canvas-update-failure", nil, dsl, false)(context.Background(), map[string]any{
 		"__events__":     events,
 		"__message_id__": "message-1",
 		"__session_id__": "session-update-failure",
@@ -89,6 +89,102 @@ func TestAgentRunSessionUpdateFailurePreventsSuccessEvents(t *testing.T) {
 		if event.Type == "message_end" || event.Type == "workflow_finished" {
 			t.Fatalf("persistence failure emitted success event %q", event.Type)
 		}
+	}
+}
+
+func TestSessionRuntimeDSLOmitsCanvasGraph(t *testing.T) {
+	stored := sessionRuntimeDSL(map[string]any{
+		"components": map[string]any{"begin": map[string]any{}},
+		"graph":      map[string]any{"nodes": []any{map[string]any{"id": "begin"}}},
+		"variables":  map[string]any{"topic": map[string]any{"value": "x"}},
+		"history":    []any{[]any{"user", "hi"}},
+		"memory":     []any{},
+		"globals":    map[string]any{"env.topic": "kept"},
+		"path":       []any{},
+		"retrieval":  []any{"chunk"},
+	})
+	for _, key := range []string{"components", "graph", "variables"} {
+		if _, ok := stored[key]; ok {
+			t.Fatalf("stored %s: %#v", key, stored[key])
+		}
+	}
+	for _, key := range sessionRuntimeKeys {
+		if _, ok := stored[key]; !ok {
+			t.Fatalf("missing %s: %#v", key, stored)
+		}
+	}
+}
+
+func TestApplySessionDSLOverlaysRuntimeOntoCanvas(t *testing.T) {
+	canvasDSL := map[string]any{
+		"components": map[string]any{
+			"begin": map[string]any{"obj": map[string]any{"component_name": "Begin", "params": map[string]any{}}},
+		},
+		"history": []any{[]any{"user", "stale"}},
+		"path":    []any{"stale"},
+	}
+	got := applySessionDSL(canvasDSL, entity.JSONMap{
+		"history": []any{[]any{"user", "fresh"}},
+		"path":    []any{},
+		"globals": map[string]any{"env.topic": "preserved"},
+	})
+	components, _ := got["components"].(map[string]any)
+	if len(components) != 1 {
+		t.Fatalf("components = %#v", got["components"])
+	}
+	history, _ := got["history"].([]any)
+	if len(history) != 1 {
+		t.Fatalf("history = %#v", got["history"])
+	}
+	globals, _ := got["globals"].(map[string]any)
+	if globals["env.topic"] != "preserved" {
+		t.Fatalf("globals = %#v", got["globals"])
+	}
+	path, _ := got["path"].([]any)
+	if len(path) != 0 {
+		t.Fatalf("path = %#v", got["path"])
+	}
+}
+
+func TestApplySessionDSLKeepsStoredGraph(t *testing.T) {
+	got := applySessionDSL(map[string]any{
+		"components": map[string]any{"canvas": map[string]any{"obj": map[string]any{"component_name": "Begin"}}},
+		"history":    []any{[]any{"user", "canvas"}},
+	}, entity.JSONMap{
+		"components": map[string]any{"session": map[string]any{"obj": map[string]any{"component_name": "Begin", "params": map[string]any{}}}},
+		"history":    []any{[]any{"user", "session"}},
+	})
+	components, _ := got["components"].(map[string]any)
+	if _, ok := components["session"]; !ok {
+		t.Fatalf("components = %#v, want the stored snapshot", got["components"])
+	}
+	if _, ok := components["canvas"]; ok {
+		t.Fatalf("canvas graph replaced the stored snapshot: %#v", components)
+	}
+}
+
+func TestBuildPersistedAgentDSLOmitsCanvasGraph(t *testing.T) {
+	state := canvas.NewCanvasState("run", "session")
+	state.AppendHistory("user", "hi")
+	got := buildPersistedAgentDSL(map[string]any{
+		"components": map[string]any{"begin": map[string]any{}},
+		"graph":      map[string]any{"nodes": []any{map[string]any{"id": "begin"}}},
+		"path":       []any{},
+		"globals":    map[string]any{"env.topic": "kept"},
+	}, state, false)
+	if _, ok := got["components"]; ok {
+		t.Fatalf("components stored: %#v", got["components"])
+	}
+	if _, ok := got["graph"]; ok {
+		t.Fatalf("graph stored: %#v", got["graph"])
+	}
+	globals, _ := got["globals"].(map[string]any)
+	if globals["env.topic"] != "kept" {
+		t.Fatalf("globals = %#v", got["globals"])
+	}
+	history, _ := got["history"].([]any)
+	if len(history) != 1 {
+		t.Fatalf("history = %#v", got["history"])
 	}
 }
 
@@ -141,7 +237,7 @@ func TestPersistAgentRunSessionPreservesThinking(t *testing.T) {
 	if err := svc.persistAgentRunQuestion(t.Context(), "canvas-think", "user-1", "session-think", "msg-think-1", "question", 1); err != nil {
 		t.Fatalf("persist question: %v", err)
 	}
-	if err := svc.persistAgentRunSession(context.Background(), "canvas-think", "user-1", "session-think", "msg-think-1", "question", "final answer", "reasoning trace", map[string]interface{}{}, nil, nil, true); err != nil {
+	if err := svc.persistAgentRunSession(context.Background(), "canvas-think", "user-1", "session-think", "msg-think-1", "question", "final answer", "reasoning trace", map[string]interface{}{}, nil, nil, true, false); err != nil {
 		t.Fatalf("persist: %v", err)
 	}
 

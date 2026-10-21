@@ -1704,6 +1704,7 @@ func (s *AgentService) RunAgent(ctx context.Context, userID, canvasID, sessionID
 		dsl = normalisedDSLForRun(versionRow)
 	}
 	sessionFound := false
+	keepSessionGraph := false
 	if sessionID != "" && s.api4ConversationDAO != nil && dao.DB != nil {
 		existingSession, err := s.api4ConversationDAO.GetMetadataBySessionID(ctx, dao.DB, sessionID, canvasID)
 		if err != nil {
@@ -1716,7 +1717,8 @@ func (s *AgentService) RunAgent(ctx context.Context, userID, canvasID, sessionID
 		}
 		sessionFound = existingSession != nil
 		if existingSession != nil && len(existingSession.DSL) > 0 {
-			dsl = dslpkg.NormalizeForRun(existingSession.DSL)
+			dsl = applySessionDSL(dsl, existingSession.DSL)
+			keepSessionGraph = sessionDSLHasGraph(existingSession.DSL)
 		}
 	}
 	if err := validateAgentChatModels(ctx, userID, agentTenantID, dsl); err != nil {
@@ -1737,7 +1739,7 @@ func (s *AgentService) RunAgent(ctx context.Context, userID, canvasID, sessionID
 	if err := persistQuestion(); err != nil {
 		return nil, err
 	}
-	run := s.buildRunFunc(canvasID, versionRow, dsl)
+	run := s.buildRunFunc(canvasID, versionRow, dsl, keepSessionGraph)
 
 	root := map[string]any{
 		"__message_id__": messageID,
@@ -1947,7 +1949,7 @@ func checkAgentSessionRunPermission(ctx context.Context, userID, sessionID strin
 // targeted UserFillUp node (compile.go:53-55 lists them via
 // compose.WithInterruptBeforeNodes) resumes and reads the user's
 // follow-up via compose.GetResumeContext.
-func (s *AgentService) buildRunFunc(canvasID string, versionRow *entity.UserCanvasVersion, dsl map[string]any) canvas.RunFunc {
+func (s *AgentService) buildRunFunc(canvasID string, versionRow *entity.UserCanvasVersion, dsl map[string]any, keepSessionGraph bool) canvas.RunFunc {
 	return func(ctx context.Context, root map[string]any) (runState *canvas.CanvasState, runErr error) {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -2043,7 +2045,7 @@ func (s *AgentService) buildRunFunc(canvasID string, versionRow *entity.UserCanv
 		if versionRow == nil && len(dsl) == 0 {
 			answer := fmt.Sprintf("No published version found for canvas %q — publish a version before running.", canvasID)
 			state.RecordOutput("answer", "answer", answer)
-			if err := s.persistAgentRunSession(ctx, canvasID, userID, sessionID, messageID, userInput, answer, "", nil, dsl, state, true); err != nil {
+			if err := s.persistAgentRunSession(ctx, canvasID, userID, sessionID, messageID, userInput, answer, "", nil, dsl, state, true, keepSessionGraph); err != nil {
 				return nil, canvas.NewInternalRunError(fmt.Errorf("persist agent session: %w: %w", err, ErrAgentStorageError))
 			}
 			// Emit a message event so the SSE surface matches the
@@ -2297,7 +2299,7 @@ func (s *AgentService) buildRunFunc(canvasID string, versionRow *entity.UserCanv
 				if answer != "" {
 					appendAssistantHistory(state, partialAssistantOutput(answer, downloads, attachment))
 				}
-				if persistErr := s.persistAgentRunSession(ctx, canvasID, userID, sessionID, messageID, userInput, answer, thinking, referencePayload, dsl, state, answer != ""); persistErr != nil {
+				if persistErr := s.persistAgentRunSession(ctx, canvasID, userID, sessionID, messageID, userInput, answer, thinking, referencePayload, dsl, state, answer != "", keepSessionGraph); persistErr != nil {
 					return nil, canvas.NewInternalRunError(
 						fmt.Errorf("persist interrupted agent session: %w: %w", persistErr, ErrAgentStorageError),
 					)
@@ -2321,7 +2323,7 @@ func (s *AgentService) buildRunFunc(canvasID string, versionRow *entity.UserCanv
 					emitAgentMessageEvents(emit, failureText, thinking, referencePayload)
 					visibleAnswer = failureText
 				}
-				if persistErr := s.persistAgentRunSession(ctx, canvasID, userID, sessionID, messageID, userInput, visibleAnswer, thinking, referencePayload, dsl, state, visibleAnswer != ""); persistErr != nil {
+				if persistErr := s.persistAgentRunSession(ctx, canvasID, userID, sessionID, messageID, userInput, visibleAnswer, thinking, referencePayload, dsl, state, visibleAnswer != "", keepSessionGraph); persistErr != nil {
 					s.markAgentSessionFailed(ctx2, canvasID, userID, sessionID, "persist session: "+persistErr.Error())
 					s.markRunFailed(ctx2, runID, "persist session: "+persistErr.Error())
 					return nil, canvas.NewInternalRunError(
@@ -2349,7 +2351,7 @@ func (s *AgentService) buildRunFunc(canvasID string, versionRow *entity.UserCanv
 		// template literals; retaining it in the prompt history makes the model
 		// reproduce and amplify those literals on later turns.
 		appendAssistantHistory(state, partialAssistantOutput(answer, downloads, attachment))
-		if persistErr := s.persistAgentRunSession(ctx, canvasID, userID, sessionID, messageID, userInput, answer, thinking, referencePayload, dsl, state, true); persistErr != nil {
+		if persistErr := s.persistAgentRunSession(ctx, canvasID, userID, sessionID, messageID, userInput, answer, thinking, referencePayload, dsl, state, true, keepSessionGraph); persistErr != nil {
 			s.markAgentSessionFailed(ctx2, canvasID, userID, sessionID, "persist session: "+persistErr.Error())
 			s.markRunFailed(ctx2, runID, "persist session: "+persistErr.Error())
 			return nil, canvas.NewInternalRunError(
@@ -2440,7 +2442,7 @@ func (s *AgentService) createAgentRunSession(
 		Message:   agentSessionInitialMessages(runDSL),
 		Reference: json.RawMessage(`[]`),
 		Source:    &source,
-		DSL:       entity.JSONMap(runDSL),
+		DSL:       sessionRuntimeDSL(runDSL),
 	}
 	if versionRow != nil {
 		session.VersionTitle = versionRow.Title
@@ -2561,6 +2563,7 @@ func (s *AgentService) persistAgentRunSession(
 	runDSL map[string]any,
 	state *canvas.CanvasState,
 	appendAssistantMessage bool,
+	keepSessionGraph bool,
 ) error {
 	now := float64(time.Now().UnixNano()) / 1e9
 	if sessionID == "" || s == nil || s.api4ConversationDAO == nil || dao.DB == nil {
@@ -2578,17 +2581,74 @@ func (s *AgentService) persistAgentRunSession(
 		"errors": nil,
 	}
 	if state != nil {
-		updates["dsl"] = buildPersistedAgentDSL(runDSL, state)
+		updates["dsl"] = buildPersistedAgentDSL(runDSL, state, keepSessionGraph)
 	}
 	return s.api4ConversationDAO.UpdateHistory(ctx, dao.DB, sessionID, agentID, userID, updates, history)
 }
 
-func buildPersistedAgentDSL(runDSL map[string]any, state *canvas.CanvasState) entity.JSONMap {
-	dsl := make(entity.JSONMap, len(runDSL)+3)
-	for key, value := range runDSL {
-		dsl[key] = value
+// sessionRuntimeKeys are the only DSL fields a conversation owns. The canvas
+// graph (components, graph, variables) stays on user_canvas / user_canvas_version.
+var sessionRuntimeKeys = []string{"history", "memory", "globals", "path", "retrieval"}
+
+func sessionRuntimeDSL(dsl map[string]any) entity.JSONMap {
+	if len(dsl) == 0 {
+		return nil
+	}
+	out := make(entity.JSONMap)
+	for _, key := range sessionRuntimeKeys {
+		if value, ok := dsl[key]; ok {
+			out[key] = value
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func sessionDSLHasGraph(dsl map[string]any) bool {
+	components, ok := dsl["components"].(map[string]any)
+	return ok && len(components) > 0
+}
+
+// applySessionDSL keeps a stored canvas snapshot when the row still has one.
+// Rows that only carry runtime state are overlaid onto the canvas or version
+// loaded for this run.
+func applySessionDSL(base map[string]any, stored entity.JSONMap) map[string]any {
+	if len(stored) == 0 {
+		return base
+	}
+	if sessionDSLHasGraph(stored) {
+		return dslpkg.NormalizeForRun(stored)
+	}
+	if base == nil {
+		base = map[string]any{}
+	}
+	for _, key := range sessionRuntimeKeys {
+		if value, ok := stored[key]; ok {
+			base[key] = value
+		}
+	}
+	return dslpkg.NormalizeForRun(base)
+}
+
+func buildPersistedAgentDSL(runDSL map[string]any, state *canvas.CanvasState, keepGraph bool) entity.JSONMap {
+	var dsl entity.JSONMap
+	if keepGraph {
+		dsl = make(entity.JSONMap, len(runDSL)+3)
+		for key, value := range runDSL {
+			dsl[key] = value
+		}
+	} else {
+		dsl = sessionRuntimeDSL(runDSL)
+		if dsl == nil {
+			dsl = entity.JSONMap{}
+		}
 	}
 	if state == nil {
+		if len(dsl) == 0 {
+			return nil
+		}
 		return dsl
 	}
 

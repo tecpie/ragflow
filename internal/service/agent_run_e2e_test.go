@@ -314,8 +314,11 @@ func TestRunAgent_SessionHistoryFeedsSysHistoryAndPersists(t *testing.T) {
 		t.Fatalf("first content = %q, want JSON-rendered sys.history", first.Content)
 	}
 	afterFirst := getAPIConversationForTest(t, testDB, "session-history")
-	if components, ok := afterFirst.DSL["components"].(map[string]any); !ok || len(components) != 3 {
-		t.Fatalf("persisted DSL lost runtime components: %#v", afterFirst.DSL)
+	if _, ok := afterFirst.DSL["components"]; ok {
+		t.Fatalf("persisted DSL stored the canvas graph: %#v", afterFirst.DSL["components"])
+	}
+	if _, ok := afterFirst.DSL["graph"]; ok {
+		t.Fatalf("persisted DSL stored the canvas graph: %#v", afterFirst.DSL["graph"])
 	}
 	second := run("again")
 	var secondHistory []string

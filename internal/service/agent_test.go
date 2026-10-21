@@ -1126,6 +1126,68 @@ func TestCreateAgentSessionWritesLatestVersionTitle(t *testing.T) {
 	}
 }
 
+func TestCreateAgentSessionDoesNotCopyCanvasDSL(t *testing.T) {
+	setupAgentSessionServiceTest(t)
+
+	if err := dao.DB.Create(&entity.UserCanvas{
+		ID:             "canvas-1",
+		UserID:         "user-1",
+		Title:          sptr("Test Agent"),
+		CanvasCategory: "agent_canvas",
+		DSL: entity.JSONMap{
+			"components": map[string]any{
+				"begin": map[string]any{"obj": map[string]any{"component_name": "Begin", "params": map[string]any{}}},
+			},
+			"graph": map[string]any{"nodes": []any{map[string]any{"id": "begin"}}, "edges": []any{}},
+		},
+	}).Error; err != nil {
+		t.Fatalf("failed to seed canvas: %v", err)
+	}
+
+	ctx := t.Context()
+	session, code, err := NewAgentService().CreateAgentSession(ctx, &CreateAgentSessionRequest{
+		UserID:  "user-1",
+		AgentID: "canvas-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateAgentSession failed: %v", err)
+	}
+	if code != common.CodeSuccess {
+		t.Fatalf("expected code %d, got %d", common.CodeSuccess, code)
+	}
+	if len(session.DSL) != 0 {
+		t.Fatalf("session DSL = %#v, want empty", session.DSL)
+	}
+	stored, err := dao.NewAPI4ConversationDAO().GetMetadataBySessionID(ctx, dao.DB, session.ID, "canvas-1")
+	if err != nil {
+		t.Fatalf("reload session: %v", err)
+	}
+	if stored == nil || len(stored.DSL) != 0 {
+		t.Fatalf("persisted DSL = %#v, want empty", stored)
+	}
+}
+
+func TestCreateAgentSessionStoresCallerDSL(t *testing.T) {
+	setupAgentSessionServiceTest(t)
+	createAgentSessionTestCanvas(t, "canvas-1", "user-1")
+
+	ctx := t.Context()
+	session, code, err := NewAgentService().CreateAgentSession(ctx, &CreateAgentSessionRequest{
+		UserID:  "user-1",
+		AgentID: "canvas-1",
+		DSL:     json.RawMessage(`{"components":{"begin":{"obj":{"component_name":"Begin","params":{}}}},"history":[]}`),
+	})
+	if err != nil {
+		t.Fatalf("CreateAgentSession failed: %v", err)
+	}
+	if code != common.CodeSuccess {
+		t.Fatalf("expected code %d, got %d", common.CodeSuccess, code)
+	}
+	if !sessionDSLHasGraph(session.DSL) {
+		t.Fatalf("caller DSL = %#v, want the supplied graph", session.DSL)
+	}
+}
+
 func TestCreateAgentSessionNoVersionLeavesTitleNil(t *testing.T) {
 	setupAgentSessionServiceTest(t)
 
