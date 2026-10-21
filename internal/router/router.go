@@ -58,6 +58,7 @@ type Router struct {
 	compilationTemplateHandler      *handler.CompilationTemplateHandler
 	compilationTemplateGroupHandler *handler.CompilationTemplateGroupHandler
 	datasetArtifactHandler          *handler.DatasetArtifactHandler
+	ontologyHandler                 *handler.OntologyHandler
 }
 
 // NewRouter create router
@@ -95,6 +96,7 @@ func NewRouter(
 	compilationTemplateHandler *handler.CompilationTemplateHandler,
 	compilationTemplateGroupHandler *handler.CompilationTemplateGroupHandler,
 	datasetArtifactHandler *handler.DatasetArtifactHandler,
+	ontologyHandler *handler.OntologyHandler,
 ) *Router {
 	return &Router{
 		authHandler:          authHandler,
@@ -131,6 +133,7 @@ func NewRouter(
 		compilationTemplateHandler:      compilationTemplateHandler,
 		compilationTemplateGroupHandler: compilationTemplateGroupHandler,
 		datasetArtifactHandler:          datasetArtifactHandler,
+		ontologyHandler:                 ontologyHandler,
 	}
 }
 
@@ -608,6 +611,15 @@ func (r *Router) Setup(engine *gin.Engine) {
 			v1.GET("/compilation-template-groups/:group_id", r.compilationTemplateGroupHandler.Get)
 			v1.PUT("/compilation-template-groups/:group_id", r.compilationTemplateGroupHandler.Update)
 			v1.DELETE("/compilation-template-groups/:group_id", r.compilationTemplateGroupHandler.Delete)
+
+			// Ontology (TBox) routes — Turtle import + Playground export
+			v1.GET("/ontologies", r.ontologyHandler.List)
+			v1.POST("/ontologies", r.ontologyHandler.Create)
+			v1.GET("/ontologies/:ontology_id", r.ontologyHandler.Get)
+			v1.PUT("/ontologies/:ontology_id", r.ontologyHandler.Update)
+			v1.DELETE("/ontologies/:ontology_id", r.ontologyHandler.Delete)
+			v1.GET("/ontologies/:ontology_id/playground", r.ontologyHandler.Playground)
+			v1.GET("/ontologies/:ontology_id/export.rdf", r.ontologyHandler.ExportRDFXML)
 
 			connectors := v1.Group("/connectors")
 			{

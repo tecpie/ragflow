@@ -281,6 +281,7 @@ func startServer(ctx context.Context, serverName string, arguments *bootstrap.Se
 	compilationTemplateHandler := handler.NewCompilationTemplateHandler(service.NewCompilationTemplateService())
 	compilationTemplateGroupHandler := handler.NewCompilationTemplateGroupHandler(service.NewCompilationTemplateGroupService())
 	datasetArtifactHandler := handler.NewDatasetArtifactHandler(service.NewDatasetArtifactService(), datasetsService, file.NewFileCommitService())
+	ontologyHandler := handler.NewOntologyHandler(service.NewOntologyService())
 
 	// Install the production eino-based chat invoker as the shared chat default,
 	// so agentic-search runtime LLM calls work in production. Without this,
@@ -337,7 +338,8 @@ func startServer(ctx context.Context, serverName string, arguments *bootstrap.Se
 		pipelineHandler,
 		compilationTemplateHandler,
 		compilationTemplateGroupHandler,
-		datasetArtifactHandler)
+		datasetArtifactHandler,
+		ontologyHandler)
 
 	// Create Gin engine
 	ginEngine := gin.New()

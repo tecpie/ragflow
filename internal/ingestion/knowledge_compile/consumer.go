@@ -1672,7 +1672,12 @@ func (c *Consumer) mergeStructureDataset(ctx context.Context, tenant, kb string,
 		}
 		return buckets[i].Type < buckets[j].Type
 	})
-	return c.writer.WriteMergedStructure(ctx, tenant, kb, buckets)
+	if err := c.writer.WriteMergedStructure(ctx, tenant, kb, buckets); err != nil {
+		return err
+	}
+	// Induce TBox from merged structure types into the tenant ontology (best-effort).
+	c.syncOntologyFromBuckets(ctx, tenant, kb, buckets)
+	return nil
 }
 
 func normalizedStructureEntityName(name string) string {

@@ -212,6 +212,7 @@ func InitDB(ctx context.Context, migrateDB bool) error {
 		// from these tables at runtime, so the Go side must guarantee they exist.
 		&entity.CompilationTemplate{},
 		&entity.CompilationTemplateGroup{},
+		&entity.Ontology{},
 	}
 
 	if migrateDB {
