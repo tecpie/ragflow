@@ -1,0 +1,266 @@
+@prefix : <http://ragflow.local/ontology/power#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+#################################################################
+# 电力行业本体（测试用）— 电网设备 / 厂站 / 线路 / 故障与运维
+#################################################################
+
+: a owl:Ontology ;
+  rdfs:label "电力行业本体"@zh ;
+  rdfs:comment "用于 RAGFlow 本体导入与 Playground 展示的电力领域 TBox 样例"@zh .
+
+######################## 顶层类 ########################
+
+:PowerAsset a owl:Class ;
+  rdfs:label "电力资产"@zh ;
+  rdfs:comment "电网中可标识的物理或逻辑资产"@zh .
+
+:Organization a owl:Class ;
+  rdfs:label "组织机构"@zh .
+
+:Person a owl:Class ;
+  rdfs:label "人员"@zh .
+
+:Event a owl:Class ;
+  rdfs:label "事件"@zh .
+
+:Document a owl:Class ;
+  rdfs:label "规程文档"@zh .
+
+######################## 厂站与区域 ########################
+
+:GridRegion a owl:Class ;
+  rdfs:subClassOf :PowerAsset ;
+  rdfs:label "电网区域"@zh ;
+  rdfs:comment "省/地/县调或供区范围"@zh .
+
+:Substation a owl:Class ;
+  rdfs:subClassOf :PowerAsset ;
+  rdfs:label "变电站"@zh .
+
+:PowerPlant a owl:Class ;
+  rdfs:subClassOf :PowerAsset ;
+  rdfs:label "发电厂"@zh .
+
+:SwitchingStation a owl:Class ;
+  rdfs:subClassOf :Substation ;
+  rdfs:label "开关站"@zh .
+
+:VoltageLevel a owl:Class ;
+  rdfs:label "电压等级"@zh ;
+  rdfs:comment "如 500kV、220kV、110kV、35kV、10kV"@zh .
+
+######################## 一次设备 ########################
+
+:PrimaryEquipment a owl:Class ;
+  rdfs:subClassOf :PowerAsset ;
+  rdfs:label "一次设备"@zh .
+
+:PowerTransformer a owl:Class ;
+  rdfs:subClassOf :PrimaryEquipment ;
+  rdfs:label "电力变压器"@zh .
+
+:CircuitBreaker a owl:Class ;
+  rdfs:subClassOf :PrimaryEquipment ;
+  rdfs:label "断路器"@zh .
+
+:Disconnector a owl:Class ;
+  rdfs:subClassOf :PrimaryEquipment ;
+  rdfs:label "隔离开关"@zh .
+
+:Busbar a owl:Class ;
+  rdfs:subClassOf :PrimaryEquipment ;
+  rdfs:label "母线"@zh .
+
+:CurrentTransformer a owl:Class ;
+  rdfs:subClassOf :PrimaryEquipment ;
+  rdfs:label "电流互感器"@zh .
+
+:VoltageTransformer a owl:Class ;
+  rdfs:subClassOf :PrimaryEquipment ;
+  rdfs:label "电压互感器"@zh .
+
+:Reactor a owl:Class ;
+  rdfs:subClassOf :PrimaryEquipment ;
+  rdfs:label "电抗器"@zh .
+
+:CapacitorBank a owl:Class ;
+  rdfs:subClassOf :PrimaryEquipment ;
+  rdfs:label "电容器组"@zh .
+
+######################## 线路与馈线 ########################
+
+:PowerLine a owl:Class ;
+  rdfs:subClassOf :PowerAsset ;
+  rdfs:label "电力线路"@zh .
+
+:TransmissionLine a owl:Class ;
+  rdfs:subClassOf :PowerLine ;
+  rdfs:label "输电线路"@zh .
+
+:DistributionFeeder a owl:Class ;
+  rdfs:subClassOf :PowerLine ;
+  rdfs:label "配电馈线"@zh .
+
+:Cable a owl:Class ;
+  rdfs:subClassOf :PowerLine ;
+  rdfs:label "电缆"@zh .
+
+######################## 二次与保护 ########################
+
+:SecondaryDevice a owl:Class ;
+  rdfs:subClassOf :PowerAsset ;
+  rdfs:label "二次设备"@zh .
+
+:ProtectionRelay a owl:Class ;
+  rdfs:subClassOf :SecondaryDevice ;
+  rdfs:label "保护装置"@zh .
+
+:SCADATerminal a owl:Class ;
+  rdfs:subClassOf :SecondaryDevice ;
+  rdfs:label "远动终端"@zh ;
+  rdfs:comment "RTU / 测控装置"@zh .
+
+:Bay a owl:Class ;
+  rdfs:subClassOf :PowerAsset ;
+  rdfs:label "间隔"@zh .
+
+######################## 运维与故障 ########################
+
+:Fault a owl:Class ;
+  rdfs:subClassOf :Event ;
+  rdfs:label "故障"@zh .
+
+:Outage a owl:Class ;
+  rdfs:subClassOf :Event ;
+  rdfs:label "停电事件"@zh .
+
+:MaintenanceWork a owl:Class ;
+  rdfs:subClassOf :Event ;
+  rdfs:label "检修工作"@zh .
+
+:Inspection a owl:Class ;
+  rdfs:subClassOf :Event ;
+  rdfs:label "巡视检查"@zh .
+
+:WorkOrder a owl:Class ;
+  rdfs:label "工单"@zh .
+
+:OperationTicket a owl:Class ;
+  rdfs:subClassOf :Document ;
+  rdfs:label "操作票"@zh .
+
+:WorkTicket a owl:Class ;
+  rdfs:subClassOf :Document ;
+  rdfs:label "工作票"@zh .
+
+:SafetyRegulation a owl:Class ;
+  rdfs:subClassOf :Document ;
+  rdfs:label "安规条款"@zh .
+
+######################## 组织与人员 ########################
+
+:GridCompany a owl:Class ;
+  rdfs:subClassOf :Organization ;
+  rdfs:label "电网公司"@zh .
+
+:DispatchCenter a owl:Class ;
+  rdfs:subClassOf :Organization ;
+  rdfs:label "调度机构"@zh .
+
+:Operator a owl:Class ;
+  rdfs:subClassOf :Person ;
+  rdfs:label "运维人员"@zh .
+
+:Dispatcher a owl:Class ;
+  rdfs:subClassOf :Person ;
+  rdfs:label "调度员"@zh .
+
+######################## 对象属性 ########################
+
+:locatedIn a owl:ObjectProperty ;
+  rdfs:label "位于"@zh ;
+  rdfs:domain :PowerAsset ;
+  rdfs:range :GridRegion .
+
+:belongsToSubstation a owl:ObjectProperty ;
+  rdfs:label "所属变电站"@zh ;
+  rdfs:domain :PrimaryEquipment ;
+  rdfs:range :Substation .
+
+:hasBay a owl:ObjectProperty ;
+  rdfs:label "包含间隔"@zh ;
+  rdfs:domain :Substation ;
+  rdfs:range :Bay .
+
+:hasEquipment a owl:ObjectProperty ;
+  rdfs:label "包含设备"@zh ;
+  rdfs:domain :Bay ;
+  rdfs:range :PrimaryEquipment .
+
+:operatesAtVoltage a owl:ObjectProperty ;
+  rdfs:label "运行电压等级"@zh ;
+  rdfs:domain :PowerAsset ;
+  rdfs:range :VoltageLevel .
+
+:connectsTo a owl:ObjectProperty ;
+  rdfs:label "电气连接"@zh ;
+  rdfs:domain :PowerAsset ;
+  rdfs:range :PowerAsset .
+
+:protects a owl:ObjectProperty ;
+  rdfs:label "保护对象"@zh ;
+  rdfs:domain :ProtectionRelay ;
+  rdfs:range :PrimaryEquipment .
+
+:feedsFrom a owl:ObjectProperty ;
+  rdfs:label "电源侧厂站"@zh ;
+  rdfs:domain :PowerLine ;
+  rdfs:range :Substation .
+
+:feedsTo a owl:ObjectProperty ;
+  rdfs:label "负荷侧厂站"@zh ;
+  rdfs:domain :PowerLine ;
+  rdfs:range :Substation .
+
+:occursOn a owl:ObjectProperty ;
+  rdfs:label "发生设备"@zh ;
+  rdfs:domain :Fault ;
+  rdfs:range :PowerAsset .
+
+:causesOutage a owl:ObjectProperty ;
+  rdfs:label "导致停电"@zh ;
+  rdfs:domain :Fault ;
+  rdfs:range :Outage .
+
+:assignedTo a owl:ObjectProperty ;
+  rdfs:label "指派给"@zh ;
+  rdfs:domain :WorkOrder ;
+  rdfs:range :Operator .
+
+:issuedBy a owl:ObjectProperty ;
+  rdfs:label "签发单位"@zh ;
+  rdfs:domain :Document ;
+  rdfs:range :Organization .
+
+:approvedBy a owl:ObjectProperty ;
+  rdfs:label "批准人"@zh ;
+  rdfs:domain :OperationTicket ;
+  rdfs:range :Dispatcher .
+
+:maintains a owl:ObjectProperty ;
+  rdfs:label "运维对象"@zh ;
+  rdfs:domain :Operator ;
+  rdfs:range :PowerAsset .
+
+:governedBy a owl:ObjectProperty ;
+  rdfs:label "受管辖"@zh ;
+  rdfs:domain :Substation ;
+  rdfs:range :DispatchCenter .
+
+:referencesRegulation a owl:ObjectProperty ;
+  rdfs:label "引用安规"@zh ;
+  rdfs:domain :WorkTicket ;
+  rdfs:range :SafetyRegulation .
