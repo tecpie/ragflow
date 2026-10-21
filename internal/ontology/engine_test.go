@@ -56,6 +56,9 @@ func TestParseTurtleToPlayground(t *testing.T) {
 	for _, r := range pg.Relationships {
 		if r.Kind == "subclass" {
 			hasSubclass = true
+			if r.Name != "子类于" {
+				t.Fatalf("subclass name = %q, want 子类于", r.Name)
+			}
 		}
 		if r.Kind == "association" && r.Name == "works for" {
 			hasAssoc = true

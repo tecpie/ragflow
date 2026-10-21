@@ -160,12 +160,12 @@ func (d *Document) ToPlayground() PlaygroundOntology {
 			toID := idByIRI[parentIRI]
 			out.Relationships = append(out.Relationships, PlaygroundRelationship{
 				ID:          fromID + "__subclass__" + toID,
-				Name:        "subClassOf",
+				Name:        "子类于",
 				From:        fromID,
 				To:          toID,
 				Cardinality: "many-to-one",
 				Kind:        "subclass",
-				Description: "rdfs:subClassOf",
+				Description: "子类关系",
 			})
 		}
 	}
