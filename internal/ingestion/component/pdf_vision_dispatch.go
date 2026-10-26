@@ -569,7 +569,7 @@ func dispatchMinerUPDF(
 		if err != nil {
 			return parser.ParseResult{}, fmt.Errorf("parser: MinerU cloud: %w", err)
 		}
-		return finishMinerURemoteResult(filename, result)
+		return finishMinerURemoteResult(ctx, filename, result, setup)
 	}
 
 	v1, err := modelModule.MinerUSupportsV1(ctx, baseURL, apiKeyRaw)
