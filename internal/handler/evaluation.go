@@ -66,6 +66,7 @@ type importCasesReq struct {
 type startRunReq struct {
 	Name        string   `json:"name"`
 	DialogID    string   `json:"dialog_id"`
+	LLMID       string   `json:"llm_id"`
 	JudgeLLMID  string   `json:"judge_llm_id"`
 	JudgeEmbdID string   `json:"judge_embd_id"`
 	Metrics     []string `json:"metrics"`
@@ -256,6 +257,7 @@ func (h *EvaluationHandler) StartRun(c *gin.Context) {
 		c.Param("dataset_id"),
 		req.Name,
 		req.DialogID,
+		req.LLMID,
 		req.JudgeLLMID,
 		req.JudgeEmbdID,
 		req.Metrics,

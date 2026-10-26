@@ -257,7 +257,7 @@ func (s *EvaluationService) DeleteCase(ctx context.Context, userID, datasetID, c
 
 func (s *EvaluationService) StartRun(
 	ctx context.Context,
-	userID, datasetID, name, dialogID, judgeLLMID, judgeEmbdID string,
+	userID, datasetID, name, dialogID, llmID, judgeLLMID, judgeEmbdID string,
 	metrics []string,
 ) (*entity.EvaluationRun, error) {
 	if _, err := s.GetDataset(ctx, userID, datasetID); err != nil {
@@ -270,6 +270,9 @@ func (s *EvaluationService) StartRun(
 	if err := checkChatPermission(ctx, nil, userID, dialogID, permission.OperationRun); err != nil {
 		return nil, err
 	}
+	llmID = strings.TrimSpace(llmID)
+	judgeLLMID = strings.TrimSpace(judgeLLMID)
+	judgeEmbdID = strings.TrimSpace(judgeEmbdID)
 	name = strings.TrimSpace(name)
 	if name == "" {
 		name = fmt.Sprintf("run-%d", time.Now().Unix())
@@ -289,6 +292,7 @@ func (s *EvaluationService) StartRun(
 		Name:      name,
 		ConfigSnapshot: entity.JSONMap{
 			"dialog_id":     dialogID,
+			"llm_id":        llmID,
 			"judge_llm_id":  judgeLLMID,
 			"judge_embd_id": judgeEmbdID,
 			"metrics":       metricAny,
@@ -306,13 +310,13 @@ func (s *EvaluationService) StartRun(
 		return nil, err
 	}
 	workerCtx := context.WithoutCancel(ctx)
-	go s.runWorker(workerCtx, userID, tenantID, run.ID, datasetID, dialogID, judgeLLMID, judgeEmbdID, metrics)
+	go s.runWorker(workerCtx, userID, tenantID, run.ID, datasetID, dialogID, llmID, judgeLLMID, judgeEmbdID, metrics)
 	return run, nil
 }
 
 func (s *EvaluationService) runWorker(
 	ctx context.Context,
-	userID, tenantID, runID, datasetID, dialogID, judgeLLMID, judgeEmbdID string,
+	userID, tenantID, runID, datasetID, dialogID, llmID, judgeLLMID, judgeEmbdID string,
 	metrics []string,
 ) {
 	fail := func(msg string) {
@@ -349,6 +353,11 @@ func (s *EvaluationService) runWorker(
 		return
 	}
 
+	if err := s.preflightDialogChatModel(ctx, tenantID, dialogID, llmID); err != nil {
+		fail(err.Error())
+		return
+	}
+
 	scorer := newRagasScorer(s.factory, tenantID, judgeLLMID, judgeEmbdID)
 	sums := map[string]float64{}
 	counts := map[string]int{}
@@ -362,22 +371,35 @@ func (s *EvaluationService) runWorker(
 		result, err := s.chatSession.ChatCompletions(
 			ctx, userID, dialogID, "",
 			[]map[string]any{{"role": "user", "content": caze.Question}},
-			"", nil, "", nil,
+			"", nil, llmID, nil,
 			map[string]any{"store_history_messages": false},
 			false, false, nil,
 		)
 		answer := ""
 		var ref map[string]any
-		if err != nil {
+		if err == nil && result != nil {
+			answer, _ = result["answer"].(string)
+			ref, _ = result["reference"].(map[string]any)
+		}
+		if err != nil || isChatPipelineErrorAnswer(answer) {
+			chatErr := ""
+			if err != nil {
+				chatErr = err.Error()
+			} else {
+				chatErr = strings.TrimSpace(strings.TrimPrefix(answer, "**ERROR**:"))
+				if chatErr == "" {
+					chatErr = answer
+				}
+			}
 			execSec := time.Since(started).Seconds()
 			metricsMap := entity.JSONMap{
-				"errors": map[string]string{"chat": err.Error()},
+				"errors": map[string]string{"chat": chatErr},
 			}
 			row := &entity.EvaluationResult{
 				ID:              common.GenerateUUID(),
 				RunID:           runID,
 				CaseID:          caze.ID,
-				GeneratedAnswer: "",
+				GeneratedAnswer: answer,
 				RetrievedChunks: entity.JSONMap{"contexts": []string{}},
 				Metrics:         metricsMap,
 				ExecutionTime:   execSec,
@@ -385,10 +407,6 @@ func (s *EvaluationService) runWorker(
 			}
 			_ = s.db.WithContext(ctx).Create(row).Error
 			continue
-		}
-		if result != nil {
-			answer, _ = result["answer"].(string)
-			ref, _ = result["reference"].(map[string]any)
 		}
 		contexts := extractContextsFromReference(ref)
 		payload := prepareScoringPayload(caze.Question, answer, contexts, gt)
@@ -490,4 +508,39 @@ func (s *EvaluationService) ListResults(ctx context.Context, userID, runID strin
 		Order("create_time ASC").
 		Find(&rows).Error
 	return rows, err
+}
+
+func isChatPipelineErrorAnswer(answer string) bool {
+	return strings.HasPrefix(strings.TrimSpace(answer), "**ERROR**")
+}
+
+// preflightDialogChatModel fails the run early when the chat model cannot be
+// resolved, instead of scoring N pipeline "**ERROR**" answers. llmID overrides
+// the dialog default (same as ChatCompletions per-turn llm_id).
+func (s *EvaluationService) preflightDialogChatModel(ctx context.Context, tenantID, dialogID, llmID string) error {
+	if s.factory == nil {
+		return fmt.Errorf("model factory not configured")
+	}
+	modelRef := strings.TrimSpace(llmID)
+	if modelRef == "" {
+		var chat entity.Chat
+		if err := s.db.WithContext(ctx).Where("id = ?", dialogID).Take(&chat).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("dialog %s not found", dialogID)
+			}
+			return err
+		}
+		modelRef = strings.TrimSpace(chat.LLMID)
+		if chat.TenantLLMID != nil && strings.TrimSpace(*chat.TenantLLMID) != "" {
+			modelRef = strings.TrimSpace(*chat.TenantLLMID)
+		}
+	}
+	if modelRef == "" {
+		return fmt.Errorf("dialog %s has empty llm_id; select llm_id for the run", dialogID)
+	}
+	_, err := s.factory.NewChatModel(ctx, ModelAccess{TenantID: tenantID}, modelRef)
+	if err != nil {
+		return fmt.Errorf("chat model unavailable (%s): %w", modelRef, err)
+	}
+	return nil
 }
