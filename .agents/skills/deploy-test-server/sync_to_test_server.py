@@ -32,7 +32,7 @@ GO_PACKAGE_INCLUDE = (
     "cmd",
     "internal",
     "locales",
-    "ragflow_deps/download_deps.py",
+    "deps/download_deps.py",
 )
 DEFAULT_REMOTE_BUILD_DIR = "/data/src/ragflow-build"
 DEFAULT_RUNNER_IMAGE = "docker.m.daocloud.io/infiniflow/github_action_runner:latest"

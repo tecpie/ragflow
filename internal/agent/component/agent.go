@@ -79,23 +79,22 @@ type AgentComponent struct {
 
 // AgentParam captures the (resolved) DSL parameters for an Agent node.
 type AgentParam struct {
-	ModelID                  string
-	Description              string
-	SystemPrompt             string
-	UserPrompt               string
-	OutputStructure          map[string]any
-	Thinking                 string
-	MaxTokens                *int
-	TopP                     *float64
-	Temperature              *float64
-	Tools                    []string                  // Agent-visible tool names resolved into Eino BaseTool instances
-	ToolParams               map[string]map[string]any // node-level tool constructor params keyed by tool name
+	ModelID      string
+	Description  string
+	SystemPrompt string
+	UserPrompt   string
+	Thinking     string
+	MaxTokens    *int
+	TopP         *float64
+	Temperature  *float64
+	Tools        []string                  // Agent-visible tool names resolved into Eino BaseTool instances
+	ToolParams   map[string]map[string]any // node-level tool constructor params keyed by tool name
 	// ToolCanvasNames is parallel to Tools: canvas node "name" for each
 	// tool object (empty when the tool was a bare string). Used to label
 	// <tool_call> verbose output with human-readable display names.
-	ToolCanvasNames []string
-	SubAgents       []SubAgentTool
-	MCP             any // Saved MCP selections, decoded and validated when tools are built.
+	ToolCanvasNames          []string
+	SubAgents                []SubAgentTool
+	MCP                      any // Saved MCP selections, decoded and validated when tools are built.
 	ToolTimeout              time.Duration
 	MaxRounds                int
 	MessageHistoryWindowSize int // number of prior conversation turns to include; zero disables history

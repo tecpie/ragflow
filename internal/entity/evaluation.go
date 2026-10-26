@@ -19,12 +19,12 @@ package entity
 // EvaluationDataset evaluation dataset model
 // Note: Python defines custom create_time/update_time (not null) instead of using BaseModel's
 type EvaluationDataset struct {
-	ID          string  `gorm:"column:id;primaryKey;size:32" json:"id"`
-	TenantID    string  `gorm:"column:tenant_id;size:32;not null;index" json:"tenant_id"`
-	Name        string  `gorm:"column:name;size:255;not null;index" json:"name"`
-	Description *string `gorm:"column:description;type:longtext" json:"description,omitempty"`
-	KbIDs       JSONMap `gorm:"column:kb_ids;type:longtext;not null" json:"kb_ids"`
-	CreatedBy   string  `gorm:"column:created_by;size:32;not null;index" json:"created_by"`
+	ID          string    `gorm:"column:id;primaryKey;size:32" json:"id"`
+	TenantID    string    `gorm:"column:tenant_id;size:32;not null;index" json:"tenant_id"`
+	Name        string    `gorm:"column:name;size:255;not null;index" json:"name"`
+	Description *string   `gorm:"column:description;type:longtext" json:"description,omitempty"`
+	KbIDs       JSONSlice `gorm:"column:kb_ids;type:longtext;not null" json:"kb_ids"`
+	CreatedBy   string    `gorm:"column:created_by;size:32;not null;index" json:"created_by"`
 	// Custom time fields (not null) to match Python
 	CreateTime int64 `gorm:"column:create_time;not null;index" json:"create_time"`
 	UpdateTime int64 `gorm:"column:update_time;not null" json:"update_time"`
@@ -39,13 +39,13 @@ func (EvaluationDataset) TableName() string {
 // EvaluationCase evaluation case model
 // Note: Python defines custom create_time (not null) instead of using BaseModel's
 type EvaluationCase struct {
-	ID               string   `gorm:"column:id;primaryKey;size:32" json:"id"`
-	DatasetID        string   `gorm:"column:dataset_id;size:32;not null;index" json:"dataset_id"`
-	Question         string   `gorm:"column:question;type:longtext;not null" json:"question"`
-	ReferenceAnswer  *string  `gorm:"column:reference_answer;type:longtext" json:"reference_answer,omitempty"`
-	RelevantDocIDs   *JSONMap `gorm:"column:relevant_doc_ids;type:longtext" json:"relevant_doc_ids,omitempty"`
-	RelevantChunkIDs *JSONMap `gorm:"column:relevant_chunk_ids;type:longtext" json:"relevant_chunk_ids,omitempty"`
-	Metadata         *JSONMap `gorm:"column:metadata;type:longtext" json:"metadata,omitempty"`
+	ID               string     `gorm:"column:id;primaryKey;size:32" json:"id"`
+	DatasetID        string     `gorm:"column:dataset_id;size:32;not null;index" json:"dataset_id"`
+	Question         string     `gorm:"column:question;type:longtext;not null" json:"question"`
+	ReferenceAnswer  *string    `gorm:"column:reference_answer;type:longtext" json:"reference_answer,omitempty"`
+	RelevantDocIDs   *JSONSlice `gorm:"column:relevant_doc_ids;type:longtext" json:"relevant_doc_ids,omitempty"`
+	RelevantChunkIDs *JSONSlice `gorm:"column:relevant_chunk_ids;type:longtext" json:"relevant_chunk_ids,omitempty"`
+	Metadata         *JSONMap   `gorm:"column:metadata;type:longtext" json:"metadata,omitempty"`
 	// Custom time field (not null) to match Python
 	CreateTime int64 `gorm:"column:create_time;not null" json:"create_time"`
 }

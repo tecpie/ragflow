@@ -341,7 +341,7 @@ func validateAgentToolEntries(raw any, draft bool) error {
 		case string:
 			incomplete = strings.TrimSpace(tool) == ""
 		case map[string]any:
-			_, _, ok := agentToolObject(tool)
+			_, _, _, ok := agentToolObject(tool)
 			incomplete = !ok
 		default:
 			return errors.New("tools entries must be strings or objects")

@@ -59,6 +59,7 @@ type Router struct {
 	compilationTemplateGroupHandler *handler.CompilationTemplateGroupHandler
 	datasetArtifactHandler          *handler.DatasetArtifactHandler
 	ontologyHandler                 *handler.OntologyHandler
+	evaluationHandler               *handler.EvaluationHandler
 }
 
 // NewRouter create router
@@ -97,6 +98,7 @@ func NewRouter(
 	compilationTemplateGroupHandler *handler.CompilationTemplateGroupHandler,
 	datasetArtifactHandler *handler.DatasetArtifactHandler,
 	ontologyHandler *handler.OntologyHandler,
+	evaluationHandler *handler.EvaluationHandler,
 ) *Router {
 	return &Router{
 		authHandler:          authHandler,
@@ -134,6 +136,7 @@ func NewRouter(
 		compilationTemplateGroupHandler: compilationTemplateGroupHandler,
 		datasetArtifactHandler:          datasetArtifactHandler,
 		ontologyHandler:                 ontologyHandler,
+		evaluationHandler:               evaluationHandler,
 	}
 }
 
@@ -630,6 +633,22 @@ func (r *Router) Setup(engine *gin.Engine) {
 			v1.DELETE("/ontologies/:ontology_id", r.ontologyHandler.Delete)
 			v1.GET("/ontologies/:ontology_id/playground", r.ontologyHandler.Playground)
 			v1.GET("/ontologies/:ontology_id/export.rdf", r.ontologyHandler.ExportRDFXML)
+
+			evaluations := v1.Group("/evaluations", ToggleEvaluation())
+			{
+				evaluations.GET("/datasets", r.evaluationHandler.ListDatasets)
+				evaluations.POST("/datasets", r.evaluationHandler.CreateDataset)
+				evaluations.GET("/datasets/:dataset_id", r.evaluationHandler.GetDataset)
+				evaluations.DELETE("/datasets/:dataset_id", r.evaluationHandler.DeleteDataset)
+				evaluations.GET("/datasets/:dataset_id/cases", r.evaluationHandler.ListCases)
+				evaluations.POST("/datasets/:dataset_id/cases", r.evaluationHandler.AddCase)
+				evaluations.POST("/datasets/:dataset_id/cases/import", r.evaluationHandler.ImportCases)
+				evaluations.DELETE("/datasets/:dataset_id/cases/:case_id", r.evaluationHandler.DeleteCase)
+				evaluations.GET("/datasets/:dataset_id/runs", r.evaluationHandler.ListRuns)
+				evaluations.POST("/datasets/:dataset_id/runs", r.evaluationHandler.StartRun)
+				evaluations.GET("/runs/:run_id", r.evaluationHandler.GetRun)
+				evaluations.GET("/runs/:run_id/results", r.evaluationHandler.ListResults)
+			}
 
 			connectors := v1.Group("/connectors")
 			{
