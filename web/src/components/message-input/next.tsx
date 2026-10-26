@@ -41,7 +41,11 @@ import * as React from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import storage from '@/utils/authorization-util';
+import {
+  setThinkingLevel,
+  ThinkingMode,
+  useThinkingLevel,
+} from '@/hooks/use-thinking-level';
 import { SelectWithSearch } from '../originui/select-with-search';
 import { AudioButton } from '../ui/audio-button';
 
@@ -102,9 +106,7 @@ export function NextMessageInput({
     null,
   );
 
-  const [enableThinking, setEnableThinking] = useState(() =>
-    storage.getThinkingLevel(),
-  );
+  const enableThinking = useThinkingLevel();
   const [enableModelThinking, setEnableModelThinking] = useState(false);
   const [enableInternet, setEnableInternet] = useState(false);
 
@@ -171,8 +173,11 @@ export function NextMessageInput({
   ];
 
   const handleThinkingChange = useCallback((value: string) => {
-    setEnableThinking(value);
-    storage.setThinkingLevel(value);
+    setThinkingLevel(
+      value === ThinkingMode.Agentic
+        ? ThinkingMode.Agentic
+        : ThinkingMode.Naive,
+    );
   }, []);
 
   const handleModelThinkingToggle = useCallback(() => {

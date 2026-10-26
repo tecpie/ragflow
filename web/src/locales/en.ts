@@ -415,6 +415,12 @@ Example: A 1 KB message with 1024-dim embedding uses ~9 KB. The 5 MB default lim
         '{{name}} ({{fileType}}): not supported by the current parser configuration; it will automatically switch to the built-in {{parser}} configuration',
       fileTypeUnsupportedManualSwitch:
         '{{name}} ({{fileType}}): not supported by the current parser configuration; switch its parsing method manually after upload',
+      fileTypeVideoUnsupported:
+        '{{name}} ({{fileType}}): video files cannot be parsed yet',
+      videoUnsupportedAfterUploadHint:
+        'You can continue uploading, but video files cannot be parsed yet and will not be processed.',
+      videoUnsupportedParseHint:
+        'Video files cannot be parsed yet. Delete this file or convert it to a supported format.',
       reselectParserAfterUploadHint:
         'Continue uploading, then system will automatically switch these files to a supported built-in parsing configuration.',
       manualSwitchAfterUploadHint:
@@ -498,6 +504,8 @@ Example: A 1 KB message with 1024-dim embedding uses ~9 KB. The 5 MB default lim
       applyAutoMetadataSettings: 'Apply global auto-metadata settings',
       parseFileTip: 'Are you sure to parse?',
       clearChunksReparseTip: 'Are you sure to clear chunks to re-parse?',
+      parserConfigReparseTip:
+        'Existing chunks were generated using the previous parser settings. Would you like to clear them and re-parse this document using the saved settings?',
       parseFile: 'Parse file',
       emptyMetadata: 'No metadata',
       metadataField: 'Metadata field',
@@ -568,7 +576,7 @@ Example: A 1 KB message with 1024-dim embedding uses ~9 KB. The 5 MB default lim
       webCrawl: 'Web crawl',
       chunkNumber: 'Chunks',
       uploadDate: 'Upload date',
-      chunkMethod: 'Chunking method',
+      parsingMode: 'Parsing mode',
       enabled: 'Enable',
       disabled: 'Disable',
       action: 'Action',
@@ -714,9 +722,10 @@ Example: A 1 KB message with 1024-dim embedding uses ~9 KB. The 5 MB default lim
         'Method for parsing PDF: auto (automatic detection), txt (text extraction), ocr (optical character recognition)',
       mineruFormulaEnable: 'Formula recognition',
       mineruFormulaEnableTip:
-        'Enable formula recognition. Note: This may not work correctly for Cyrillic documents.',
+        'For /file_parse, enable formula recognition. Hybrid backends apply this switch to inline formulas only; block formulas remain enabled. V1 does not support disabling this option.',
       mineruTableEnable: 'Table recognition',
-      mineruTableEnableTip: 'Enable table recognition and extraction.',
+      mineruTableEnableTip:
+        'For /file_parse, enable table recognition and extraction. V1 does not support disabling this option.',
       paddleocrOptions: 'PaddleOCR Options',
       paddleocrApiUrl: 'PaddleOCR API URL',
       paddleocrApiUrlTip: 'The API endpoint URL for PaddleOCR service',
@@ -767,9 +776,11 @@ Example: A 1 KB message with 1024-dim embedding uses ~9 KB. The 5 MB default lim
       dataFlowPlaceholder: 'Please select a pipeline.',
       buildItFromScratch: 'Build it from scratch',
       dataFlow: 'Pipeline',
-      parseType: 'Parse mode',
+      parsingMode: 'Parsing mode',
       manualSetup: 'Custom ingestion pipeline',
       builtIn: 'Built-in parsing template',
+      parserSettingsChangeWarning:
+        'Updated parser settings apply only to newly uploaded files. To apply these settings to existing files, update their parser settings and re-parse them.',
       noConfigChunkerHint:
         'The built-in {{name}} parser handles chunking automatically, so no additional configuration is required.',
       titleDescription:
@@ -791,8 +802,6 @@ Example: A 1 KB message with 1024-dim embedding uses ~9 KB. The 5 MB default lim
         "If it is set to 'Team', all your team members will be able to manage the dataset.",
       chunkTokenNumberTip:
         'It kind of sets the token threshold for a creating a chunk. A segment with fewer tokens than this threshold will be combined with the following segments until the token count exceeds the threshold, at which point a chunk is created. No new chunk is created unless a delimiter is encountered, even if the threshold is exceeded.',
-      chunkMethod: 'Chunking method',
-      chunkMethodTip: 'View the tips on the right.',
       upload: 'Upload',
       english: 'English',
       chinese: 'Chinese',
@@ -1146,6 +1155,11 @@ This auto-tagging feature enhances retrieval by adding another layer of domain-s
       operation: 'Operation',
       model: 'Model',
       modelTip: 'Large language chat model',
+      tokensSpent: '{{total}} tokens ({{prompt}} in + {{completion}} out)',
+      turnElapsed: '{{seconds}}s',
+      decisionModel: 'Decision model',
+      decisionModelTip:
+        'Judges whether a retrieved passage is worth showing the model. Leave empty to follow the default set in Settings.',
       modelMessage: 'Please select!',
       modelEnabledTools: 'Enabled tools',
       modelEnabledToolsTip:
@@ -1193,6 +1207,13 @@ This auto-tagging feature enhances retrieval by adding another layer of domain-s
       failoverModelsEmpty:
         'No fallback model. Add at least one so a provider failure can be survived.',
       failoverModelsAdd: 'Add a fallback model',
+      naiveSettings: 'Naive',
+      agenticSettings: 'Agentic',
+      agenticTemplate: 'Agentic template',
+      agenticTemplateTip:
+        'The system template the agentic RAG agent runs with. Editing it overrides the shipped default for this chat; reset to restore it.',
+      agenticTemplateTooLong: 'Template must be at most 32768 characters',
+      resetToDefault: 'Reset to default',
       thinkingTip:
         'Only controls thinking mode for official Qwen, Kimi, and GLM model providers. System default disables Qwen thinking to avoid long-running tasks.',
       quote: 'Show citations',
@@ -1332,8 +1353,6 @@ This auto-tagging feature enhances retrieval by adding another layer of domain-s
       },
       cancel: 'Cancel',
       chatSetting: 'Chat setting',
-      tocEnhance: 'PageIndex',
-      tocEnhanceTip: `During the parsing of the document, table of contents information was generated (see the 'Enable Table of Contents Extraction' option in the General method). This allows the large model to return table of contents items relevant to the user's query, thereby using these items to retrieve related chunks and apply weighting to these chunks during the sorting process. This approach mimics human information-searching behavior in books.`,
       batchDeleteSessions: 'Batch delete',
       deleteSelectedConfirm: 'Delete the selected {{count}} session(s)?',
     },
@@ -2198,6 +2217,9 @@ Example: Virtual Hosted Style`,
       models: 'Models',
       chatModel: 'LLM',
       chatModelTip: 'The default LLM for each newly created dataset.',
+      decisionModel: 'Decision model',
+      decisionModelTip:
+        'The model that judges whether a retrieved passage is worth showing the LLM. Leave unset to keep the retrieved text unfiltered.',
       embeddingModel: 'Embedding',
       embeddingModelTip:
         'The default embedding model for each newly created dataset. If you cannot find an embedding model from the dropdown, check if you are using RAGFlow slim edition (which does not include embedding models) or check the Model providers page to see if your model provider supports this model.',
@@ -2796,7 +2818,15 @@ Best for: Documents with flowing, contextually connected content — such as boo
         'Use a vision model to parse image and table blocks; when off, they are treated as plain text.',
       imageOcr: 'OCR',
       imageOcrTip:
-        'Extract text from uploaded images locally. Vision enhancement adds descriptions independently of this switch.',
+        'Extract text from uploaded images with local OCR or the selected PaddleOCR model. Vision enhancement adds descriptions independently of this switch.',
+      imageOcrModel: 'OCR model',
+      imageOcrLocal: 'DeepDoc',
+      imageOcrModelTip:
+        'Choose DeepDoc for local OCR, or an added PaddleOCR or PaddleOCR.local model. Turning OCR off keeps this choice but skips OCR; SVG text is read directly.',
+      imageOcrModelsError:
+        'Could not load OCR models. Your selection is unchanged. Try again later, or choose DeepDoc for local OCR.',
+      imageOcrNoModels:
+        'No PaddleOCR models added. Use DeepDoc for local OCR, or add a PaddleOCR model in model settings.',
       imageTextSourceRequired:
         'Images need a text source: keep OCR or vision enhancement on.',
       visionEnhancementPromptTip:
@@ -2904,6 +2934,12 @@ Best for: Documents with flowing, contextually connected content — such as boo
         'Output the variable content of the upstream component or the text entered by yourself.',
       messagePlaceholder: `Please enter your message content, use '/' to quickly insert variables.`,
       messageMsg: 'Message cannot be empty',
+      aggregationIncomplete: 'Complete every aggregation group and variable',
+      inputOptionsIncomplete: 'Dropdown options cannot contain empty entries',
+      dataOperationsEntriesIncomplete:
+        'Complete all data operation entries before running',
+      invokeVariablesIncomplete:
+        'Complete all variable mappings before running',
       addField: 'Add option',
       addMessage: 'Add message',
       loop: 'Loop',
@@ -2929,7 +2965,6 @@ Best for: Documents with flowing, contextually connected content — such as boo
       generateDescription: `A component that prompts the LLM to generate responses. Ensure the prompt is set correctly.`,
       categorizeDescription: `A component that uses the LLM to classify user inputs into predefined categories. Ensure you specify the name, description, and examples for each category, along with the corresponding next component.`,
       relevantDescription: `A component that uses the LLM to assess whether the upstream output is relevant to the user's latest query. Ensure you specify the next component for each judge result.`,
-      rewriteQuestionDescription: `A component that rewrites a user query from the Interact component, based on the context of previous dialogues.`,
       messageDescription:
         'This component returns the final data output of the workflow along with predefined message content. ',
       keywordDescription: `A component that retrieves top N search results from user's input. Ensure the TopN value is set properly before use.`,
@@ -2944,8 +2979,6 @@ Best for: Documents with flowing, contextually connected content — such as boo
       generate: 'Generate',
       answer: 'Interact',
       categorize: 'Categorize',
-      rewriteQuestion: 'Rewrite',
-      rewrite: 'Rewrite',
       begin: 'Begin',
       message: 'Message',
       blank: 'Blank',
@@ -3405,7 +3438,7 @@ This delimiter is used to split the input text into several text pieces echo of 
       userPrompt: 'User prompt',
       tagFile: 'Tag file',
       tagFileTip:
-        'Automatically extracts up to N relevant tags for each chunk based on the selected tag file to improve retrieval accuracy. Tag extraction may invoke a model and consume additional tokens. If extraction fails, the original chunk will be preserved. For details, see https://ragflow.io/docs/dataset_configuration#content-enhancement-configuration.',
+        'Automatically extracts up to N relevant tags per chunk to improve retrieval accuracy. Supports XLSX, XLS, CSV, and TXT files, with two columns for text and tags. Separate multiple tags with commas. No header required. Tag extraction may consume additional tokens. The original chunk is preserved if extraction fails. For details, see https://ragflow.io/docs/dataset_configuration#content-enhancement-configuration.',
       addCategory: 'Add category',
       categoryName: 'Category name',
       nextStep: 'Next step',
@@ -3596,6 +3629,7 @@ This process aggregates variables from multiple branches into a single variable 
       nodeFormInvalid: 'Invalid settings, please fix them first',
       apiKeyRequired: 'Please enter the API Key',
       apiKeyMissing: 'No API key configured, please enter one first',
+      agentToolsMissing: 'Agent tools contain an empty entry',
       agentModelMissing: 'No model selected, please choose one first',
       extractorModelMissing: 'No model selected, please choose one first',
       extractorKeywordsTopNMissing:
@@ -3610,10 +3644,11 @@ This process aggregates variables from multiple branches into a single variable 
       retrievalMemoryMissing: 'No memories selected, please choose them first',
       checklist: 'Checklist',
       checklistEmpty: 'No issues found',
-      checklistTitle:
-        'Resolve the following issues before running or publishing',
-      checklistResolveBefore:
-        'Please resolve the issues in the checklist first',
+      checklistTitle: 'The following issues may affect running or publishing',
+      loopRowsIncomplete:
+        'Complete the loop variables and termination conditions',
+      iterationOutputsIncomplete:
+        'Complete the iteration output names and references',
       issueNotConnected: 'This step is not connected to anything',
       issueVariableInvalid: 'Invalid variable: {{variable}}',
       memoryUnavailable:
@@ -3807,6 +3842,20 @@ Important structured information may include: names, dates, locations, events, k
       variableAssignerParameterMissing: 'Parameter is required',
       webhook: {
         name: 'Webhook',
+        endpoint: 'Endpoint',
+        testEndpoint: 'Test endpoint',
+        personalUrl: 'Personal webhook URL',
+        credentialDescription:
+          'Anyone with this URL can run the agent as you. Keep it secret; creating a new URL invalidates the old one.',
+        createCredential: 'Create or rotate URL',
+        revokeCredential: 'Revoke my URL',
+        credentialCreated:
+          'Webhook URL created. Copy and store it now; it will not be shown again after you leave this page.',
+        credentialRevoked: 'Webhook URL revoked.',
+        credentialRequestFailed: 'Unable to update the webhook URL.',
+        revokeCredentialTitle: 'Revoke your webhook URL?',
+        revokeCredentialDescription:
+          'Requests using this URL will stop working. You can create a new URL at any time.',
         methods: 'Methods',
         contentTypes: 'Content types',
         security: 'Security',

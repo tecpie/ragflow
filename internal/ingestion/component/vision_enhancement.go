@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"image"
 	"io"
+	"maps"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -62,6 +63,56 @@ const (
 	visionChatTimeout     = 30 * time.Second
 	visionMediaItemBudget = 10 * time.Second
 )
+
+// backendDescribedKey marks items whose text already carries a backend-provided
+// vision description (MinerU folds vlm_description into text). The vision
+// enhancement collector skips such items to avoid appending a second model
+// description and spending an extra VLM call. The key is stripped before the
+// result leaves the Parser component so it never reaches the chunker or index.
+const backendDescribedKey = "_backend_described"
+
+func isBackendDescribed(m map[string]any) bool {
+	v, _ := m[backendDescribedKey].(bool)
+	return v
+}
+
+// stripBackendDescribedResult removes the transient backend-description marker
+// from every item. Enhancement skips marked items, but the marker must not leak
+// to the chunker when enhancement is disabled or bails out early.
+func stripBackendDescribedResult(result parser.ParseResult) parser.ParseResult {
+	if len(result.JSON) == 0 {
+		return result
+	}
+	needsStrip := false
+	for _, item := range result.JSON {
+		if item == nil {
+			continue
+		}
+		if _, ok := item.ToMap()[backendDescribedKey]; ok {
+			needsStrip = true
+			break
+		}
+	}
+	if !needsStrip {
+		return result
+	}
+	stripped := make([]parser.DocItem, 0, len(result.JSON))
+	for _, item := range result.JSON {
+		if item == nil {
+			continue
+		}
+		m := item.ToMap()
+		if _, ok := m[backendDescribedKey]; !ok {
+			stripped = append(stripped, item)
+			continue
+		}
+		cloned := maps.Clone(m)
+		delete(cloned, backendDescribedKey)
+		stripped = append(stripped, parser.DocItemFromMap(cloned))
+	}
+	result.JSON = stripped
+	return result
+}
 
 type visionEnhanceTarget struct {
 	idx  int
@@ -151,9 +202,10 @@ func maybeDispatchVisionEnhancement(
 ) (parser.ParseResult, bool, error) {
 	w := window
 
-	// Only enhance successful JSON output format containing items.
-	if dispatched.Err != nil || dispatched.OutputFormat != "json" || len(dispatched.JSON) == 0 {
-		return dispatched, false, nil
+	// Only enhance successful results that carry JSON items. Produced()
+	// replaces the historical OutputFormat != "json" check.
+	if dispatched.Err != nil || len(dispatched.JSON) == 0 {
+		return stripBackendDescribedResult(dispatched), false, nil
 	}
 
 	tenantID := getStringOr(inputs, "tenant_id", "")
@@ -170,7 +222,7 @@ func maybeDispatchVisionEnhancement(
 	// is enabled still carry an inline image payload.
 	targets := collectVisionEnhanceTargets(dispatched.JSON, tableVisionOn, signatureVisionOn)
 	if len(targets) == 0 {
-		return dispatched, false, nil
+		return stripBackendDescribedResult(dispatched), false, nil
 	}
 	// Resolve VLM before materializing image payloads, so disabled or
 	// unavailable enhancement does not spend time loading media.
@@ -207,7 +259,7 @@ func maybeDispatchVisionEnhancement(
 			}
 		}
 		dispatched.Warnings = append(dispatched.Warnings, warning)
-		return dispatched, false, nil
+		return stripBackendDescribedResult(dispatched), false, nil
 	}
 
 	// Prepare PDF sources outside image admission so slow storage reads do not
@@ -216,7 +268,7 @@ func maybeDispatchVisionEnhancement(
 	cropper, cerr := visionImageCropperFactory(ctx, db, inputs)
 	if cerr != nil {
 		dispatched.Warnings = append(dispatched.Warnings, fmt.Sprintf("vision enhancement skipped: %v", cerr))
-		return dispatched, false, nil
+		return stripBackendDescribedResult(dispatched), false, nil
 	}
 	// Close is invoked explicitly after materialization so the engine and the
 	// source bytes are released while model requests are still in flight. Keep
@@ -358,7 +410,7 @@ func maybeDispatchVisionEnhancement(
 	}
 	wg.Wait()
 	if err := ctx.Err(); err != nil {
-		return dispatched, modified, err
+		return stripBackendDescribedResult(dispatched), modified, err
 	}
 	w.Report(ctx, 1.0)
 	failedItems := 0
@@ -379,22 +431,47 @@ func maybeDispatchVisionEnhancement(
 			zap.Int("failed_items", failedItems), zap.String("first_failure", firstFailure))
 	}
 
-	// Append (or replace, for label-only signature lines) VLM transcriptions.
+	// Candidate indices are in document order. Build output once so a table's
+	// description can follow it without changing later candidates' indices.
+	// Signature lines replace label-only OCR; table structs get a note item;
+	// the transient backend-description marker is stripped from every emitted item.
+	targetSlot := make(map[int]int, len(targets))
 	for slot, target := range targets {
-		desc := strings.TrimSpace(descriptions[slot])
-		if desc == "" {
+		targetSlot[target.idx] = slot
+	}
+	enhanced := make([]parser.DocItem, 0, len(dispatched.JSON)+len(targets))
+	for itemIdx, item := range dispatched.JSON {
+		clean := item
+		if m := item.ToMap(); isBackendDescribed(m) {
+			cloned := maps.Clone(m)
+			delete(cloned, backendDescribedKey)
+			clean = parser.DocItemFromMap(cloned)
+		}
+		slot, ok := targetSlot[itemIdx]
+		if !ok {
+			enhanced = append(enhanced, clean)
 			continue
 		}
-		item := dispatched.JSON[target.idx].ToMap()
-		if target.kind == visionKindSignature {
-			existing, _ := item["text"].(string)
-			item["text"] = mergeSignatureVisionText(existing, desc)
-		} else {
-			appendItemText(item, desc)
+		desc := strings.TrimSpace(descriptions[slot])
+		if desc == "" {
+			enhanced = append(enhanced, clean)
+			continue
 		}
-		dispatched.JSON[target.idx] = parser.DocItemFromMap(item)
+		m := maps.Clone(clean.ToMap())
+		target := targets[slot]
+		if target.kind == visionKindSignature {
+			existing, _ := m["text"].(string)
+			m["text"] = mergeSignatureVisionText(existing, desc)
+			enhanced = append(enhanced, parser.DocItemFromMap(m))
+		} else if table, ok := m["table"].(*entity.TableData); ok && table != nil && m["doc_type_kwd"] == "table" {
+			enhanced = append(enhanced, clean, parser.NewTableNoteItem(m, desc))
+		} else {
+			appendItemText(m, desc)
+			enhanced = append(enhanced, parser.DocItemFromMap(m))
+		}
 		modified = true
 	}
+	dispatched.JSON = enhanced
 
 	return dispatched, modified, nil
 }
@@ -411,6 +488,9 @@ func collectVisionEnhanceTargets(items []parser.DocItem, tableVisionOn, signatur
 	}
 	for i, raw := range items {
 		item := raw.ToMap()
+		if isBackendDescribed(item) {
+			continue
+		}
 		kd, _ := item["doc_type_kwd"].(string)
 		if img, _ := item["image"].(string); img != "" {
 			kind := visionKindFigure
@@ -425,14 +505,14 @@ func collectVisionEnhanceTargets(items []parser.DocItem, tableVisionOn, signatur
 		}
 		switch kd {
 		case "image":
-			if _, ok := parser.ExtractPDFPositions(item); ok {
+			if parser.HasPDFCropRegion(item) {
 				add(i, visionKindFigure)
 			}
 		case "table":
 			if !tableVisionOn {
 				continue
 			}
-			if _, ok := parser.ExtractPDFPositions(item); ok {
+			if parser.HasPDFCropRegion(item) {
 				add(i, visionKindTable)
 			}
 		}
@@ -445,6 +525,9 @@ func collectVisionEnhanceTargets(items []parser.DocItem, tableVisionOn, signatur
 			continue
 		}
 		item := raw.ToMap()
+		if isBackendDescribed(item) {
+			continue
+		}
 		text, _ := item["text"].(string)
 		if !isSignatureLabelText(text) || alreadyHasSignatureName(text) {
 			continue

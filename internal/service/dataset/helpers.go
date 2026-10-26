@@ -206,7 +206,7 @@ func validateDatasetParserConfigSize(parserConfig map[string]interface{}) error 
 // not component-scoped (i.e. do not contain ":"), since the Go backend only
 // consumes keys keyed by a component id (e.g. "Parser:abc123" or
 // "Extractor:AutoExtractDefault"). Flat keys are legacy transport artifacts
-// that downstream consumers (CleanComponentParams) never read, so they are
+// that downstream consumers (BuildParserConfig) never read, so they are
 // dropped rather than rejected. compilation_template_group_id is kept: builtin
 // pipelines have no Compiler node, and the parse run reads this key to attach
 // one. Only top-level keys are affected; a key nested inside a component node

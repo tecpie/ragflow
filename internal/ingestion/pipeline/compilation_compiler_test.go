@@ -70,10 +70,13 @@ func TestAttachCompilationCompilerSkipsConfiguredPipeline(t *testing.T) {
 
 func TestBuildParserConfigKeepsCompilationGroup(t *testing.T) {
 	dsl := []byte(`{"components":{"Tokenizer:B":{"obj":{"component_name":"Tokenizer","params":{"fields":"text"}},"downstream":[],"upstream":[]}}}`)
-	result := BuildParserConfig(dsl, map[string]any{
+	result, err := BuildParserConfig(dsl, map[string]any{
 		"compilation_template_group_id": []any{"g1"},
 		"chunk_token_num":               128,
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	got, _ := result["compilation_template_group_id"].([]any)
 	if len(got) != 1 || got[0] != "g1" {
 		t.Fatalf("compilation_template_group_id = %#v", result["compilation_template_group_id"])

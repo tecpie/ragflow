@@ -145,7 +145,7 @@ func (h *FileHandler) ListFiles(c *gin.Context) {
 // @Tags file
 // @Accept json
 // @Produce json
-// @Param file_id query string true "file ID"
+// @Param id path string true "file ID"
 // @Success 200 {object} map[string]interface{}
 // @Router /api/v1/files/{id}/parent [get]
 func (h *FileHandler) GetParentFolder(c *gin.Context) {
@@ -156,8 +156,7 @@ func (h *FileHandler) GetParentFolder(c *gin.Context) {
 	}
 	userID := user.ID
 
-	// Get file_id from query
-	fileID := c.Query("file_id")
+	fileID := c.Param("id")
 	if fileID == "" {
 		common.ResponseWithCodeData(c, common.CodeBadRequest, nil, "file_id is required")
 		return
@@ -264,7 +263,11 @@ func (h *FileHandler) UploadFile(c *gin.Context) {
 		}
 		parentID := c.PostForm("parent_id")
 		if parentID == "" {
-			rootFolder, err := h.fileService.GetRootFolder(ctx, userID)
+			tenantID := strings.TrimSpace(c.GetString("tenant_id"))
+			if tenantID == "" {
+				tenantID = userID
+			}
+			rootFolder, err := h.fileService.GetRootFolder(ctx, tenantID)
 			if err != nil {
 				respondFileServiceError(c, err)
 				return
@@ -308,7 +311,11 @@ func (h *FileHandler) UploadFile(c *gin.Context) {
 
 		parentID := req.ParentID
 		if parentID == "" {
-			rootFolder, err := h.fileService.GetRootFolder(ctx, userID)
+			tenantID := strings.TrimSpace(c.GetString("tenant_id"))
+			if tenantID == "" {
+				tenantID = userID
+			}
+			rootFolder, err := h.fileService.GetRootFolder(ctx, tenantID)
 			if err != nil {
 				respondFileServiceError(c, err)
 				return

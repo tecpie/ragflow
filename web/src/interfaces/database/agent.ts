@@ -230,7 +230,6 @@ export type IRelevantNode = BaseNode;
 export type ILogicNode = BaseNode;
 export type INoteNode = BaseNode;
 export type IMessageNode = BaseNode;
-export type IRewriteNode = BaseNode;
 export type IInvokeNode = BaseNode;
 export type ITemplateNode = BaseNode;
 export type IEmailNode = BaseNode;
@@ -252,7 +251,6 @@ export type RAGFlowNodeType =
   | ILogicNode
   | INoteNode
   | IMessageNode
-  | IRewriteNode
   | IInvokeNode
   | ITemplateNode
   | IEmailNode
@@ -286,6 +284,7 @@ export interface IAgentLogResponse {
   reference: IReference[];
   name: string;
   version_title: string;
+  is_new?: boolean;
 }
 export interface IAgentLogsResponse {
   total: number;
@@ -342,4 +341,9 @@ export interface IWebhookTrace {
   events: any[];
   next_since_ts: number;
   finished: boolean;
+}
+
+export interface IAgentWebhookCredential {
+  credential: string;
+  webhook_url: string;
 }
