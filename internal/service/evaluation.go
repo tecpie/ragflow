@@ -21,8 +21,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
+	"golang.org/x/sync/errgroup"
 	"gorm.io/gorm"
 
 	"ragflow/internal/common"
@@ -37,6 +39,9 @@ const (
 	evalRunCompleted = "COMPLETED"
 	evalRunFailed    = "FAILED"
 	evalDatasetValid = int64(1)
+	// Bound concurrent case workers (chat + RAGAS judge). Higher values
+	// speed large runs but stress the LLM provider and RAG backend.
+	evalCaseConcurrency = 8
 )
 
 // EvaluationService manages evaluation datasets, cases, runs, and RAGAS scoring.
@@ -361,81 +366,86 @@ func (s *EvaluationService) runWorker(
 	scorer := newRagasScorer(s.factory, tenantID, judgeLLMID, judgeEmbdID)
 	sums := map[string]float64{}
 	counts := map[string]int{}
+	var mu sync.Mutex
 
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(evalCaseConcurrency)
 	for _, caze := range cases {
-		started := time.Now()
-		gt := ""
-		if caze.ReferenceAnswer != nil {
-			gt = *caze.ReferenceAnswer
-		}
-		result, err := s.chatSession.ChatCompletions(
-			ctx, userID, dialogID, "",
-			[]map[string]any{{"role": "user", "content": caze.Question}},
-			"", nil, llmID, nil,
-			map[string]any{"store_history_messages": false},
-			false, false, nil,
-		)
-		answer := ""
-		var ref map[string]any
-		if err == nil && result != nil {
-			answer, _ = result["answer"].(string)
-			ref, _ = result["reference"].(map[string]any)
-		}
-		if err != nil || isChatPipelineErrorAnswer(answer) {
-			chatErr := ""
-			if err != nil {
-				chatErr = err.Error()
-			} else {
-				chatErr = strings.TrimSpace(strings.TrimPrefix(answer, "**ERROR**:"))
-				if chatErr == "" {
-					chatErr = answer
+		caze := caze
+		g.Go(func() error {
+			started := time.Now()
+			gt := ""
+			if caze.ReferenceAnswer != nil {
+				gt = *caze.ReferenceAnswer
+			}
+			result, err := s.chatSession.ChatCompletions(
+				gctx, userID, dialogID, "",
+				[]map[string]any{{"role": "user", "content": caze.Question}},
+				"", nil, llmID, nil,
+				map[string]any{"store_history_messages": false},
+				false, false, nil,
+			)
+			answer := ""
+			var ref map[string]any
+			if err == nil && result != nil {
+				answer, _ = result["answer"].(string)
+				ref, _ = result["reference"].(map[string]any)
+			}
+			if err != nil || isChatPipelineErrorAnswer(answer) {
+				chatErr := ""
+				if err != nil {
+					chatErr = err.Error()
+				} else {
+					chatErr = strings.TrimSpace(strings.TrimPrefix(answer, "**ERROR**:"))
+					if chatErr == "" {
+						chatErr = answer
+					}
+				}
+				row := &entity.EvaluationResult{
+					ID:              common.GenerateUUID(),
+					RunID:           runID,
+					CaseID:          caze.ID,
+					GeneratedAnswer: answer,
+					RetrievedChunks: entity.JSONMap{"contexts": []string{}},
+					Metrics: entity.JSONMap{
+						"errors": map[string]string{"chat": chatErr},
+					},
+					ExecutionTime: time.Since(started).Seconds(),
+					CreateTime:    time.Now().UnixMilli(),
+				}
+				return s.db.WithContext(gctx).Create(row).Error
+			}
+			contexts := extractContextsFromReference(ref)
+			payload := prepareScoringPayload(caze.Question, answer, contexts, gt)
+			scores := scorer.scoreAll(gctx, payload, metrics)
+			mu.Lock()
+			for _, name := range metrics {
+				if v, ok := scores[name].(float64); ok {
+					sums[name] += v
+					counts[name]++
 				}
 			}
-			execSec := time.Since(started).Seconds()
-			metricsMap := entity.JSONMap{
-				"errors": map[string]string{"chat": chatErr},
+			mu.Unlock()
+			retrieved := entity.JSONMap{"contexts": payload.Contexts}
+			if ref != nil {
+				retrieved["reference"] = ref
 			}
 			row := &entity.EvaluationResult{
 				ID:              common.GenerateUUID(),
 				RunID:           runID,
 				CaseID:          caze.ID,
-				GeneratedAnswer: answer,
-				RetrievedChunks: entity.JSONMap{"contexts": []string{}},
-				Metrics:         metricsMap,
-				ExecutionTime:   execSec,
+				GeneratedAnswer: payload.Answer,
+				RetrievedChunks: retrieved,
+				Metrics:         entity.JSONMap(scores),
+				ExecutionTime:   time.Since(started).Seconds(),
 				CreateTime:      time.Now().UnixMilli(),
 			}
-			_ = s.db.WithContext(ctx).Create(row).Error
-			continue
-		}
-		contexts := extractContextsFromReference(ref)
-		payload := prepareScoringPayload(caze.Question, answer, contexts, gt)
-		scores := scorer.scoreAll(ctx, payload, metrics)
-		for _, name := range metrics {
-			if v, ok := scores[name].(float64); ok {
-				sums[name] += v
-				counts[name]++
-			}
-		}
-		retrieved := entity.JSONMap{"contexts": payload.Contexts}
-		if ref != nil {
-			retrieved["reference"] = ref
-		}
-		execSec := time.Since(started).Seconds()
-		row := &entity.EvaluationResult{
-			ID:              common.GenerateUUID(),
-			RunID:           runID,
-			CaseID:          caze.ID,
-			GeneratedAnswer: payload.Answer,
-			RetrievedChunks: retrieved,
-			Metrics:         entity.JSONMap(scores),
-			ExecutionTime:   execSec,
-			CreateTime:      time.Now().UnixMilli(),
-		}
-		if err := s.db.WithContext(ctx).Create(row).Error; err != nil {
-			fail(err.Error())
-			return
-		}
+			return s.db.WithContext(gctx).Create(row).Error
+		})
+	}
+	if err := g.Wait(); err != nil {
+		fail(err.Error())
+		return
 	}
 
 	summary := entity.JSONMap{}
@@ -450,6 +460,7 @@ func (s *EvaluationService) runWorker(
 	}
 	summary["averages"] = avgs
 	summary["case_count"] = len(cases)
+	summary["concurrency"] = evalCaseConcurrency
 	now := time.Now().UnixMilli()
 	_ = s.db.WithContext(ctx).Model(&entity.EvaluationRun{}).
 		Where("id = ?", runID).
