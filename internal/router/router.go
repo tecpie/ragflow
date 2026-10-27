@@ -647,6 +647,7 @@ func (r *Router) Setup(engine *gin.Engine) {
 				evaluations.GET("/datasets/:dataset_id/runs", r.evaluationHandler.ListRuns)
 				evaluations.POST("/datasets/:dataset_id/runs", r.evaluationHandler.StartRun)
 				evaluations.GET("/runs/:run_id", r.evaluationHandler.GetRun)
+				evaluations.DELETE("/runs/:run_id", r.evaluationHandler.DeleteRun)
 				evaluations.GET("/runs/:run_id/results", r.evaluationHandler.ListResults)
 			}
 

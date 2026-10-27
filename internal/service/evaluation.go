@@ -509,6 +509,25 @@ func (s *EvaluationService) GetRun(ctx context.Context, userID, runID string) (*
 	return &run, nil
 }
 
+func (s *EvaluationService) DeleteRun(ctx context.Context, userID, runID string) error {
+	if _, err := s.GetRun(ctx, userID, runID); err != nil {
+		return err
+	}
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("run_id = ?", runID).Delete(&entity.EvaluationResult{}).Error; err != nil {
+			return err
+		}
+		res := tx.Where("id = ?", runID).Delete(&entity.EvaluationRun{})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return common.NewCodedError(common.CodeNotFound, "run not found")
+		}
+		return nil
+	})
+}
+
 func (s *EvaluationService) ListResults(ctx context.Context, userID, runID string) ([]entity.EvaluationResult, error) {
 	if _, err := s.GetRun(ctx, userID, runID); err != nil {
 		return nil, err

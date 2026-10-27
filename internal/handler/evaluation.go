@@ -284,6 +284,20 @@ func (h *EvaluationHandler) GetRun(c *gin.Context) {
 	common.SuccessWithData(c, row, "success")
 }
 
+// DeleteRun DELETE /evaluations/runs/:run_id
+func (h *EvaluationHandler) DeleteRun(c *gin.Context) {
+	user, code, msg := GetUser(c)
+	if code != common.CodeSuccess {
+		common.ErrorWithCode(c, code, msg)
+		return
+	}
+	if err := h.svc.DeleteRun(c.Request.Context(), user.ID, c.Param("run_id")); err != nil {
+		evaluationError(c, err)
+		return
+	}
+	common.SuccessWithData(c, true, "success")
+}
+
 // ListResults GET /evaluations/runs/:run_id/results
 func (h *EvaluationHandler) ListResults(c *gin.Context) {
 	user, code, msg := GetUser(c)
