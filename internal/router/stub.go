@@ -44,9 +44,10 @@ func allowAll() gin.HandlerFunc {
 	}
 }
 
-func ToggleChat() gin.HandlerFunc    { return allowAll() }
-func ToggleDataset() gin.HandlerFunc { return allowAll() }
-func ToggleSearch() gin.HandlerFunc  { return allowAll() }
-func ToggleFile() gin.HandlerFunc    { return allowAll() }
-func ToggleMemory() gin.HandlerFunc  { return allowAll() }
-func ToggleModel() gin.HandlerFunc   { return allowAll() }
+func ToggleChat() gin.HandlerFunc       { return allowAll() }
+func ToggleDataset() gin.HandlerFunc    { return allowAll() }
+func ToggleSearch() gin.HandlerFunc     { return allowAll() }
+func ToggleFile() gin.HandlerFunc       { return allowAll() }
+func ToggleMemory() gin.HandlerFunc     { return allowAll() }
+func ToggleModel() gin.HandlerFunc      { return allowAll() }
+func ToggleEvaluation() gin.HandlerFunc { return allowAll() }
