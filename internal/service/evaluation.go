@@ -18,12 +18,14 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
 
+	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 	"gorm.io/gorm"
 
@@ -41,7 +43,7 @@ const (
 	evalDatasetValid = int64(1)
 	// Bound concurrent case workers (chat + RAGAS judge). Higher values
 	// speed large runs but stress the LLM provider and RAG backend.
-	evalCaseConcurrency = 8
+	evalCaseConcurrency = 4
 )
 
 // EvaluationService manages evaluation datasets, cases, runs, and RAGAS scoring.
@@ -49,6 +51,10 @@ type EvaluationService struct {
 	chatSession *ChatSessionService
 	factory     *ModelFactory
 	db          *gorm.DB
+	// activeRuns prevents launching two workers for the same run in one process.
+	activeRuns sync.Map
+	// activeGens prevents launching two generate workers for the same dataset.
+	activeGens sync.Map
 }
 
 // NewEvaluationService creates an EvaluationService.
@@ -264,6 +270,7 @@ func (s *EvaluationService) StartRun(
 	ctx context.Context,
 	userID, datasetID, name, dialogID, llmID, judgeLLMID, judgeEmbdID string,
 	metrics []string,
+	kbIDs []string,
 ) (*entity.EvaluationRun, error) {
 	if _, err := s.GetDataset(ctx, userID, datasetID); err != nil {
 		return nil, err
@@ -289,22 +296,31 @@ func (s *EvaluationService) StartRun(
 	for i, m := range metrics {
 		metricAny[i] = m
 	}
+	kbIDs = normalizeEvalKBIDs(kbIDs)
+	kbAny := make([]any, len(kbIDs))
+	for i, id := range kbIDs {
+		kbAny[i] = id
+	}
 	now := time.Now().UnixMilli()
+	snapshot := entity.JSONMap{
+		"dialog_id":     dialogID,
+		"llm_id":        llmID,
+		"judge_llm_id":  judgeLLMID,
+		"judge_embd_id": judgeEmbdID,
+		"metrics":       metricAny,
+	}
+	if len(kbIDs) > 0 {
+		snapshot["kb_ids"] = kbAny
+	}
 	run := &entity.EvaluationRun{
-		ID:        common.GenerateUUID(),
-		DatasetID: datasetID,
-		DialogID:  dialogID,
-		Name:      name,
-		ConfigSnapshot: entity.JSONMap{
-			"dialog_id":     dialogID,
-			"llm_id":        llmID,
-			"judge_llm_id":  judgeLLMID,
-			"judge_embd_id": judgeEmbdID,
-			"metrics":       metricAny,
-		},
-		Status:     evalRunPending,
-		CreatedBy:  userID,
-		CreateTime: now,
+		ID:             common.GenerateUUID(),
+		DatasetID:      datasetID,
+		DialogID:       dialogID,
+		Name:           name,
+		ConfigSnapshot: snapshot,
+		Status:         evalRunPending,
+		CreatedBy:      userID,
+		CreateTime:     now,
 	}
 	if err := s.db.WithContext(ctx).Create(run).Error; err != nil {
 		return nil, err
@@ -314,15 +330,91 @@ func (s *EvaluationService) StartRun(
 	if err != nil {
 		return nil, err
 	}
-	workerCtx := context.WithoutCancel(ctx)
-	go s.runWorker(workerCtx, userID, tenantID, run.ID, datasetID, dialogID, llmID, judgeLLMID, judgeEmbdID, metrics)
+	s.launchWorker(context.WithoutCancel(ctx), userID, tenantID, run.ID, datasetID, dialogID, llmID, judgeLLMID, judgeEmbdID, metrics, kbIDs)
 	return run, nil
+}
+
+// ResumeIncompleteRuns restarts PENDING/RUNNING workers after process restart,
+// skipping cases that already have results.
+func (s *EvaluationService) ResumeIncompleteRuns(ctx context.Context) {
+	if s.db == nil {
+		return
+	}
+	var runs []entity.EvaluationRun
+	if err := s.db.WithContext(ctx).
+		Where("status IN ?", []string{evalRunPending, evalRunRunning}).
+		Order("create_time ASC").
+		Find(&runs).Error; err != nil {
+		common.Error("resume evaluation runs: list incomplete", err)
+		return
+	}
+	if len(runs) == 0 {
+		return
+	}
+	common.Info("resuming incomplete evaluation runs", zap.Int("count", len(runs)))
+	for i := range runs {
+		s.resumeRun(ctx, &runs[i])
+	}
+}
+
+func (s *EvaluationService) resumeRun(ctx context.Context, run *entity.EvaluationRun) {
+	cfg := run.ConfigSnapshot
+	if cfg == nil {
+		cfg = entity.JSONMap{}
+	}
+	dialogID := strings.TrimSpace(evalConfigString(cfg, "dialog_id"))
+	if dialogID == "" {
+		dialogID = strings.TrimSpace(run.DialogID)
+	}
+	llmID := strings.TrimSpace(evalConfigString(cfg, "llm_id"))
+	judgeLLMID := strings.TrimSpace(evalConfigString(cfg, "judge_llm_id"))
+	judgeEmbdID := strings.TrimSpace(evalConfigString(cfg, "judge_embd_id"))
+	metrics := evalConfigMetrics(cfg)
+	if len(metrics) == 0 {
+		metrics = append([]string(nil), defaultEvalMetrics...)
+	}
+	kbIDs := evalConfigKBIDs(cfg)
+
+	var ds entity.EvaluationDataset
+	if err := s.db.WithContext(ctx).Where("id = ?", run.DatasetID).Take(&ds).Error; err != nil {
+		common.Error(fmt.Sprintf("resume evaluation run %s: load dataset", run.ID), err)
+		now := time.Now().UnixMilli()
+		_ = s.db.WithContext(ctx).Model(&entity.EvaluationRun{}).
+			Where("id = ?", run.ID).
+			Updates(map[string]any{
+				"status":          evalRunFailed,
+				"complete_time":   now,
+				"metrics_summary": entity.JSONMap{"error": "resume failed: " + err.Error()},
+			}).Error
+		return
+	}
+	userID := strings.TrimSpace(run.CreatedBy)
+	if userID == "" {
+		userID = strings.TrimSpace(ds.CreatedBy)
+	}
+	s.launchWorker(context.WithoutCancel(ctx), userID, ds.TenantID, run.ID, run.DatasetID, dialogID, llmID, judgeLLMID, judgeEmbdID, metrics, kbIDs)
+}
+
+func (s *EvaluationService) launchWorker(
+	ctx context.Context,
+	userID, tenantID, runID, datasetID, dialogID, llmID, judgeLLMID, judgeEmbdID string,
+	metrics []string,
+	kbIDs []string,
+) {
+	if _, loaded := s.activeRuns.LoadOrStore(runID, struct{}{}); loaded {
+		return
+	}
+	go func() {
+		defer s.activeRuns.Delete(runID)
+		s.runWorker(ctx, userID, tenantID, runID, datasetID, dialogID, llmID, judgeLLMID, judgeEmbdID, metrics, kbIDs)
+	}()
 }
 
 func (s *EvaluationService) runWorker(
 	ctx context.Context,
 	userID, tenantID, runID, datasetID, dialogID, llmID, judgeLLMID, judgeEmbdID string,
 	metrics []string,
+	kbIDs []string,
 ) {
 	fail := func(msg string) {
 		now := time.Now().UnixMilli()
@@ -363,89 +455,117 @@ func (s *EvaluationService) runWorker(
 		return
 	}
 
-	scorer := newRagasScorer(s.factory, tenantID, judgeLLMID, judgeEmbdID)
+	var existing []entity.EvaluationResult
+	if err := s.db.WithContext(ctx).Where("run_id = ?", runID).Find(&existing).Error; err != nil {
+		fail(err.Error())
+		return
+	}
+	doneCases := make(map[string]struct{}, len(existing))
 	sums := map[string]float64{}
 	counts := map[string]int{}
+	for _, row := range existing {
+		doneCases[row.CaseID] = struct{}{}
+		accumulateEvalMetrics(sums, counts, row.Metrics, metrics)
+	}
+
+	pending := make([]entity.EvaluationCase, 0, len(cases))
+	for _, caze := range cases {
+		if _, ok := doneCases[caze.ID]; ok {
+			continue
+		}
+		pending = append(pending, caze)
+	}
+	if len(existing) > 0 {
+		common.Info("evaluation run resume",
+			zap.String("run_id", runID),
+			zap.Int("done", len(doneCases)),
+			zap.Int("pending", len(pending)),
+			zap.Int("total", len(cases)),
+		)
+	}
+
+	scorer := newRagasScorer(s.factory, tenantID, judgeLLMID, judgeEmbdID)
 	var mu sync.Mutex
 
-	g, gctx := errgroup.WithContext(ctx)
-	g.SetLimit(evalCaseConcurrency)
-	for _, caze := range cases {
-		caze := caze
-		g.Go(func() error {
-			started := time.Now()
-			gt := ""
-			if caze.ReferenceAnswer != nil {
-				gt = *caze.ReferenceAnswer
-			}
-			result, err := s.chatSession.ChatCompletions(
-				gctx, userID, dialogID, "",
-				[]map[string]any{{"role": "user", "content": caze.Question}},
-				"", nil, llmID, nil,
-				map[string]any{"store_history_messages": false},
-				false, false, nil,
-			)
-			answer := ""
-			var ref map[string]any
-			if err == nil && result != nil {
-				answer, _ = result["answer"].(string)
-				ref, _ = result["reference"].(map[string]any)
-			}
-			if err != nil || isChatPipelineErrorAnswer(answer) {
-				chatErr := ""
-				if err != nil {
-					chatErr = err.Error()
-				} else {
-					chatErr = strings.TrimSpace(strings.TrimPrefix(answer, "**ERROR**:"))
-					if chatErr == "" {
-						chatErr = answer
+	if len(pending) > 0 {
+		g, gctx := errgroup.WithContext(ctx)
+		g.SetLimit(evalCaseConcurrency)
+		for _, caze := range pending {
+			caze := caze
+			g.Go(func() error {
+				started := time.Now()
+				gt := ""
+				if caze.ReferenceAnswer != nil {
+					gt = *caze.ReferenceAnswer
+				}
+				kwargs := map[string]any{"store_history_messages": false}
+				if len(kbIDs) > 0 {
+					kwargs["kb_ids"] = kbIDs
+				}
+				result, err := s.chatSession.ChatCompletions(
+					gctx, userID, dialogID, "",
+					[]map[string]any{{"role": "user", "content": caze.Question}},
+					"", nil, llmID, nil,
+					kwargs,
+					false, false, nil,
+				)
+				answer := ""
+				var ref map[string]any
+				if err == nil && result != nil {
+					answer, _ = result["answer"].(string)
+					ref, _ = result["reference"].(map[string]any)
+				}
+				if err != nil || isChatPipelineErrorAnswer(answer) {
+					chatErr := ""
+					if err != nil {
+						chatErr = err.Error()
+					} else {
+						chatErr = strings.TrimSpace(strings.TrimPrefix(answer, "**ERROR**:"))
+						if chatErr == "" {
+							chatErr = answer
+						}
 					}
+					row := &entity.EvaluationResult{
+						ID:              common.GenerateUUID(),
+						RunID:           runID,
+						CaseID:          caze.ID,
+						GeneratedAnswer: answer,
+						RetrievedChunks: entity.JSONMap{"contexts": []string{}},
+						Metrics: entity.JSONMap{
+							"errors": map[string]string{"chat": chatErr},
+						},
+						ExecutionTime: time.Since(started).Seconds(),
+						CreateTime:    time.Now().UnixMilli(),
+					}
+					return s.db.WithContext(gctx).Create(row).Error
+				}
+				contexts := extractContextsFromReference(ref)
+				payload := prepareScoringPayload(caze.Question, answer, contexts, gt)
+				scores := scorer.scoreAll(gctx, payload, metrics)
+				mu.Lock()
+				accumulateEvalMetrics(sums, counts, scores, metrics)
+				mu.Unlock()
+				retrieved := entity.JSONMap{"contexts": payload.Contexts}
+				if ref != nil {
+					retrieved["reference"] = ref
 				}
 				row := &entity.EvaluationResult{
 					ID:              common.GenerateUUID(),
 					RunID:           runID,
 					CaseID:          caze.ID,
-					GeneratedAnswer: answer,
-					RetrievedChunks: entity.JSONMap{"contexts": []string{}},
-					Metrics: entity.JSONMap{
-						"errors": map[string]string{"chat": chatErr},
-					},
-					ExecutionTime: time.Since(started).Seconds(),
-					CreateTime:    time.Now().UnixMilli(),
+					GeneratedAnswer: payload.Answer,
+					RetrievedChunks: retrieved,
+					Metrics:         entity.JSONMap(scores),
+					ExecutionTime:   time.Since(started).Seconds(),
+					CreateTime:      time.Now().UnixMilli(),
 				}
 				return s.db.WithContext(gctx).Create(row).Error
-			}
-			contexts := extractContextsFromReference(ref)
-			payload := prepareScoringPayload(caze.Question, answer, contexts, gt)
-			scores := scorer.scoreAll(gctx, payload, metrics)
-			mu.Lock()
-			for _, name := range metrics {
-				if v, ok := scores[name].(float64); ok {
-					sums[name] += v
-					counts[name]++
-				}
-			}
-			mu.Unlock()
-			retrieved := entity.JSONMap{"contexts": payload.Contexts}
-			if ref != nil {
-				retrieved["reference"] = ref
-			}
-			row := &entity.EvaluationResult{
-				ID:              common.GenerateUUID(),
-				RunID:           runID,
-				CaseID:          caze.ID,
-				GeneratedAnswer: payload.Answer,
-				RetrievedChunks: retrieved,
-				Metrics:         entity.JSONMap(scores),
-				ExecutionTime:   time.Since(started).Seconds(),
-				CreateTime:      time.Now().UnixMilli(),
-			}
-			return s.db.WithContext(gctx).Create(row).Error
-		})
-	}
-	if err := g.Wait(); err != nil {
-		fail(err.Error())
-		return
+			})
+		}
+		if err := g.Wait(); err != nil {
+			fail(err.Error())
+			return
+		}
 	}
 
 	summary := entity.JSONMap{}
@@ -461,6 +581,7 @@ func (s *EvaluationService) runWorker(
 	summary["averages"] = avgs
 	summary["case_count"] = len(cases)
 	summary["concurrency"] = evalCaseConcurrency
+	summary["resumed_from"] = len(doneCases)
 	now := time.Now().UnixMilli()
 	_ = s.db.WithContext(ctx).Model(&entity.EvaluationRun{}).
 		Where("id = ?", runID).
@@ -469,6 +590,128 @@ func (s *EvaluationService) runWorker(
 			"complete_time":   now,
 			"metrics_summary": summary,
 		}).Error
+}
+
+func evalConfigString(cfg entity.JSONMap, key string) string {
+	if cfg == nil {
+		return ""
+	}
+	v, ok := cfg[key]
+	if !ok || v == nil {
+		return ""
+	}
+	switch t := v.(type) {
+	case string:
+		return t
+	default:
+		return fmt.Sprint(t)
+	}
+}
+
+func normalizeEvalKBIDs(ids []string) []string {
+	if len(ids) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(ids))
+	seen := map[string]struct{}{}
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
+}
+
+func evalConfigKBIDs(cfg entity.JSONMap) []string {
+	if cfg == nil {
+		return nil
+	}
+	raw, ok := cfg["kb_ids"]
+	if !ok || raw == nil {
+		return nil
+	}
+	switch t := raw.(type) {
+	case []string:
+		return normalizeEvalKBIDs(t)
+	case []any:
+		out := make([]string, 0, len(t))
+		for _, item := range t {
+			s := strings.TrimSpace(fmt.Sprint(item))
+			if s != "" {
+				out = append(out, s)
+			}
+		}
+		return normalizeEvalKBIDs(out)
+	default:
+		return nil
+	}
+}
+
+func evalConfigMetrics(cfg entity.JSONMap) []string {
+	if cfg == nil {
+		return nil
+	}
+	raw, ok := cfg["metrics"]
+	if !ok || raw == nil {
+		return nil
+	}
+	switch t := raw.(type) {
+	case []string:
+		return append([]string(nil), t...)
+	case []any:
+		out := make([]string, 0, len(t))
+		for _, item := range t {
+			s := strings.TrimSpace(fmt.Sprint(item))
+			if s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func accumulateEvalMetrics(sums map[string]float64, counts map[string]int, metricsMap map[string]any, names []string) {
+	if metricsMap == nil {
+		return
+	}
+	for _, name := range names {
+		v, ok := metricsMap[name]
+		if !ok {
+			continue
+		}
+		f, ok := evalMetricFloat(v)
+		if !ok {
+			continue
+		}
+		sums[name] += f
+		counts[name]++
+	}
+}
+
+func evalMetricFloat(v any) (float64, bool) {
+	switch t := v.(type) {
+	case float64:
+		return t, true
+	case float32:
+		return float64(t), true
+	case int:
+		return float64(t), true
+	case int64:
+		return float64(t), true
+	case json.Number:
+		f, err := t.Float64()
+		return f, err == nil
+	default:
+		return 0, false
+	}
 }
 
 func (s *EvaluationService) ListRuns(ctx context.Context, userID, datasetID string) ([]entity.EvaluationRun, error) {

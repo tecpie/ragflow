@@ -641,6 +641,7 @@ func (r *Router) Setup(engine *gin.Engine) {
 			{
 				evaluations.GET("/datasets", r.evaluationHandler.ListDatasets)
 				evaluations.POST("/datasets", r.evaluationHandler.CreateDataset)
+				evaluations.POST("/datasets/generate", r.evaluationHandler.GenerateDataset)
 				evaluations.GET("/datasets/:dataset_id", r.evaluationHandler.GetDataset)
 				evaluations.DELETE("/datasets/:dataset_id", r.evaluationHandler.DeleteDataset)
 				evaluations.GET("/datasets/:dataset_id/cases", r.evaluationHandler.ListCases)

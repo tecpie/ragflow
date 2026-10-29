@@ -290,6 +290,8 @@ func startServer(ctx context.Context, serverName string, arguments *bootstrap.Se
 	ontologyHandler := handler.NewOntologyHandler(service.NewOntologyService())
 	evaluationService := service.NewEvaluationService(chatSessionService, modelFactory)
 	evaluationHandler := handler.NewEvaluationHandler(evaluationService)
+	// Resume PENDING/RUNNING runs left behind by a previous process exit.
+	go evaluationService.ResumeIncompleteRuns(ctx)
 
 	// Install the production eino-based chat invoker as the shared chat default,
 	// so agentic-search runtime LLM calls work in production. Without this,

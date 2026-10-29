@@ -70,6 +70,25 @@ type startRunReq struct {
 	JudgeLLMID  string   `json:"judge_llm_id"`
 	JudgeEmbdID string   `json:"judge_embd_id"`
 	Metrics     []string `json:"metrics"`
+	KBIDs       []string `json:"kb_ids"`
+}
+
+type styleSampleReq struct {
+	Question    string `json:"question"`
+	GroundTruth string `json:"ground_truth"`
+}
+
+type generateDatasetReq struct {
+	Name           string           `json:"name"`
+	Description    string           `json:"description"`
+	KBIDs          []string         `json:"kb_ids"`
+	LLMID          string           `json:"llm_id"`
+	PerDocMin      int              `json:"per_doc_min"`
+	PerDocMax      int              `json:"per_doc_max"`
+	MultiHopRatio  float64          `json:"multi_hop_ratio"`
+	Prompt         string           `json:"prompt"`
+	MultiHopPrompt string           `json:"multi_hop_prompt"`
+	StyleSamples   []styleSampleReq `json:"style_samples"`
 }
 
 // ListDatasets GET /evaluations/datasets
@@ -261,7 +280,46 @@ func (h *EvaluationHandler) StartRun(c *gin.Context) {
 		req.JudgeLLMID,
 		req.JudgeEmbdID,
 		req.Metrics,
+		req.KBIDs,
 	)
+	if err != nil {
+		evaluationError(c, err)
+		return
+	}
+	common.SuccessWithData(c, row, "success")
+}
+
+// GenerateDataset POST /evaluations/datasets/generate
+func (h *EvaluationHandler) GenerateDataset(c *gin.Context) {
+	user, code, msg := GetUser(c)
+	if code != common.CodeSuccess {
+		common.ErrorWithCode(c, code, msg)
+		return
+	}
+	var req generateDatasetReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ErrorWithCode(c, common.CodeArgumentError, err.Error())
+		return
+	}
+	samples := make([]service.EvalStyleSample, 0, len(req.StyleSamples))
+	for _, s := range req.StyleSamples {
+		samples = append(samples, service.EvalStyleSample{
+			Question:    s.Question,
+			GroundTruth: s.GroundTruth,
+		})
+	}
+	row, err := h.svc.GenerateDatasetFromKBs(c.Request.Context(), user.ID, service.GenerateDatasetParams{
+		Name:           req.Name,
+		Description:    req.Description,
+		KBIDs:          req.KBIDs,
+		LLMID:          req.LLMID,
+		PerDocMin:      req.PerDocMin,
+		PerDocMax:      req.PerDocMax,
+		MultiHopRatio:  req.MultiHopRatio,
+		Prompt:         req.Prompt,
+		MultiHopPrompt: req.MultiHopPrompt,
+		StyleSamples:   samples,
+	})
 	if err != nil {
 		evaluationError(c, err)
 		return
