@@ -34,6 +34,7 @@ import {
   showImage,
 } from '@/utils/chat';
 import {
+  CitationKey,
   citationMarkerReg,
   citationWholeMarkerReg,
 } from '@/utils/citation-utils';
@@ -148,7 +149,7 @@ const FloatingChatWidgetMarkdown = ({
   };
 
   const getReferenceInfo = useCallback(
-    (chunkKey: number | string) => {
+    (chunkKey: CitationKey) => {
       const chunkItem = resolveCitationChunk(reference?.chunks, chunkKey);
       if (!chunkItem) return null;
       const docAggsArray = Array.isArray(reference?.doc_aggs)
@@ -178,7 +179,7 @@ const FloatingChatWidgetMarkdown = ({
   );
 
   const getPopoverContent = useCallback(
-    (chunkKey: number | string) => {
+    (chunkKey: CitationKey) => {
       const info = getReferenceInfo(chunkKey);
 
       if (!info) {

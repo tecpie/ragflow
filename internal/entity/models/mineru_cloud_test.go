@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -28,10 +29,10 @@ func TestIsMinerUCloudBase(t *testing.T) {
 }
 
 func TestMinerUCloudModelVersion(t *testing.T) {
-	if got := MinerUCloudModelVersion("pipeline"); got != "pipeline" {
+	if got := minerUCloudModelVersion("pipeline"); got != "pipeline" {
 		t.Fatalf("pipeline = %q", got)
 	}
-	if got := MinerUCloudModelVersion("vlm-http-client"); got != "vlm" {
+	if got := minerUCloudModelVersion("vlm-http-client"); got != "vlm" {
 		t.Fatalf("vlm-http-client = %q", got)
 	}
 }
@@ -135,5 +136,20 @@ func TestParseMinerUCloudAgent(t *testing.T) {
 	}
 	if result.Markdown != "# Agent\n" {
 		t.Fatalf("markdown = %q", result.Markdown)
+	}
+}
+
+func TestMinerUCloudReachable(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	u, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := minerUCloudReachable(context.Background(), server.Client(), u); err != nil {
+		t.Fatal(err)
 	}
 }

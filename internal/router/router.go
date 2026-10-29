@@ -200,7 +200,7 @@ func (r *Router) Setup(engine *gin.Engine) {
 
 		RegisterPublicAgentWebhookRoutes(apiNoAuth.Group("/agents"), r.agentHandler)
 
-		RegisterEENoAuthRouter(apiNoAuth, r)
+		RegisterEENoAuthRouter(engine, apiNoAuth, r)
 	}
 
 	// Beta-token routes. Mirrors python's
@@ -247,6 +247,7 @@ func (r *Router) Setup(engine *gin.Engine) {
 	authorized := engine.Group("")
 	authorized.Use(r.authHandler.AuthMiddleware())
 	RegisterEEProtectedRouter(authorized, r)
+	RegisterEEAuthRouter(authorized, r)
 	{
 		// API v1 route group
 		v1 := authorized.Group("/api/v1")
