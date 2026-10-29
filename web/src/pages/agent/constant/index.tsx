@@ -898,7 +898,6 @@ export const RestrictedUpstreamMap = {
   [Operator.LoopStart]: [Operator.Begin],
   [Operator.ExitLoop]: [Operator.Begin],
   [Operator.DocGenerator]: [Operator.Begin],
-  [Operator.Browser]: [Operator.Begin],
 };
 
 export const NodeMap = {
@@ -960,7 +959,6 @@ export const NodeMap = {
   [Operator.ExitLoop]: 'exitLoopNode',
   [Operator.ExcelProcessor]: 'ragNode',
   [Operator.DocGenerator]: 'ragNode',
-  [Operator.Browser]: 'ragNode',
 };
 
 export enum BeginQueryType {

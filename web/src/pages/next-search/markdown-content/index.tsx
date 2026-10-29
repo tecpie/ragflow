@@ -106,6 +106,8 @@ const MarkdownContent = ({
         replaceRetrievingToSection,
         replaceToolCallToSection,
         preprocessLaTeX,
+        // Entity decoding can expose a line-leading > after the first escape.
+        escapeUnmatchedAngleBrackets,
       )(nextText),
     );
   }, [content, t]);

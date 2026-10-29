@@ -553,7 +553,11 @@ func (c *ParserComponent) Invoke(ctx context.Context, db *gorm.DB, inputs map[st
 		familySetup := setups[resolveParserFamily(fileTypeExt)]
 		vision.skipTableEnhance = !visionEnhanceFlagEnabled(familySetup, "table_vision_enhance", true)
 		vision.skipSignatureEnhance = !visionEnhanceFlagEnabled(familySetup, "signature_vision_enhance", true)
-		dispatched, _, _ = maybeDispatchVisionEnhancement(ctx, db, fileTypeExt, dispatched, inputs, vision, visionWin)
+		var enhanceErr error
+		dispatched, _, enhanceErr = maybeDispatchVisionEnhancement(ctx, db, fileTypeExt, dispatched, inputs, vision, visionWin)
+		if enhanceErr != nil {
+			return nil, enhanceErr
+		}
 	} else {
 		// Enhancement skipped entirely (disabled or non-PDF media handled):
 		// still strip the transient backend-description marker so it never

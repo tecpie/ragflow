@@ -187,7 +187,7 @@ type visionImage struct {
 // Table crops use the table-seal prompt; approval/signature labels use a
 // rightward-extended crop plus the signature prompt (replace label-only OCR).
 // PDF OCR remains in the PDF parser; non-PDF image text comes from this
-// optional enhancement.
+// optional enhancement. Media materialization failures abort the enhancement.
 // Mirrors Python enhance_media_sections_with_vision plus
 // enhance_signature_sections_with_vision / _enhance_pdf_tables_with_vision
 // (deepdoc/parser/figure_parser.py).
@@ -219,7 +219,8 @@ func maybeDispatchVisionEnhancement(
 
 	// Collect visual resources (figures/tables) and DeepDOC signature-label
 	// lines. Markdown images whose type is text because flatten_media_to_text
-	// is enabled still carry an inline image payload.
+	// is enabled still carry an inline image payload. Backend-described items
+	// are skipped inside collectVisionEnhanceTargets.
 	targets := collectVisionEnhanceTargets(dispatched.JSON, tableVisionOn, signatureVisionOn)
 	if len(targets) == 0 {
 		return stripBackendDescribedResult(dispatched), false, nil
@@ -278,6 +279,7 @@ func maybeDispatchVisionEnhancement(
 	modified := false
 	descriptions := make([]string, len(targets))
 	failures := make([]string, len(targets))
+	mediaFailures := make([]error, len(targets))
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, visionEnhancementConcurrency)
 	var settled atomic.Int64
@@ -302,7 +304,9 @@ func maybeDispatchVisionEnhancement(
 		}
 		var resource *visionImage
 		func() {
-			item := visionCropItem(dispatched.JSON[target.idx].ToMap(), target.kind)
+			// Clone before materializing: RawItem.ToMap returns the shared
+			// map, and filling in image bytes must not mutate the parse result.
+			item := visionCropItem(maps.Clone(dispatched.JSON[target.idx].ToMap()), target.kind)
 			if err := cropper.Prepare(ctx, item); err != nil {
 				if ctx.Err() == nil {
 					if payload, _ := item["image"].(string); isUsableVisionImage(payload) {
@@ -330,6 +334,13 @@ func maybeDispatchVisionEnhancement(
 				return
 			}
 			defer release()
+			// Materialize under the same admission as the crop: the decode
+			// and re-encode of a deferred image must not bypass the shared
+			// image memory limit.
+			if err := MaterializeMediaItem(itemCtx, item); err != nil {
+				mediaFailures[slot] = err
+				return
+			}
 			resource, err = cropper.Crop(itemCtx, item)
 			if err != nil || resource == nil {
 				cropErr := err
@@ -411,6 +422,11 @@ func maybeDispatchVisionEnhancement(
 	wg.Wait()
 	if err := ctx.Err(); err != nil {
 		return stripBackendDescribedResult(dispatched), modified, err
+	}
+	for _, err := range mediaFailures {
+		if err != nil {
+			return stripBackendDescribedResult(dispatched), modified, fmt.Errorf("vision enhancement: materialize media: %w", err)
+		}
 	}
 	w.Report(ctx, 1.0)
 	failedItems := 0

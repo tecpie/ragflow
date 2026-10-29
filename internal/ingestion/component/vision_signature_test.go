@@ -21,10 +21,10 @@ import (
 	"strings"
 	"testing"
 
-	pdf "ragflow/internal/deepdoc/parser/pdf/type"
 	"ragflow/internal/dao"
-	"ragflow/internal/parser/parser"
+	pdf "ragflow/internal/deepdoc/parser/pdf/type"
 	"ragflow/internal/ingestion/component/progress"
+	"ragflow/internal/parser/parser"
 	"ragflow/internal/utility"
 
 	"gorm.io/gorm"
@@ -99,11 +99,11 @@ func TestExtendSignatureBandPositions(t *testing.T) {
 
 func TestCollectVisionEnhanceTargets_SignatureAndTable(t *testing.T) {
 	t.Parallel()
-	items := []map[string]any{
-		{"text": "批准：", "doc_type_kwd": "text", "positions": [][]any{{1.0, 40.0, 80.0, 100.0, 120.0}}},
-		{"text": "批准：李明", "doc_type_kwd": "text", "positions": [][]any{{1.0, 40.0, 80.0, 140.0, 160.0}}},
-		{"text": "<table></table>", "doc_type_kwd": "table", "image": "aGVsbG8="},
-		{"text": "普通文字", "doc_type_kwd": "text", "positions": [][]any{{1.0, 1.0, 2.0, 3.0, 4.0}}},
+	items := []parser.DocItem{
+		parser.RawItem{M: map[string]any{"text": "批准：", "doc_type_kwd": "text", "positions": [][]any{{1.0, 40.0, 80.0, 100.0, 120.0}}}},
+		parser.RawItem{M: map[string]any{"text": "批准：李明", "doc_type_kwd": "text", "positions": [][]any{{1.0, 40.0, 80.0, 140.0, 160.0}}}},
+		parser.RawItem{M: map[string]any{"text": "<table></table>", "doc_type_kwd": "table", "image": "aGVsbG8="}},
+		parser.RawItem{M: map[string]any{"text": "普通文字", "doc_type_kwd": "text", "positions": [][]any{{1.0, 1.0, 2.0, 3.0, 4.0}}}},
 	}
 	got := collectVisionEnhanceTargets(items, true, true)
 	if len(got) != 2 {
@@ -148,11 +148,10 @@ func TestVisionEnhancement_UsesTableAndSignaturePrompts(t *testing.T) {
 	t.Cleanup(func() { visionImageCropperFactory = originalFactory })
 
 	dispatched := parser.ParseResult{
-		OutputFormat: "json",
-		JSON: []map[string]any{
-			{"text": "批准：", "doc_type_kwd": "text", "positions": [][]any{{1.0, 40.0, 80.0, 100.0, 120.0}}},
-			{"text": "<table><tr><td>cell</td></tr></table>", "image": imagePayload, "doc_type_kwd": "table"},
-			{"text": "", "image": imagePayload, "doc_type_kwd": "image"},
+		JSON: []parser.DocItem{
+			parser.RawItem{M: map[string]any{"text": "批准：", "doc_type_kwd": "text", "positions": [][]any{{1.0, 40.0, 80.0, 100.0, 120.0}}}},
+			parser.RawItem{M: map[string]any{"text": "<table><tr><td>cell</td></tr></table>", "image": imagePayload, "doc_type_kwd": "table"}},
+			parser.RawItem{M: map[string]any{"text": "", "image": imagePayload, "doc_type_kwd": "image"}},
 		},
 	}
 	res, handled, err := maybeDispatchVisionEnhancement(
@@ -169,10 +168,10 @@ func TestVisionEnhancement_UsesTableAndSignaturePrompts(t *testing.T) {
 	if figureCalls != 1 || tableCalls != 1 || signatureCalls != 1 {
 		t.Fatalf("prompt builders figure=%d table=%d signature=%d, want 1 each", figureCalls, tableCalls, signatureCalls)
 	}
-	if got := res.JSON[0]["text"]; got != "a diagram of a pipeline" {
+	if got := res.JSON[0].ToMap()["text"]; got != "a diagram of a pipeline" {
 		t.Errorf("signature text = %q, want replaced VLM output", got)
 	}
-	if got, _ := res.JSON[1]["text"].(string); !strings.Contains(got, "a diagram of a pipeline") {
+	if got, _ := res.JSON[1].ToMap()["text"].(string); !strings.Contains(got, "a diagram of a pipeline") {
 		t.Errorf("table text = %q, want appended VLM output", got)
 	}
 	if len(invoker.captured) != 3 {
@@ -197,6 +196,8 @@ func TestVisionEnhancement_UsesTableAndSignaturePrompts(t *testing.T) {
 }
 
 type stubVisionImageCropper struct{ payload string }
+
+func (stubVisionImageCropper) Prepare(context.Context, map[string]any) error { return nil }
 
 func (c stubVisionImageCropper) Crop(_ context.Context, item map[string]any) (*visionImage, error) {
 	if img, _ := item["image"].(string); img != "" {

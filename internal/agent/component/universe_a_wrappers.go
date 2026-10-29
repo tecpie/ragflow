@@ -256,8 +256,8 @@ func (c *retrievalComponent) Invoke(ctx context.Context, db *gorm.DB, inputs map
 
 func checkCanvasRetrievalDependencies(ctx context.Context, db *gorm.DB, inputs map[string]any) error {
 	if state, err := runtime.GetStateFromContext(ctx); err == nil && state != nil {
-		canvasID, _ := state.Sys["canvas_id"].(string)
-		userID, _ := state.Sys["user_id"].(string)
+		canvasID, _ := state.GetSysString("canvas_id")
+		userID, _ := state.GetSysString("user_id")
 		if strings.TrimSpace(canvasID) == "" && strings.TrimSpace(userID) != "" {
 			return fmt.Errorf("%w: canvas id missing from runtime state", permission.ErrInvalidPermission)
 		}
@@ -491,7 +491,7 @@ func resolveRetrievalDatasetID(ctx context.Context, db *gorm.DB, kbName string) 
 	}
 	if state, err := runtime.GetStateFromContext(ctx); err == nil && state != nil {
 		common.Debug("agent retrieval component: resolve dataset id context")
-		if tenantID, _ := state.Sys["tenant_id"].(string); tenantID != "" {
+		if tenantID, _ := state.GetSysString("tenant_id"); tenantID != "" {
 			if kb, lookupErr := dao.NewKnowledgebaseDAO().GetByName(ctx, db, kbName, tenantID); lookupErr == nil && kb != nil {
 				common.Debug("agent retrieval component: resolved dataset id by tenant")
 				return kb.ID
@@ -502,15 +502,31 @@ func resolveRetrievalDatasetID(ctx context.Context, db *gorm.DB, kbName string) 
 				common.Debug("agent retrieval component: tenant lookup missed")
 			}
 		}
-		if userID, _ := state.Sys["user_id"].(string); userID != "" {
-			if kbs, lookupErr := dao.NewKnowledgebaseDAO().GetByNameInUserTenants(ctx, db, kbName, userID); lookupErr == nil && len(kbs) > 0 {
-				common.Debug("agent retrieval component: resolved dataset id by user visibility")
-				return kbs[0].ID
-			} else if lookupErr != nil {
-				common.Warn("agent retrieval component: resolve dataset id by name failed",
+		if userID, _ := state.GetSysString("user_id"); userID != "" {
+			kbs, lookupErr := dao.NewKnowledgebaseDAO().GetByNameInUserTenants(ctx, db, kbName, userID)
+			if lookupErr != nil {
+				common.Warn("agent retrieval component: resolve dataset id by tenant membership failed",
 					zap.Error(lookupErr))
 			} else {
-				common.Debug("agent retrieval component: user visibility lookup missed")
+				refs := make([]permission.ResourceRef, 0, len(kbs))
+				for _, kb := range kbs {
+					if kb != nil {
+						refs = append(refs, permission.ResourceRef{Kind: permission.ResourceKindDataset, ID: kb.ID})
+					}
+				}
+				accessible, accessErr := permission.NewDatabaseChecker(db).FilterResources(
+					ctx,
+					permission.Subject{UserID: userID},
+					refs,
+					permission.OperationUse,
+				)
+				if accessErr != nil {
+					common.Warn("agent retrieval component: check dataset use permission failed",
+						zap.Error(accessErr))
+				} else if len(accessible) > 0 {
+					common.Debug("agent retrieval component: resolved dataset id by permission")
+					return accessible[0].ID
+				}
 			}
 		}
 	} else {
