@@ -595,7 +595,7 @@ func materializeDeferredAgentOutputs(ctx context.Context, state *runtime.CanvasS
 			}
 		}
 		applyDeferredAgentResult(state, cpnID, result, contentFallback)
-		runtime.CompleteDeferredNode(ctx, cpnID)
+		runtime.CompleteDeferredNode(ctx, cpnID, nil)
 	}
 	return nil
 }
