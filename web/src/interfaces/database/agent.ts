@@ -295,7 +295,6 @@ export interface IAgentLogResponse {
   source: string;
   user_id: string;
   dsl: string;
-  reference: IReference[];
   name: string;
   version_title: string;
   is_new?: boolean;
@@ -305,6 +304,9 @@ export interface IAgentLogsResponse {
   sessions: IAgentLogResponse[];
 }
 export interface IAgentLogsRequest {
+  include_history?: boolean;
+  include_reference?: boolean;
+  include_prompt?: boolean;
   keywords?: string;
   to_date?: string | Date;
   from_date?: string | Date;
@@ -318,6 +320,7 @@ export interface IAgentLogsRequest {
 export interface IAgentLogMessage {
   content: string;
   role: 'user' | 'assistant';
+  reference?: IReference;
   id: string;
 }
 

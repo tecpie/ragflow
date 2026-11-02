@@ -65,12 +65,12 @@ func (m *mockKBService) CheckAccess(ctx context.Context, subject permission.Subj
 
 type mockModelFactory struct{}
 
-func (mockModelFactory) NewEmbeddingModel(context.Context, service.ModelAccess, string) (*modelModule.EmbeddingModel, error) {
+func (mockModelFactory) NewEmbeddingModel(context.Context, service.Identity, string) (*modelModule.EmbeddingModel, error) {
 	name := "test-model"
 	return modelModule.NewEmbeddingModel(&modelModule.DummyModel{}, &name, &modelModule.APIConfig{}, 0), nil
 }
 
-func (mockModelFactory) NewDefaultChatModel(context.Context, service.ModelAccess) (*modelModule.ChatModel, error) {
+func (mockModelFactory) NewDefaultChatModel(context.Context, service.Identity) (*modelModule.ChatModel, error) {
 	name := "test-model"
 	return modelModule.NewChatModel(&modelModule.DummyModel{}, &name, &modelModule.APIConfig{}), nil
 }
@@ -412,6 +412,59 @@ func TestDifyRetrieval_WithMetadataFilter(t *testing.T) {
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestDifyRetrieval_EmptyMetadataConditionDoesNotUseSentinel(t *testing.T) {
+	h, r := setupDifyTest("user1")
+	var docIDs []string
+	h.retrievalSvc = &mockRetrievalService{
+		retrievalFn: func(ctx context.Context, req *nlp.RetrievalRequest) (*nlp.RetrievalResult, error) {
+			docIDs = append([]string(nil), req.DocIDs...)
+			return &nlp.RetrievalResult{
+				Chunks: []map[string]interface{}{
+					{"doc_id": "doc1", "docnm_kwd": "Test Doc", "content_with_weight": "test content", "similarity": 0.85},
+				},
+			}, nil
+		},
+	}
+	body := `{"knowledge_id":"kb1","query":"test","metadata_condition":{"logic":"and","conditions":[]}}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/dify/retrieval", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if len(docIDs) != 0 {
+		t.Fatalf("DocIDs = %v, want an unscoped search", docIDs)
+	}
+}
+
+func TestDifyRetrieval_UnmatchedMetadataConditionUsesSentinel(t *testing.T) {
+	h, r := setupDifyTest("user1")
+	var docIDs []string
+	h.retrievalSvc = &mockRetrievalService{
+		retrievalFn: func(ctx context.Context, req *nlp.RetrievalRequest) (*nlp.RetrievalResult, error) {
+			docIDs = append([]string(nil), req.DocIDs...)
+			return &nlp.RetrievalResult{Chunks: []map[string]interface{}{}}, nil
+		},
+	}
+	h.metadataSvc = &mockMetadataService{
+		getFlattedMetaFn: func(ctx context.Context, kbIDs []string) (common.MetaData, error) {
+			return common.MetaData{}, nil
+		},
+	}
+	body := `{"knowledge_id":"kb1","query":"test","metadata_condition":{"conditions":[{"name":"author","comparison_operator":"is","value":"nobody"}],"logic":"and"}}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/dify/retrieval", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if len(docIDs) != 1 || docIDs[0] != service.NoMatchDocIDSentinel {
+		t.Fatalf("DocIDs = %v, want no-match sentinel", docIDs)
 	}
 }
 

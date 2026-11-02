@@ -50,8 +50,8 @@ type KBServiceIface interface {
 
 // ModelCreator supplies typed model instances to Dify retrieval.
 type ModelCreator interface {
-	NewEmbeddingModel(ctx context.Context, access service.ModelAccess, modelRef string) (*modelModule.EmbeddingModel, error)
-	NewDefaultChatModel(ctx context.Context, access service.ModelAccess) (*modelModule.ChatModel, error)
+	NewEmbeddingModel(ctx context.Context, access service.Identity, modelRef string) (*modelModule.EmbeddingModel, error)
+	NewDefaultChatModel(ctx context.Context, access service.Identity) (*modelModule.ChatModel, error)
 }
 
 // MetadataServiceIface abstracts MetadataService for the Dify handler.
@@ -240,26 +240,29 @@ func (h *DifyRetrievalHandler) Retrieval(c *gin.Context) {
 	}
 
 	// Get embedding model
-	access := service.ModelAccess{UserID: user.ID, TenantID: kb.TenantID}
+	access := service.Identity{UserID: user.ID, TenantID: kb.TenantID}
 	embModel, err := h.modelFactory.NewEmbeddingModel(ctx, access, kb.EmbdID)
 	if err != nil {
 		common.ResponseWithHttpCodeData(c, http.StatusInternalServerError, common.CodeServerError, nil, fmt.Sprintf("failed to get embedding model: %v", err))
 		return
 	}
 
-	// Metadata filter
+	// Metadata filter. An empty conditions list means no metadata filtering,
+	// the same as the dataset retrieval path. Only conditions that were
+	// actually supplied, and matched nothing, narrow the search to the
+	// no-match sentinel.
 	metas, metaErr := h.metadataSvc.GetFlattedMetaByKBs(ctx, []string{req.KnowledgeID})
 	docIDs := make([]string, 0)
-	if metaErr == nil && req.MetadataCondition != nil {
+	if metaErr == nil && req.MetadataCondition != nil && len(req.MetadataCondition.Conditions) > 0 {
 		logic := req.MetadataCondition.Logic
 		if logic == "" {
 			logic = "and"
 		}
 		filteredIDs := service.ApplyMetaFilter(metas, req.MetadataCondition.toMetaFilterConditions(), logic)
 		docIDs = append(docIDs, filteredIDs...)
-	}
-	if len(docIDs) == 0 && req.MetadataCondition != nil {
-		docIDs = []string{service.NoMatchDocIDSentinel}
+		if len(docIDs) == 0 {
+			docIDs = []string{service.NoMatchDocIDSentinel}
+		}
 	}
 
 	// Hand the label result over unconditionally: an empty map says "issue no
