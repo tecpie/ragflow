@@ -53,6 +53,9 @@ export const isConfigMetaKey = (key: string) =>
     'mode',
     'rechunk',
     'rechunk_rules',
+    'ontology_name',
+    'ontology_base_iri',
+    'ontology_id',
   ].includes(key);
 
 export const createEmptyField = (keys: string[]) =>
@@ -143,6 +146,24 @@ export const buildConfigFromBuiltin = (
     };
   }
 
+  if (kind === CompilationTemplateKind.Ontology) {
+    return {
+      kind,
+      ontology_name:
+        typeof builtinTemplate.config?.ontology_name === 'string'
+          ? builtinTemplate.config.ontology_name
+          : 'Compiled Ontology',
+      ontology_base_iri:
+        typeof builtinTemplate.config?.ontology_base_iri === 'string'
+          ? builtinTemplate.config.ontology_base_iri
+          : 'http://ragflow.local/ontology#',
+      ontology_id:
+        typeof builtinTemplate.config?.ontology_id === 'string'
+          ? builtinTemplate.config.ontology_id
+          : '',
+    };
+  }
+
   Object.entries(builtinTemplate.config ?? {}).forEach(([key, value]) => {
     if (isConfigMetaKey(key)) return;
     sections[key] = normalizeSection(
@@ -213,6 +234,28 @@ export const transformDetailToForm = (
           clustering_ratio: raptor.clustering_ratio ?? 0.5,
           rechunk: raptor.rechunk ?? false,
         },
+      },
+    };
+  }
+
+  if (detail.kind === CompilationTemplateKind.Ontology) {
+    return {
+      id: detail.id,
+      name: detail.name ?? '',
+      description: detail.description ?? '',
+      kind: detail.kind ?? '',
+      config: {
+        kind: config.kind ?? detail.kind ?? '',
+        ontology_name:
+          typeof config.ontology_name === 'string'
+            ? config.ontology_name
+            : 'Compiled Ontology',
+        ontology_base_iri:
+          typeof config.ontology_base_iri === 'string'
+            ? config.ontology_base_iri
+            : 'http://ragflow.local/ontology#',
+        ontology_id:
+          typeof config.ontology_id === 'string' ? config.ontology_id : '',
       },
     };
   }

@@ -22,6 +22,9 @@ const (
 	VariantWiki      Variant = "wiki"
 	VariantTree      Variant = "tree"
 	VariantMindmap   Variant = "mindmap"
+	// VariantOntology is config-only: no LLM compile. TBox induction runs after
+	// structure merge when a sibling ontology template is present in the group.
+	VariantOntology Variant = "ontology"
 )
 
 // Task type labels are the values exposed by the pipeline operation log API.
@@ -34,6 +37,7 @@ const (
 	TaskTypeMindmap   = "Mindmap"
 	TaskTypeTimeline  = "Timeline"
 	TaskTypePageIndex = "PageIndex"
+	TaskTypeOntology  = "Ontology"
 )
 
 // Sentinel errors.
@@ -290,6 +294,8 @@ func KindToVariant(kind string) (Variant, error) {
 	case "page_index", "session_essence", "session_graph", "timeline",
 		"knowledge_graph", "structure", "knowledgegraph", "graph":
 		return VariantStructure, nil
+	case "ontology":
+		return VariantOntology, nil
 	default:
 		return "", fmt.Errorf("%w: %q", ErrUnknownVariant, kind)
 	}
@@ -313,6 +319,8 @@ func KindToTaskType(kind string) (string, error) {
 		return TaskTypeTimeline, nil
 	case "page_index":
 		return TaskTypePageIndex, nil
+	case "ontology":
+		return TaskTypeOntology, nil
 	default:
 		return "", fmt.Errorf("%w: %q", ErrUnknownVariant, kind)
 	}
@@ -330,6 +338,8 @@ func VariantToTaskType(variant Variant) string {
 		return TaskTypeMindmap
 	case VariantStructure:
 		return TaskTypeGraph
+	case VariantOntology:
+		return TaskTypeOntology
 	default:
 		return ""
 	}

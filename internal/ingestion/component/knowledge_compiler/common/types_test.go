@@ -12,6 +12,7 @@ func TestKindToVariant_WhitelistCoversAllValidKinds(t *testing.T) {
 		"tree", "mind_map", "mindmap", "wiki", "page_index",
 		"session_essence", "session_graph", "timeline",
 		"knowledge_graph", "structure", "knowledgegraph", "graph",
+		"ontology",
 	}
 	for _, kind := range validKinds {
 		v, err := KindToVariant(kind)
@@ -55,6 +56,19 @@ func TestKindToVariant_CanonicalForms(t *testing.T) {
 	}
 }
 
+func TestKindToVariantOntologyIsNotStructure(t *testing.T) {
+	v, err := KindToVariant("ontology")
+	if err != nil {
+		t.Fatalf("KindToVariant(ontology): %v", err)
+	}
+	if v != VariantOntology {
+		t.Fatalf("KindToVariant(ontology) = %q, want %q", v, VariantOntology)
+	}
+	if v == VariantStructure {
+		t.Fatal("ontology must not map to structure")
+	}
+}
+
 func TestKindToTaskTypePreservesFrontendCategories(t *testing.T) {
 	tests := map[string]string{
 		"wiki":            TaskTypeWiki,
@@ -63,6 +77,7 @@ func TestKindToTaskTypePreservesFrontendCategories(t *testing.T) {
 		"mind_map":        TaskTypeMindmap,
 		"timeline":        TaskTypeTimeline,
 		"page_index":      TaskTypePageIndex,
+		"ontology":        TaskTypeOntology,
 	}
 	for kind, want := range tests {
 		got, err := KindToTaskType(kind)

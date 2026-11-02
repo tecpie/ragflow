@@ -24,6 +24,7 @@ export const enum CompilationTemplateKind {
   MindMap = 'mind_map',
   SessionGraph = 'session_graph',
   SessionEssence = 'session_essence',
+  Ontology = 'ontology',
 }
 
 export const enum CompilationTemplateScope {

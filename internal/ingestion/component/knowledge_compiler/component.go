@@ -158,6 +158,13 @@ func (c *KnowledgeCompilerComponent) Invoke(ctx context.Context, db *gorm.DB, in
 		specParam.TemplateConfig = spec.Config
 		overlayTemplateConfig(&specParam, spec.Config)
 
+		// Ontology is config-only: no LLM compile, no products. TBox induction
+		// runs after structure merge when this template is a sibling in the group.
+		if variant == common.VariantOntology {
+			(progress.Window{Span: 0.99}).Sub(specIndex, len(specs)).Report(ctx, 1)
+			continue
+		}
+
 		deps, err := common.ResolveDeps(ctx, tenantID, specParam.LLMID, specParam.EmbeddingModel)
 		if err != nil {
 			return nil, err

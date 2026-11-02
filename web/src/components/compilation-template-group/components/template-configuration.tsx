@@ -191,102 +191,140 @@ export function TemplateConfiguration({
             )}
           </RAGFlowFormItem>
 
-          <RAGFlowFormItem
-            name={`templates.${selectedTemplateIndex}.config.global_rules`}
-            label={t('knowledgeCompilation.globalRules')}
-          >
-            <Textarea
-              placeholder={t('knowledgeCompilation.globalRulesPlaceholder')}
-              rows={8}
-              resize="vertical"
-            />
-          </RAGFlowFormItem>
-
-          {kind === CompilationTemplateKind.Artifacts && (
-            <RAGFlowFormItem
-              name={`templates.${selectedTemplateIndex}.config.mode`}
-              label={t('knowledgeCompilation.wikiMode')}
-              tooltip={t('knowledgeCompilation.wikiModeTip')}
-            >
-              {(field) => (
-                <SelectWithSearch
-                  value={typeof field.value === 'string' ? field.value : ''}
-                  onChange={field.onChange}
-                  disabled={field.disabled}
-                  options={[
-                    {
-                      label: t('knowledgeCompilation.entityMode'),
-                      value: 'entity',
-                    },
-                    {
-                      label: t('knowledgeCompilation.topicMode'),
-                      value: 'topic',
-                    },
-                  ]}
+          {kind === CompilationTemplateKind.Ontology ? (
+            <>
+              <RAGFlowFormItem
+                name={`templates.${selectedTemplateIndex}.config.ontology_name`}
+                label={t('knowledgeCompilation.ontologyName')}
+                tooltip={t('knowledgeCompilation.ontologyNameTip')}
+              >
+                <Input
+                  placeholder={t(
+                    'knowledgeCompilation.ontologyNamePlaceholder',
+                  )}
                 />
-              )}
-            </RAGFlowFormItem>
-          )}
-
-          {kind === CompilationTemplateKind.Tree ? (
-            <TreeTemplateFields index={selectedTemplateIndex} />
+              </RAGFlowFormItem>
+              <RAGFlowFormItem
+                name={`templates.${selectedTemplateIndex}.config.ontology_base_iri`}
+                label={t('knowledgeCompilation.ontologyBaseIri')}
+              >
+                <Input
+                  placeholder={t(
+                    'knowledgeCompilation.ontologyBaseIriPlaceholder',
+                  )}
+                />
+              </RAGFlowFormItem>
+              <RAGFlowFormItem
+                name={`templates.${selectedTemplateIndex}.config.ontology_id`}
+                label={t('knowledgeCompilation.ontologyId')}
+                tooltip={t('knowledgeCompilation.ontologyIdTip')}
+              >
+                <Input
+                  placeholder={t('knowledgeCompilation.ontologyIdPlaceholder')}
+                />
+              </RAGFlowFormItem>
+            </>
           ) : (
             <>
-              {kind !== CompilationTemplateKind.Artifacts && !isEmpty(kind) && (
+              <RAGFlowFormItem
+                name={`templates.${selectedTemplateIndex}.config.global_rules`}
+                label={t('knowledgeCompilation.globalRules')}
+              >
+                <Textarea
+                  placeholder={t('knowledgeCompilation.globalRulesPlaceholder')}
+                  rows={8}
+                  resize="vertical"
+                />
+              </RAGFlowFormItem>
+
+              {kind === CompilationTemplateKind.Artifacts && (
+                <RAGFlowFormItem
+                  name={`templates.${selectedTemplateIndex}.config.mode`}
+                  label={t('knowledgeCompilation.wikiMode')}
+                  tooltip={t('knowledgeCompilation.wikiModeTip')}
+                >
+                  {(field) => (
+                    <SelectWithSearch
+                      value={typeof field.value === 'string' ? field.value : ''}
+                      onChange={field.onChange}
+                      disabled={field.disabled}
+                      options={[
+                        {
+                          label: t('knowledgeCompilation.entityMode'),
+                          value: 'entity',
+                        },
+                        {
+                          label: t('knowledgeCompilation.topicMode'),
+                          value: 'topic',
+                        },
+                      ]}
+                    />
+                  )}
+                </RAGFlowFormItem>
+              )}
+
+              {kind === CompilationTemplateKind.Tree ? (
+                <TreeTemplateFields index={selectedTemplateIndex} />
+              ) : (
                 <>
-                  <SwitchFormField
-                    name={`templates.${selectedTemplateIndex}.config.rechunk`}
-                    label={t('knowledgeCompilation.rechunkInput')}
-                    tooltip={t('knowledgeCompilation.rechunkInputTip')}
-                    vertical={false}
-                  />
-                  {rechunk && (
-                    <RAGFlowFormItem
-                      name={`templates.${selectedTemplateIndex}.config.rechunk_rules`}
-                      label={t('knowledgeCompilation.rechunkRules')}
-                    >
-                      <Textarea
-                        placeholder={t(
-                          'knowledgeCompilation.rechunkRulesPlaceholder',
+                  {kind !== CompilationTemplateKind.Artifacts &&
+                    !isEmpty(kind) && (
+                      <>
+                        <SwitchFormField
+                          name={`templates.${selectedTemplateIndex}.config.rechunk`}
+                          label={t('knowledgeCompilation.rechunkInput')}
+                          tooltip={t('knowledgeCompilation.rechunkInputTip')}
+                          vertical={false}
+                        />
+                        {rechunk && (
+                          <RAGFlowFormItem
+                            name={`templates.${selectedTemplateIndex}.config.rechunk_rules`}
+                            label={t('knowledgeCompilation.rechunkRules')}
+                          >
+                            <Textarea
+                              placeholder={t(
+                                'knowledgeCompilation.rechunkRulesPlaceholder',
+                              )}
+                              rows={6}
+                              resize="vertical"
+                            />
+                          </RAGFlowFormItem>
                         )}
-                        rows={6}
-                        resize="vertical"
-                      />
-                    </RAGFlowFormItem>
+                      </>
+                    )}
+                  {sectionNames.length > 0 && activeSectionTab && (
+                    <Tabs
+                      value={activeSectionTab}
+                      onValueChange={setActiveSectionTab}
+                      className="w-full"
+                    >
+                      <TabsList className="w-full justify-start">
+                        {sectionNames.map((sectionName) => (
+                          <TabsTrigger
+                            key={sectionName}
+                            value={sectionName}
+                            className="flex-1"
+                          >
+                            {t(
+                              SectionTitleKeyMap[sectionName] ??
+                                startCase(sectionName),
+                            )}
+                          </TabsTrigger>
+                        ))}
+                      </TabsList>
+
+                      {sectionNames.map((sectionName) => (
+                        <TabsContent
+                          key={sectionName}
+                          value={sectionName}
+                          className="mt-4"
+                        >
+                          {renderSectionTabs(sectionName)}
+                        </TabsContent>
+                      ))}
+                    </Tabs>
                   )}
                 </>
-              )}
-              {sectionNames.length > 0 && activeSectionTab && (
-                <Tabs
-                  value={activeSectionTab}
-                  onValueChange={setActiveSectionTab}
-                  className="w-full"
-                >
-                  <TabsList className="w-full justify-start">
-                    {sectionNames.map((sectionName) => (
-                      <TabsTrigger
-                        key={sectionName}
-                        value={sectionName}
-                        className="flex-1"
-                      >
-                        {t(
-                          SectionTitleKeyMap[sectionName] ??
-                            startCase(sectionName),
-                        )}
-                      </TabsTrigger>
-                    ))}
-                  </TabsList>
-
-                  {sectionNames.map((sectionName) => (
-                    <TabsContent
-                      key={sectionName}
-                      value={sectionName}
-                      className="mt-4"
-                    >
-                      {renderSectionTabs(sectionName)}
-                    </TabsContent>
-                  ))}
-                </Tabs>
               )}
             </>
           )}

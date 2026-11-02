@@ -19,7 +19,12 @@ package knowledge_compile
 import (
 	"testing"
 
+	"ragflow/internal/dao"
+	"ragflow/internal/entity"
 	"ragflow/internal/ontology"
+
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
 )
 
 func TestInduceBucketIntoSchema(t *testing.T) {
@@ -52,14 +57,110 @@ func TestInduceBucketIntoSchema(t *testing.T) {
 	}
 }
 
-func TestConfigBoolFalse(t *testing.T) {
-	if !configBoolFalse(false) {
-		t.Fatal("want true for false")
+func setupOntologySyncDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
 	}
-	if configBoolFalse(true) {
-		t.Fatal("want false for true")
+	if err = db.AutoMigrate(&entity.CompilationTemplate{}); err != nil {
+		t.Fatalf("migrate: %v", err)
 	}
-	if !configBoolFalse("false") {
-		t.Fatal("want true for string false")
+	orig := dao.DB
+	dao.DB = db
+	t.Cleanup(func() { dao.DB = orig })
+	return db
+}
+
+func TestGroupBucketsByOntologyTarget_RequiresOntologySibling(t *testing.T) {
+	db := setupOntologySyncDB(t)
+	status := string(entity.StatusValid)
+	tenant := "tenant-1"
+	groupID := "group-1"
+	graphID := "tpl-graph"
+	ontoID := "tpl-ontology"
+
+	if err := db.Create([]*entity.CompilationTemplate{
+		{
+			ID: graphID, TenantID: &tenant, GroupID: &groupID, Name: "Graph", Kind: "knowledge_graph",
+			Config: entity.JSONMap{"kind": "knowledge_graph", "ontology_name": "FROM_GRAPH"},
+			Status: &status,
+		},
+		{
+			ID: ontoID, TenantID: &tenant, GroupID: &groupID, Name: "Ontology", Kind: "ontology",
+			Config: entity.JSONMap{
+				"kind":              "ontology",
+				"ontology_name":     "FROM_ONTOLOGY",
+				"ontology_base_iri": "http://example.org/induced#",
+			},
+			Status: &status,
+		},
+	}).Error; err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	buckets := []StructureBucket{
+		{Name: "Alice", Type: "Person", TemplateID: graphID, TemplateKind: "knowledge_graph"},
+		{Name: "Acme", Type: "Organization", TemplateID: graphID, TemplateKind: "knowledge_graph"},
+	}
+	targets := groupBucketsByOntologyTarget(t.Context(), tenant, buckets)
+	if len(targets) != 1 {
+		t.Fatalf("targets=%d, want 1", len(targets))
+	}
+	if targets[0].name != "FROM_ONTOLOGY" {
+		t.Fatalf("name=%q, want FROM_ONTOLOGY (config must come from ontology template)", targets[0].name)
+	}
+	if targets[0].baseIRI != "http://example.org/induced#" {
+		t.Fatalf("baseIRI=%q", targets[0].baseIRI)
+	}
+	if len(targets[0].schema.Classes) == 0 {
+		t.Fatal("expected induced classes")
+	}
+}
+
+func TestGroupBucketsByOntologyTarget_SkipWithoutOntologyOperator(t *testing.T) {
+	db := setupOntologySyncDB(t)
+	status := string(entity.StatusValid)
+	tenant := "tenant-1"
+	groupID := "group-only-graph"
+	graphID := "tpl-graph-only"
+
+	if err := db.Create(&entity.CompilationTemplate{
+		ID: graphID, TenantID: &tenant, GroupID: &groupID, Name: "Graph", Kind: "knowledge_graph",
+		Config: entity.JSONMap{"kind": "knowledge_graph", "auto_ontology": true, "ontology_name": "SHOULD_NOT_INDUCE"},
+		Status: &status,
+	}).Error; err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	buckets := []StructureBucket{
+		{Name: "Alice", Type: "Person", TemplateID: graphID, TemplateKind: "knowledge_graph"},
+	}
+	targets := groupBucketsByOntologyTarget(t.Context(), tenant, buckets)
+	if len(targets) != 0 {
+		t.Fatalf("targets=%d, want 0 without ontology sibling (got %+v)", len(targets), targets)
+	}
+}
+
+func TestGroupBucketsByOntologyTarget_SkipUngroupedTemplate(t *testing.T) {
+	db := setupOntologySyncDB(t)
+	status := string(entity.StatusValid)
+	tenant := "tenant-1"
+	graphID := "tpl-solo"
+
+	if err := db.Create(&entity.CompilationTemplate{
+		ID: graphID, TenantID: &tenant, Name: "Solo Graph", Kind: "knowledge_graph",
+		Config: entity.JSONMap{"kind": "knowledge_graph"},
+		Status: &status,
+	}).Error; err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	buckets := []StructureBucket{
+		{Name: "Alice", Type: "Person", TemplateID: graphID},
+	}
+	targets := groupBucketsByOntologyTarget(t.Context(), tenant, buckets)
+	if len(targets) != 0 {
+		t.Fatalf("targets=%d, want 0 for ungrouped template", len(targets))
 	}
 }

@@ -1,0 +1,12 @@
+kind: ontology
+display_name: Ontology — Induce TBox from structure compilation
+description: >-
+  Config-only operator. When placed in the same compilation-template group as a
+  structure kind (knowledge graph, timeline, page index, …), induces class and
+  property definitions from merged structure entities/relations into a tenant
+  ontology after dataset merge. Does not call an LLM by itself.
+config:
+  kind: ontology
+  ontology_name: Compiled Ontology
+  ontology_base_iri: http://ragflow.local/ontology#
+  ontology_id: ''

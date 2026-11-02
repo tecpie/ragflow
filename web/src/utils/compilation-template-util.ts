@@ -31,6 +31,9 @@ export function formatKindLabel(t: TFunction, kind: string): string {
   if (kind === CompilationTemplateKind.MindMap) {
     return 'Mindmap';
   }
+  if (kind === CompilationTemplateKind.Ontology) {
+    return t('knowledgeCompilation.ontology');
+  }
   return capitalize(lowerCase(kind));
 }
 export const isCreateCompilationTemplateGroup = (

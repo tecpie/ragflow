@@ -30,7 +30,8 @@ import (
 )
 
 // syncOntologyFromBuckets induces TBox from structure merge buckets and upserts
-// tenant ontologies. Failures are logged and do not fail the compile batch.
+// tenant ontologies when the producing template group contains an ontology
+// operator. Failures are logged and do not fail the compile batch.
 func (c *Consumer) syncOntologyFromBuckets(ctx context.Context, tenant, kb string, buckets []StructureBucket) {
 	if len(buckets) == 0 || dao.DB == nil {
 		return
@@ -75,6 +76,9 @@ type ontologyTarget struct {
 	schema      ontology.InducedSchema
 }
 
+// groupBucketsByOntologyTarget groups structure buckets by ontology operator
+// targets found as siblings in the same compilation-template group. Buckets
+// whose group has no kind=ontology template are skipped (no silent induction).
 func groupBucketsByOntologyTarget(ctx context.Context, tenant string, buckets []StructureBucket) []ontologyTarget {
 	type key struct {
 		id   string
@@ -85,38 +89,23 @@ func groupBucketsByOntologyTarget(ctx context.Context, tenant string, buckets []
 	bucketGroups := map[key][]StructureBucket{}
 
 	tmplDAO := dao.NewCompilationTemplateDAO()
-	cfgCache := map[string]map[string]any{}
+	templateCache := map[string]*entity.CompilationTemplate{}
+	siblingCache := map[string][]ontologyTarget{} // groupID -> ontology targets
 
 	for _, b := range buckets {
-		cfg := loadTemplateOntologyConfig(ctx, tmplDAO, tenant, b.TemplateID, cfgCache)
-		if cfg != nil && configBoolFalse(cfg["auto_ontology"]) {
+		targets := ontologyTargetsForStructureTemplate(ctx, tmplDAO, tenant, b.TemplateID, templateCache, siblingCache)
+		if len(targets) == 0 {
 			continue
 		}
-		ontologyID := ""
-		name := ""
-		baseIRI := ""
-		if cfg != nil {
-			ontologyID = configString(cfg, "ontology_id")
-			name = configString(cfg, "ontology_name")
-			baseIRI = configString(cfg, "ontology_base_iri")
-		}
-		if ontologyID == "" && name == "" {
-			name = "Compiled Ontology"
-		}
-		if baseIRI == "" {
-			baseIRI = "http://ragflow.local/ontology#"
-		}
-		k := key{id: ontologyID, name: name}
-		if grouped[k] == nil {
-			grouped[k] = &ontologyTarget{
-				ontologyID:  ontologyID,
-				name:        name,
-				description: "Auto-induced from knowledge compilation",
-				baseIRI:     baseIRI,
+		for _, t := range targets {
+			k := key{id: t.ontologyID, name: t.name}
+			if grouped[k] == nil {
+				cp := t
+				grouped[k] = &cp
+				order = append(order, k)
 			}
-			order = append(order, k)
+			bucketGroups[k] = append(bucketGroups[k], b)
 		}
-		bucketGroups[k] = append(bucketGroups[k], b)
 	}
 
 	out := make([]ontologyTarget, 0, len(order))
@@ -129,6 +118,80 @@ func groupBucketsByOntologyTarget(ctx context.Context, tenant string, buckets []
 		out = append(out, t)
 	}
 	return out
+}
+
+func ontologyTargetsForStructureTemplate(
+	ctx context.Context,
+	tmplDAO *dao.CompilationTemplateDAO,
+	tenant, templateID string,
+	templateCache map[string]*entity.CompilationTemplate,
+	siblingCache map[string][]ontologyTarget,
+) []ontologyTarget {
+	templateID = strings.TrimSpace(templateID)
+	if templateID == "" {
+		return nil
+	}
+	row := loadCompilationTemplate(ctx, tmplDAO, tenant, templateID, templateCache)
+	if row == nil || row.GroupID == nil || strings.TrimSpace(*row.GroupID) == "" {
+		return nil
+	}
+	groupID := strings.TrimSpace(*row.GroupID)
+	if cached, ok := siblingCache[groupID]; ok {
+		return cached
+	}
+	siblings, err := tmplDAO.ListByGroup(ctx, dao.DB, groupID)
+	if err != nil {
+		siblingCache[groupID] = nil
+		return nil
+	}
+	targets := make([]ontologyTarget, 0)
+	for _, s := range siblings {
+		if s == nil || !strings.EqualFold(strings.TrimSpace(s.Kind), "ontology") {
+			continue
+		}
+		cfg := map[string]any(nil)
+		if s.Config != nil {
+			cfg = map[string]any(s.Config)
+		}
+		ontologyID := configString(cfg, "ontology_id")
+		name := configString(cfg, "ontology_name")
+		baseIRI := configString(cfg, "ontology_base_iri")
+		if ontologyID == "" && name == "" {
+			name = "Compiled Ontology"
+		}
+		if baseIRI == "" {
+			baseIRI = "http://ragflow.local/ontology#"
+		}
+		targets = append(targets, ontologyTarget{
+			ontologyID:  ontologyID,
+			name:        name,
+			description: "Induced from knowledge compilation",
+			baseIRI:     baseIRI,
+		})
+	}
+	siblingCache[groupID] = targets
+	return targets
+}
+
+func loadCompilationTemplate(
+	ctx context.Context,
+	tmplDAO *dao.CompilationTemplateDAO,
+	tenant, templateID string,
+	cache map[string]*entity.CompilationTemplate,
+) *entity.CompilationTemplate {
+	if row, ok := cache[templateID]; ok {
+		return row
+	}
+	row, err := tmplDAO.GetTemplate(ctx, dao.DB, tenant, templateID)
+	if err != nil || row == nil {
+		row, err = tmplDAO.GetByID(ctx, dao.DB, templateID)
+		if err != nil || row == nil {
+			cache[templateID] = nil
+			return nil
+		}
+	}
+	cache[templateID] = row
+	return row
 }
 
 func upsertInducedOntology(ctx context.Context, ontDAO *dao.OntologyDAO, tenantID string, t ontologyTarget) (*entity.Ontology, error) {
@@ -209,31 +272,6 @@ func upsertInducedOntology(ctx context.Context, ontDAO *dao.OntologyDAO, tenantI
 	return row, nil
 }
 
-func loadTemplateOntologyConfig(
-	ctx context.Context,
-	tmplDAO *dao.CompilationTemplateDAO,
-	tenant, templateID string,
-	cache map[string]map[string]any,
-) map[string]any {
-	templateID = strings.TrimSpace(templateID)
-	if templateID == "" {
-		return nil
-	}
-	if cfg, ok := cache[templateID]; ok {
-		return cfg
-	}
-	row, err := tmplDAO.GetTemplate(ctx, dao.DB, tenant, templateID)
-	if err != nil || row == nil || row.Config == nil {
-		row, err = tmplDAO.GetByID(ctx, dao.DB, templateID)
-		if err != nil || row == nil || row.Config == nil {
-			cache[templateID] = nil
-			return nil
-		}
-	}
-	cache[templateID] = map[string]any(row.Config)
-	return cache[templateID]
-}
-
 func configString(m map[string]any, key string) string {
 	if m == nil {
 		return ""
@@ -251,18 +289,6 @@ func configString(m map[string]any, key string) string {
 			return ""
 		}
 		return s
-	}
-}
-
-func configBoolFalse(v any) bool {
-	switch x := v.(type) {
-	case bool:
-		return !x
-	case string:
-		s := strings.ToLower(strings.TrimSpace(x))
-		return s == "false" || s == "0" || s == "no"
-	default:
-		return false
 	}
 }
 
