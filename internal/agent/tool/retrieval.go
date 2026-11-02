@@ -446,6 +446,25 @@ func resolveRetrievalDatasetIDs(ctx context.Context, datasetIDs []string) ([]str
 	}
 	resolved := make([]string, 0, len(datasetIDs))
 	for _, datasetID := range datasetIDs {
+		datasetID = strings.TrimSpace(datasetID)
+		if datasetID == "" {
+			continue
+		}
+		// Braced refs such as {begin@kb_ids} must go through the template
+		// resolver. GetVar does not strip braces, so the @ shortcut would look
+		// up a component named "{begin" and drop the dataset scope.
+		if strings.ContainsAny(datasetID, "{}") {
+			text, resolveErr := runtime.ResolveTemplateAuto(datasetID, state)
+			if resolveErr != nil {
+				return nil, fmt.Errorf("retrieval: resolve dataset variable %q: %w", datasetID, resolveErr)
+			}
+			text = strings.TrimSpace(text)
+			if text == "" {
+				return nil, fmt.Errorf("retrieval: dataset variable %q is empty", datasetID)
+			}
+			resolved = append(resolved, text)
+			continue
+		}
 		if !strings.Contains(datasetID, "@") {
 			resolved = append(resolved, datasetID)
 			continue
@@ -486,6 +505,17 @@ func resolveRetrievalDocumentIDs(ctx context.Context, documentIDs []string) ([]s
 	for _, documentID := range documentIDs {
 		documentID = strings.TrimSpace(documentID)
 		if documentID == "" {
+			continue
+		}
+		// Braced refs such as {begin@documentId} must go through the template
+		// resolver. GetVar does not strip braces, so the @ shortcut would look
+		// up a component named "{begin" and silently drop the document scope.
+		if strings.ContainsAny(documentID, "{}") {
+			text, resolveErr := runtime.ResolveTemplateAuto(documentID, state)
+			if resolveErr != nil {
+				return nil, fmt.Errorf("retrieval: resolve document_ids template: %w", resolveErr)
+			}
+			resolved = append(resolved, normalizeResolvedDocumentIDs(text)...)
 			continue
 		}
 		if strings.Contains(documentID, "@") {

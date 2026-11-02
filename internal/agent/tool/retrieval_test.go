@@ -471,6 +471,45 @@ func TestRetrieval_RoutesMemoryRequestsWithUserFilter(t *testing.T) {
 	}
 }
 
+func TestRetrieval_ResolvesBracedBeginDocumentID(t *testing.T) {
+	previous := GetRetrievalService()
+	service := &capturingRetrievalService{}
+	SetRetrievalService(service)
+	t.Cleanup(func() { SetRetrievalService(previous) })
+
+	state := runtime.NewCanvasState("run-1", "session-1")
+	state.SetVar("begin", "documentId", "doc-under-review")
+	state.SetVar("begin", "kb_ids", "kb-under-review")
+	ctx := runtime.WithState(t.Context(), state)
+
+	rt := NewRetrievalToolWithDefaults(retrievalArgs{
+		RetrievalFrom: "dataset",
+		DatasetIDs:    []string{"{begin@kb_ids}"},
+		DocumentIDs:   []string{"{begin@documentId}"},
+	})
+	if _, err := rt.InvokableRun(ctx, `{"query":"项目名称"}`); err != nil {
+		t.Fatalf("InvokableRun: %v", err)
+	}
+	if len(service.req.DocScope) != 1 || service.req.DocScope[0] != "doc-under-review" {
+		t.Fatalf("DocScope = %#v, want [doc-under-review]", service.req.DocScope)
+	}
+	if len(service.req.DatasetIDs) != 1 || service.req.DatasetIDs[0] != "kb-under-review" {
+		t.Fatalf("DatasetIDs = %#v, want [kb-under-review]", service.req.DatasetIDs)
+	}
+
+	bare := NewRetrievalToolWithDefaults(retrievalArgs{
+		RetrievalFrom: "dataset",
+		DatasetIDs:    []string{"kb-literal"},
+		DocumentIDs:   []string{"begin@documentId"},
+	})
+	if _, err := bare.InvokableRun(ctx, `{"query":"项目名称"}`); err != nil {
+		t.Fatalf("InvokableRun(bare ref): %v", err)
+	}
+	if len(service.req.DocScope) != 1 || service.req.DocScope[0] != "doc-under-review" {
+		t.Fatalf("bare DocScope = %#v, want [doc-under-review]", service.req.DocScope)
+	}
+}
+
 func TestRetrieval_UnsetBareUserRefYieldsNoFilter(t *testing.T) {
 	previous := GetMemoryRetrievalService()
 	memoryService := &capturingRetrievalService{}
