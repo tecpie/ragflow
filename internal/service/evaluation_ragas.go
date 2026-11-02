@@ -85,7 +85,7 @@ func (s *ragasScorer) judgeChat(ctx context.Context, system, user string) (strin
 	if s.factory == nil {
 		return "", fmt.Errorf("model factory not initialized")
 	}
-	access := ModelAccess{TenantID: s.tenantID}
+	access := Identity{TenantID: s.tenantID}
 	var (
 		chatModel *modelModule.ChatModel
 		err       error
@@ -123,7 +123,7 @@ func (s *ragasScorer) embedTexts(ctx context.Context, texts []string) ([][]float
 	if strings.TrimSpace(s.judgeEmbdID) == "" {
 		return nil, fmt.Errorf("embedding model not configured")
 	}
-	embModel, err := s.factory.NewEmbeddingModel(ctx, ModelAccess{TenantID: s.tenantID}, s.judgeEmbdID)
+	embModel, err := s.factory.NewEmbeddingModel(ctx, Identity{TenantID: s.tenantID}, s.judgeEmbdID)
 	if err != nil {
 		return nil, err
 	}

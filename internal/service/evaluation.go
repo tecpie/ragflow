@@ -811,7 +811,7 @@ func (s *EvaluationService) preflightDialogChatModel(ctx context.Context, tenant
 	if modelRef == "" {
 		return fmt.Errorf("dialog %s has empty llm_id; select llm_id for the run", dialogID)
 	}
-	_, err := s.factory.NewChatModel(ctx, ModelAccess{TenantID: tenantID}, modelRef)
+	_, err := s.factory.NewChatModel(ctx, Identity{TenantID: tenantID}, modelRef)
 	if err != nil {
 		return fmt.Errorf("chat model unavailable (%s): %w", modelRef, err)
 	}

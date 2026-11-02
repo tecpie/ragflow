@@ -445,7 +445,7 @@ func (s *EvaluationService) llmGenerateQA(ctx context.Context, tenantID, llmID, 
 	if s.factory == nil {
 		return nil, fmt.Errorf("model factory not initialized")
 	}
-	chatModel, err := s.factory.NewChatModel(ctx, ModelAccess{TenantID: tenantID}, llmID)
+	chatModel, err := s.factory.NewChatModel(ctx, Identity{TenantID: tenantID}, llmID)
 	if err != nil {
 		return nil, err
 	}
