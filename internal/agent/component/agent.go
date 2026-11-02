@@ -113,6 +113,10 @@ type AgentParam struct {
 	// outputs.structured; when set, Invoke populates outputs["structured"]
 	// so downstream Message templates like {Agent:X@structured} resolve.
 	OutputStructure map[string]any
+	// OutputSchema is the canvas outputs.structured JSON Schema.
+	// Invoke appends each description to the system prompt; OutputStructure
+	// stays the top-level key set used to validate the response.
+	OutputSchema map[string]any
 
 	// MaxTokensDisabled, TopPDisabled and TemperatureDisabled record a DSL
 	// *Enabled switch set to false, so runtime inputs that carry the value
@@ -1149,7 +1153,11 @@ func (c *AgentComponent) invokeNow(ctx context.Context, db *gorm.DB, inputs map[
 			keys = append(keys, key)
 		}
 		sort.Strings(keys)
-		p.SystemPrompt = appendPromptText(p.SystemPrompt, "Return your final answer as a single valid JSON object containing these keys: "+strings.Join(keys, ", ")+". Do not include markdown fences or prose outside the JSON object.")
+		instruction := "Return your final answer as a single valid JSON object containing these keys: " + strings.Join(keys, ", ") + ". Do not include markdown fences or prose outside the JSON object."
+		if lines := structuredDescriptionLines(p.OutputSchema); len(lines) > 0 {
+			instruction += "\n" + strings.Join(lines, "\n")
+		}
+		p.SystemPrompt = appendPromptText(p.SystemPrompt, instruction)
 	}
 
 	if p.ModelID == "" {
@@ -1821,7 +1829,76 @@ func mergeAgentParam(base AgentParam, inputs map[string]any) AgentParam {
 	if keys := agentOutputStructureFrom(inputs); len(keys) > 0 {
 		p.OutputStructure = keys
 	}
+	if schema := agentStructuredSchemaFrom(inputs); len(schema) > 0 {
+		p.OutputSchema = schema
+	}
 	return p
+}
+
+// agentStructuredSchemaFrom returns outputs.structured when it is a JSON Schema.
+func agentStructuredSchemaFrom(inputs map[string]any) map[string]any {
+	outputs, ok := mapFrom(inputs, "outputs")
+	if !ok {
+		return nil
+	}
+	structured, ok := mapFrom(outputs, "structured")
+	if !ok || len(structured) == 0 {
+		return nil
+	}
+	properties, _ := structured["properties"].(map[string]any)
+	if len(properties) == 0 {
+		return nil
+	}
+	return structured
+}
+
+// structuredDescriptionLines lists schema descriptions, including nested object
+// and array item fields. Paths use dots, and array items use [].
+func structuredDescriptionLines(schema map[string]any) []string {
+	if len(schema) == 0 {
+		return nil
+	}
+	properties, _ := schema["properties"].(map[string]any)
+	if len(properties) == 0 {
+		return nil
+	}
+	var lines []string
+	appendStructuredDescriptions(properties, "", &lines)
+	return lines
+}
+
+func appendStructuredDescriptions(properties map[string]any, prefix string, lines *[]string) {
+	names := make([]string, 0, len(properties))
+	for name := range properties {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		prop, ok := properties[name].(map[string]any)
+		if !ok {
+			continue
+		}
+		path := name
+		if prefix != "" {
+			path = prefix + "." + name
+		}
+		if desc, ok := prop["description"].(string); ok && strings.TrimSpace(desc) != "" {
+			*lines = append(*lines, "- "+path+": "+strings.TrimSpace(desc))
+		}
+		if nested, ok := prop["properties"].(map[string]any); ok {
+			appendStructuredDescriptions(nested, path, lines)
+		}
+		items, _ := prop["items"].(map[string]any)
+		if len(items) == 0 {
+			continue
+		}
+		if desc, ok := items["description"].(string); ok && strings.TrimSpace(desc) != "" {
+			*lines = append(*lines, "- "+path+"[]: "+strings.TrimSpace(desc))
+		}
+		if nested, ok := items["properties"].(map[string]any); ok {
+			appendStructuredDescriptions(nested, path+"[]", lines)
+		}
+	}
 }
 
 // agentOutputStructureFrom reads the Agent's structured-output schema from

@@ -119,6 +119,47 @@ func TestAgent_PopulatesStructuredFromOutputsSchema(t *testing.T) {
 	}
 }
 
+func TestAgent_AppendsStructuredDescriptionsToPrompt(t *testing.T) {
+	var prompt string
+	withAgentRunner(t, func(_ context.Context, p AgentParam) (*schema.Message, error) {
+		prompt = p.SystemPrompt
+		return &schema.Message{Role: schema.Assistant, Content: `{"records":[]}`}, nil
+	})
+	c := NewAgentComponent(agentParamFromMap(map[string]any{
+		"model_id":   "stub",
+		"sys_prompt": "extract rules",
+		"outputs": map[string]any{
+			"structured": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"records": map[string]any{
+						"type":        "array",
+						"description": "review records",
+						"items": map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"ruleId": map[string]any{
+									"type":        "string",
+									"description": "rule id",
+								},
+							},
+						},
+					},
+				},
+				"required": []any{"records"},
+			},
+		},
+	}))
+	if _, err := c.Invoke(t.Context(), nil, map[string]any{"user_prompt": "go"}); err != nil {
+		t.Fatalf("Invoke: %v", err)
+	}
+	for _, want := range []string{"extract rules", "- records: review records", "- records[].ruleId: rule id"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("system prompt = %q, missing %q", prompt, want)
+		}
+	}
+}
+
 func TestAgentOutputStructureFromRequiredKeys(t *testing.T) {
 	keys := agentOutputStructureFrom(map[string]any{
 		"outputs": map[string]any{
