@@ -127,6 +127,10 @@ type Ingestor struct {
 	// database lease owner.
 	runMemoryTask func(ctx context.Context, taskID, leaseOwner string) (servicepkg.MemoryTaskDisposition, error)
 
+	// runDocCompile re-runs knowledge compilation for one doc_compile wake-up.
+	// Tests may override it. Production calls CompileDocumentFromSourceChunks.
+	runDocCompile func(ctx context.Context, task *entity.Task) error
+
 	// reconcileMemoryTasks republishes due durable memory task wake-ups. Tests
 	// may replace it to verify lifecycle behavior without a database or broker.
 	reconcileMemoryTasks func(ctx context.Context) error
@@ -201,6 +205,7 @@ func NewIngestor(name string, maxConcurrency int32, supportedTypes []string, dep
 	}
 	ingestor.runDocumentTask = ingestor.defaultRunDocumentTask
 	ingestor.runMemoryTask = ingestor.defaultRunMemoryTask
+	ingestor.runDocCompile = ingestor.defaultRunDocCompile
 	ingestor.reconcileMemoryTasks = ingestor.defaultReconcileMemoryTasks
 	ingestor.cancelCheck = ingestor.defaultCancelCheck
 	ingestor.kcConcurrency = maxConcurrency // parallel dataset-level compile workers default to the task width
@@ -510,6 +515,14 @@ func (e *Ingestor) handleAndExecute(handle common.TaskHandle) {
 		}
 		taskCtx := taskpkg.NewMemoryTaskContextForScheduling(e.ctx, taskMessage.TaskID, handle)
 		e.executeMemoryTaskWithHeartbeat(e.ctx, taskCtx, hb)
+		return
+	}
+
+	// Knowledge-compile wake-ups share this consumer. Dropping them leaves the
+	// task row at progress 0, so every later compile is rejected as busy and
+	// the dataset graph is never built.
+	if taskMessage.TaskType == common.TaskTypeDocCompile {
+		e.executeDocCompile(e.ctx, taskMessage.TaskID, hb, handle)
 		return
 	}
 

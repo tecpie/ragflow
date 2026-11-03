@@ -31,6 +31,12 @@ import (
 
 const maxTaskPageNumber int64 = 100000000
 
+// unclaimedDocCompileGrace is how long a doc_compile row may stay at progress 0
+// before it is treated as abandoned. A live worker claims the row (progress
+// moves off 0) within seconds. Rows left at 0 were published and then dropped,
+// which used to block every later compile with "currently being processed".
+const unclaimedDocCompileGrace = 30 * time.Second
+
 // CompileDocumentsResult is the response payload for POST .../documents/compile.
 type CompileDocumentsResult struct {
 	SuccessCount int      `json:"success_count"`
@@ -141,15 +147,43 @@ func (s *DocumentService) documentCompileBlocked(ctx context.Context, docID stri
 	if err != nil {
 		return false, err
 	}
+	now := time.Now()
 	for _, t := range tasks {
-		if t == nil {
-			continue
-		}
-		if t.TaskType == common.TaskTypeDocCompile && t.Progress >= 0 && t.Progress < 1 {
+		if docCompileInFlight(t, now) {
 			return true, nil
 		}
 	}
 	return false, nil
+}
+
+// docCompileInFlight reports whether a knowledge-compile task still owns the
+// document. A worker claim moves progress off 0 and stays busy until the task
+// finishes or fails. A row left at 0 is only busy during the queue grace; after
+// that the caller may supersede it and publish a new task.
+func docCompileInFlight(t *entity.Task, now time.Time) bool {
+	if t == nil || t.TaskType != common.TaskTypeDocCompile {
+		return false
+	}
+	if t.Progress < 0 || t.Progress >= 1 {
+		return false
+	}
+	if t.Progress > 0 {
+		return true
+	}
+	return !unclaimedDocCompileStale(t, now)
+}
+
+func unclaimedDocCompileStale(t *entity.Task, now time.Time) bool {
+	var begin time.Time
+	if t.BeginAt != nil {
+		begin = *t.BeginAt
+	} else if t.CreateDate != nil {
+		begin = *t.CreateDate
+	}
+	if begin.IsZero() {
+		return true
+	}
+	return now.Sub(begin) >= unclaimedDocCompileGrace
 }
 
 func (s *DocumentService) closeUnfinishedTasks(ctx context.Context, docID string, now time.Time) error {
@@ -160,6 +194,19 @@ func (s *DocumentService) closeUnfinishedTasks(ctx context.Context, docID string
 	msg := now.Format("15:04:05") + " Closed: superseded by knowledge compile"
 	for _, t := range tasks {
 		if t == nil || t.Progress < 0 || t.Progress >= 1 {
+			continue
+		}
+		if t.TaskType == common.TaskTypeDocCompile {
+			if t.Progress > 0 {
+				return fmt.Errorf("Can't compile a document that is currently being processed")
+			}
+			closed, err := s.taskDAO.SupersedeUnclaimedDocCompile(ctx, dao.DB, t.ID, msg)
+			if err != nil {
+				return err
+			}
+			if !closed {
+				return fmt.Errorf("Can't compile a document that is currently being processed")
+			}
 			continue
 		}
 		if err := s.taskDAO.UpdateProgress(ctx, dao.DB, t.ID, 1, msg); err != nil {

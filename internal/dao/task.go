@@ -64,6 +64,32 @@ func (dao *TaskDAO) UpdateProgress(ctx context.Context, db *gorm.DB, id string, 
 	}).Error
 }
 
+// TouchDocCompileRunning claims an unfinished doc_compile task for a worker.
+// A task already marked finished, failed, or superseded is left unchanged and
+// returns false.
+func (dao *TaskDAO) TouchDocCompileRunning(ctx context.Context, db *gorm.DB, id, progressMsg string) (bool, error) {
+	result := db.WithContext(ctx).Model(&entity.Task{}).
+		Where("id = ? AND task_type = ? AND progress >= 0 AND progress < 1", id, common.TaskTypeDocCompile).
+		Updates(map[string]any{
+			"progress":     0.01,
+			"progress_msg": progressMsg,
+		})
+	return result.RowsAffected == 1, result.Error
+}
+
+// SupersedeUnclaimedDocCompile closes a doc_compile task that is still queued
+// (progress exactly 0). A worker that has already moved progress off 0 is not
+// overwritten, so an in-flight compile cannot be replaced by a retry.
+func (dao *TaskDAO) SupersedeUnclaimedDocCompile(ctx context.Context, db *gorm.DB, id, progressMsg string) (bool, error) {
+	result := db.WithContext(ctx).Model(&entity.Task{}).
+		Where("id = ? AND task_type = ? AND progress = ?", id, common.TaskTypeDocCompile, 0).
+		Updates(map[string]any{
+			"progress":     1,
+			"progress_msg": progressMsg,
+		})
+	return result.RowsAffected == 1, result.Error
+}
+
 // MarkActiveMemoryTaskFailed marks an unfinished memory task's UI projection
 // as failed without overwriting a task that completed or failed concurrently.
 func (dao *TaskDAO) MarkActiveMemoryTaskFailed(ctx context.Context, db *gorm.DB, id, progressMsg string) (bool, error) {
