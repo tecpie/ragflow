@@ -103,7 +103,7 @@ func (s *ModelCallService) EmbedText(ctx context.Context, modelRef string, texts
 		return nil, common.CodeBadRequest, err
 	}
 
-	embeddings, err := embeddingModel.Embed(ctx, modelModule.EmbedRequest{Texts: texts}, config, nil)
+	embeddings, err := embeddingModel.Embed(ctx, modelModule.EmbedRequest{Texts: texts}, embeddingCallConfig(info.Catalog, config), nil)
 	if err != nil {
 		return nil, common.CodeServerError, err
 	}
@@ -112,6 +112,20 @@ func (s *ModelCallService) EmbedText(ctx context.Context, modelRef string, texts
 	}
 	return embeddings, common.CodeSuccess, nil
 }
+
+// embeddingCallConfig drops Dimension when the caller asked for the model's native size.
+// Providers read a dimensions field as a Matryoshka truncation, and a fixed-size
+// deployment rejects the request unless that field is absent. A shorter size is
+// still forwarded so models that publish a dimensions list can truncate.
+func embeddingCallConfig(catalog *modelModule.Model, config *modelModule.EmbeddingConfig) *modelModule.EmbeddingConfig {
+	if catalog == nil || catalog.MaxDimension == nil || config == nil || config.Dimension != *catalog.MaxDimension {
+		return config
+	}
+	call := *config
+	call.Dimension = 0
+	return &call
+}
+
 func (s *ModelCallService) RerankDocument(ctx context.Context, modelRef, query string, documents []string, config *modelModule.RerankConfig) (*modelModule.RerankResponse, common.ErrorCode, error) {
 	identity, code, err := s.identityForRequest(ctx)
 	if err != nil {
