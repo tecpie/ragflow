@@ -254,6 +254,7 @@ func upsertInducedOntology(ctx context.Context, ontDAO *dao.OntologyDAO, tenantI
 			Description: descPtr,
 			BaseIRI:     baseIRI,
 			Turtle:      turtle,
+			Source:      entity.OntologySourceKnowledge,
 			Status:      &status,
 		}
 		if err := ontDAO.Create(ctx, dao.DB, row); err != nil {

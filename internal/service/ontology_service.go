@@ -38,11 +38,14 @@ func NewOntologyService() *OntologyService {
 }
 
 // CreateOntologyRequest is the create payload.
+// Document is workbench schema JSON used only to build Turtle. It is not stored.
 type CreateOntologyRequest struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	BaseIRI     string `json:"base_iri"`
 	Turtle      string `json:"turtle"`
+	Document    string `json:"document"`
+	Source      string `json:"source"`
 }
 
 // UpdateOntologyRequest is the update payload.
@@ -51,47 +54,116 @@ type UpdateOntologyRequest struct {
 	Description *string `json:"description"`
 	BaseIRI     *string `json:"base_iri"`
 	Turtle      *string `json:"turtle"`
+	Document    *string `json:"document"`
+	Source      *string `json:"source"`
 }
 
 // OntologyItem is the API list/detail shape.
 type OntologyItem struct {
-	ID          string  `json:"id"`
-	TenantID    string  `json:"tenant_id"`
-	Name        string  `json:"name"`
-	Description *string `json:"description,omitempty"`
-	BaseIRI     string  `json:"base_iri"`
-	Turtle      string  `json:"turtle,omitempty"`
-	CreateTime  *int64  `json:"create_time,omitempty"`
-	UpdateTime  *int64  `json:"update_time,omitempty"`
+	ID            string  `json:"id"`
+	TenantID      string  `json:"tenant_id"`
+	Name          string  `json:"name"`
+	Description   *string `json:"description,omitempty"`
+	BaseIRI       string  `json:"base_iri"`
+	Turtle        string  `json:"turtle,omitempty"`
+	Source        string  `json:"source"`
+	ConceptCount  int     `json:"concept_count"`
+	PropertyCount int     `json:"property_count"`
+	RelationCount int     `json:"relation_count"`
+	CreateTime    *int64  `json:"create_time,omitempty"`
+	UpdateTime    *int64  `json:"update_time,omitempty"`
 }
 
-func toOntologyItem(row *entity.Ontology, includeTurtle bool) *OntologyItem {
-	item := &OntologyItem{
-		ID:          row.ID,
-		TenantID:    row.TenantID,
-		Name:        row.Name,
-		Description: row.Description,
-		BaseIRI:     row.BaseIRI,
-		CreateTime:  row.CreateTime,
-		UpdateTime:  row.UpdateTime,
+func normalizeOntologySource(source string, hasDocument bool) (string, error) {
+	switch strings.TrimSpace(source) {
+	case "":
+		if hasDocument {
+			return entity.OntologySourceModeling, nil
+		}
+		return entity.OntologySourceKnowledge, nil
+	case entity.OntologySourceKnowledge, entity.OntologySourceModeling, entity.OntologySourceBuiltin:
+		return strings.TrimSpace(source), nil
+	default:
+		return "", fmt.Errorf("invalid source")
 	}
-	if includeTurtle {
+}
+
+func ontologyCounts(row *entity.Ontology) (int, int, int, error) {
+	desc := ""
+	if row.Description != nil {
+		desc = *row.Description
+	}
+	doc, err := ontology.ParseTurtle(row.Turtle, row.Name, desc, row.BaseIRI)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	pg := doc.ToPlayground()
+	props := 0
+	for _, et := range pg.EntityTypes {
+		props += len(et.Properties)
+	}
+	return len(pg.EntityTypes), props, len(pg.Relationships), nil
+}
+
+func toOntologyItem(row *entity.Ontology, includeBody bool) (*OntologyItem, error) {
+	concepts, props, rels, err := ontologyCounts(row)
+	if err != nil {
+		return nil, err
+	}
+	source := strings.TrimSpace(row.Source)
+	if source == "" {
+		source = entity.OntologySourceKnowledge
+	}
+	item := &OntologyItem{
+		ID:            row.ID,
+		TenantID:      row.TenantID,
+		Name:          row.Name,
+		Description:   row.Description,
+		BaseIRI:       row.BaseIRI,
+		Source:        source,
+		ConceptCount:  concepts,
+		PropertyCount: props,
+		RelationCount: rels,
+		CreateTime:    row.CreateTime,
+		UpdateTime:    row.UpdateTime,
+	}
+	if includeBody {
 		item.Turtle = row.Turtle
 	}
-	return item
+	return item, nil
 }
 
 func (s *OntologyService) validateTurtle(name, description, baseIRI, turtleText string) (*ontology.Document, error) {
 	return ontology.ParseTurtle(turtleText, name, description, baseIRI)
 }
 
-// Create stores a new ontology after parsing Turtle.
+// Create stores a new ontology. A modeling document replaces Turtle with the generated TBox.
 func (s *OntologyService) Create(ctx context.Context, tenantID string, req CreateOntologyRequest) (*OntologyItem, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		return nil, fmt.Errorf("name is required")
 	}
-	if _, err := s.validateTurtle(name, req.Description, req.BaseIRI, req.Turtle); err != nil {
+	document := strings.TrimSpace(req.Document)
+	baseIRI := strings.TrimSpace(req.BaseIRI)
+	turtleText := strings.TrimSpace(req.Turtle)
+	if document != "" {
+		if baseIRI == "" {
+			baseIRI = "http://ragflow.local/ontology#"
+		}
+		generated, err := ontology.TurtleFromModelingJSON(baseIRI, document)
+		if err != nil {
+			return nil, err
+		}
+		turtleText = generated
+	}
+	if turtleText == "" {
+		return nil, fmt.Errorf("turtle is required")
+	}
+	source, err := normalizeOntologySource(req.Source, document != "")
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.validateTurtle(name, req.Description, baseIRI, turtleText); err != nil {
 		return nil, err
 	}
 	status := string(entity.StatusValid)
@@ -105,14 +177,15 @@ func (s *OntologyService) Create(ctx context.Context, tenantID string, req Creat
 		TenantID:    tenantID,
 		Name:        name,
 		Description: descPtr,
-		BaseIRI:     strings.TrimSpace(req.BaseIRI),
-		Turtle:      strings.TrimSpace(req.Turtle),
+		BaseIRI:     baseIRI,
+		Turtle:      turtleText,
+		Source:      source,
 		Status:      &status,
 	}
 	if err := s.dao.Create(ctx, dao.DB, row); err != nil {
 		return nil, err
 	}
-	return toOntologyItem(row, true), nil
+	return toOntologyItem(row, true)
 }
 
 // List returns ontologies for the tenant.
@@ -123,7 +196,11 @@ func (s *OntologyService) List(ctx context.Context, tenantID, keywords string) (
 	}
 	out := make([]*OntologyItem, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, toOntologyItem(row, false))
+		item, err := toOntologyItem(row, false)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, item)
 	}
 	return out, nil
 }
@@ -137,7 +214,7 @@ func (s *OntologyService) Get(ctx context.Context, tenantID, id string) (*Ontolo
 	if row == nil {
 		return nil, nil
 	}
-	return toOntologyItem(row, true), nil
+	return toOntologyItem(row, true)
 }
 
 // Update patches an ontology.
@@ -167,8 +244,30 @@ func (s *OntologyService) Update(ctx context.Context, tenantID, id string, req U
 	if req.BaseIRI != nil {
 		row.BaseIRI = strings.TrimSpace(*req.BaseIRI)
 	}
-	if req.Turtle != nil {
+	modelingJSON := ""
+	if req.Document != nil {
+		modelingJSON = strings.TrimSpace(*req.Document)
+	}
+	if modelingJSON != "" {
+		baseIRI := row.BaseIRI
+		if baseIRI == "" {
+			baseIRI = "http://ragflow.local/ontology#"
+			row.BaseIRI = baseIRI
+		}
+		generated, err := ontology.TurtleFromModelingJSON(baseIRI, modelingJSON)
+		if err != nil {
+			return nil, err
+		}
+		row.Turtle = generated
+	} else if req.Turtle != nil {
 		row.Turtle = strings.TrimSpace(*req.Turtle)
+	}
+	if req.Source != nil {
+		source, err := normalizeOntologySource(*req.Source, modelingJSON != "")
+		if err != nil {
+			return nil, err
+		}
+		row.Source = source
 	}
 	desc := ""
 	if row.Description != nil {
@@ -180,7 +279,7 @@ func (s *OntologyService) Update(ctx context.Context, tenantID, id string, req U
 	if err := s.dao.Update(ctx, dao.DB, row); err != nil {
 		return nil, err
 	}
-	return toOntologyItem(row, true), nil
+	return toOntologyItem(row, true)
 }
 
 // Delete soft-deletes an ontology.
@@ -289,12 +388,13 @@ func (s *OntologyService) UpsertInduced(ctx context.Context, tenantID string, re
 			Description: descPtr,
 			BaseIRI:     baseIRI,
 			Turtle:      turtle,
+			Source:      entity.OntologySourceKnowledge,
 			Status:      &status,
 		}
 		if err := s.dao.Create(ctx, dao.DB, row); err != nil {
 			return nil, err
 		}
-		return toOntologyItem(row, true), nil
+		return toOntologyItem(row, true)
 	}
 	row.Turtle = turtle
 	row.BaseIRI = baseIRI
@@ -304,7 +404,7 @@ func (s *OntologyService) UpsertInduced(ctx context.Context, tenantID string, re
 	if err := s.dao.Update(ctx, dao.DB, row); err != nil {
 		return nil, err
 	}
-	return toOntologyItem(row, true), nil
+	return toOntologyItem(row, true)
 }
 
 // ExportRDFXML returns RDF/XML bytes for an ontology.

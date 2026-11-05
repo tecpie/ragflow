@@ -16,7 +16,16 @@
 
 package entity
 
-// Ontology stores a tenant-owned TBox as Turtle source text.
+const (
+	// OntologySourceKnowledge is a TBox induced from knowledge compilation or imported Turtle.
+	OntologySourceKnowledge = "knowledge"
+	// OntologySourceModeling is a workbench model stored as Turtle.
+	OntologySourceModeling = "modeling"
+	// OntologySourceBuiltin is the shipped workbench case, stored as Turtle.
+	OntologySourceBuiltin = "builtin"
+)
+
+// Ontology stores a tenant-owned TBox as Turtle.
 type Ontology struct {
 	ID          string  `gorm:"column:id;primaryKey;size:32" json:"id"`
 	TenantID    string  `gorm:"column:tenant_id;size:32;not null;index" json:"tenant_id"`
@@ -24,6 +33,7 @@ type Ontology struct {
 	Description *string `gorm:"column:description;type:text" json:"description,omitempty"`
 	BaseIRI     string  `gorm:"column:base_iri;size:512;not null;default:''" json:"base_iri"`
 	Turtle      string  `gorm:"column:turtle;type:longtext;not null" json:"turtle"`
+	Source      string  `gorm:"column:source;size:32;not null;default:knowledge" json:"source"`
 	Status      *string `gorm:"column:status;size:1;default:1;index" json:"status,omitempty"`
 	BaseModel
 }
