@@ -30,7 +30,7 @@ import (
 	"ragflow/internal/i18n"
 	"ragflow/internal/permission"
 	permissionresponse "ragflow/internal/permission/response"
-	"ragflow/internal/service"
+
 	"ragflow/internal/utility"
 )
 
@@ -80,7 +80,7 @@ type LinkToDatasetsRequest struct {
 //
 // On validation failure it returns a sentinel error (see ErrLink* above) so the
 // handler can map it to a Python-compatible response without leaking internals.
-func (s *File2DocumentService) LinkToDatasets(ctx context.Context, userID string, req *LinkToDatasetsRequest, mode string) error {
+func (s *File2DocumentService) LinkToDatasets(ctx context.Context, req *LinkToDatasetsRequest, mode string) error {
 	// ── 1. Validate files exist ───────────────────────────────────────────────
 	files, err := s.fileDAO.GetByIDs(ctx, dao.DB, req.FileIDs)
 	if err != nil {
@@ -114,7 +114,7 @@ func (s *File2DocumentService) LinkToDatasets(ctx context.Context, userID string
 		if file.Type == "folder" {
 			kind = permission.ResourceKindFolder
 		}
-		return checker.CheckResource(ctx, permission.Subject{UserID: userID}, permission.ResourceRef{
+		return checker.CheckResource(ctx, permission.ResourceRef{
 			Kind: kind,
 			ID:   file.ID,
 		}, permission.OperationRead)
@@ -156,7 +156,7 @@ func (s *File2DocumentService) LinkToDatasets(ctx context.Context, userID string
 
 	// ── 5. Validate KB permissions ────────────────────────────────────────────
 	for _, kb := range kbMap {
-		if err := service.CheckDatasetAccess(ctx, permission.Subject{UserID: userID}, kb.ID, permission.OperationUpdate); err != nil {
+		if err := permission.NewDatabaseChecker(dao.DB).CheckResource(ctx, permission.ResourceRef{Kind: permission.ResourceKindDataset, ID: kb.ID}, permission.OperationUpdate); err != nil {
 			_, permissionErr := permissionresponse.Normalize(err)
 			return permissionErr
 		}
@@ -165,8 +165,8 @@ func (s *File2DocumentService) LinkToDatasets(ctx context.Context, userID string
 	// ── 6. Run conversion in background (fire-and-forget) ────────────────────
 	kbIDs := req.KbIDs
 	go func() {
-		newCtx := context.Background()
-		if err = s.convertFiles(newCtx, allFileIDs, kbIDs, userID, mode); err != nil {
+		newCtx := context.WithoutCancel(ctx)
+		if err := s.convertFiles(newCtx, allFileIDs, kbIDs, mode); err != nil {
 			common.Warn("file2document.convertFiles failed",
 				zap.Strings("file_ids", allFileIDs),
 				zap.Strings("kb_ids", kbIDs),
@@ -179,7 +179,8 @@ func (s *File2DocumentService) LinkToDatasets(ctx context.Context, userID string
 
 // convertFiles mirrors Python _convert_files: keep existing links, remove links
 // outside the requested KBs in replace mode, then add any missing links.
-func (s *File2DocumentService) convertFiles(ctx context.Context, fileIDs, kbIDs []string, userID, mode string) error {
+func (s *File2DocumentService) convertFiles(ctx context.Context, fileIDs, kbIDs []string, mode string) error {
+	userID := permission.UserIDFromContext(ctx)
 	replaceExisting := mode != "add"
 	kbIDs = dedupeStrings(kbIDs)
 	requestedKBIDs := make(map[string]struct{}, len(kbIDs))
@@ -248,6 +249,7 @@ func (s *File2DocumentService) convertFiles(ctx context.Context, fileIDs, kbIDs 
 			doc := &entity.Document{
 				ID:                common.GenerateUUID(),
 				KbID:              kb.ID,
+				UserID:            userID,
 				ParserID:          parserID,
 				PipelineID:        pipelineID,
 				PipelineVersionID: kb.PipelineVersionID,

@@ -93,6 +93,7 @@ func (s *EvaluationService) CreateDataset(ctx context.Context, userID, name, des
 	}
 	row := &entity.EvaluationDataset{
 		ID:          common.GenerateUUID(),
+		UserID:      userID,
 		TenantID:    tenantID,
 		Name:        name,
 		Description: descPtr,

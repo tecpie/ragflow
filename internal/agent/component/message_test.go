@@ -372,7 +372,7 @@ func TestMessage_MaterializesDeferredAgentStructured(t *testing.T) {
 	})
 	ctx := runtime.WithDeferredNodeRegistry(withStateForTest(t.Context(), state))
 	completed := false
-	runtime.RegisterDeferredNode(ctx, "Agent:HungryLiliesDance", func() { completed = true })
+	runtime.RegisterDeferredNode(ctx, "Agent:HungryLiliesDance", func(error) { completed = true })
 
 	out, err := c.Invoke(ctx, nil, map[string]any{
 		"text": "{{Agent:HungryLiliesDance@structured}}",

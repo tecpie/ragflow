@@ -119,6 +119,10 @@ func (s *UserService) Register(ctx context.Context, req *RegisterRequest) (*enti
 	if !emailRegex.MatchString(req.Email) {
 		return nil, common.CodeOperatingError, fmt.Errorf("invalid email address: %s", req.Email)
 	}
+	req.Nickname = strings.TrimSpace(req.Nickname)
+	if err := common.ValidateNameRunes(req.Nickname, common.NicknameLimit); err != nil {
+		return nil, common.CodeDataError, err
+	}
 
 	existUser, err := s.userDAO.GetByEmail(ctx, dao.DB, req.Email)
 	if existUser != nil {
@@ -225,6 +229,7 @@ func (s *UserService) Register(ctx context.Context, req *RegisterRequest) (*enti
 	rootFile := &entity.File{
 		ID:        fileID,
 		ParentID:  fileID,
+		UserID:    userID,
 		TenantID:  userID,
 		CreatedBy: userID,
 		Name:      "/",
@@ -340,8 +345,8 @@ func (s *UserService) LoginByEmail(ctx context.Context, req *EmailLoginRequest) 
 	return user, common.CodeSuccess, nil
 }
 
-// GetUserByID get user by ID
-func (s *UserService) GetUserByID(ctx context.Context, id uint) (*UserResponse, common.ErrorCode, error) {
+// GetUserByID get user by ID (a 32-char hex UUID string).
+func (s *UserService) GetUserByID(ctx context.Context, id string) (*UserResponse, common.ErrorCode, error) {
 	user, err := s.userDAO.GetByID(ctx, dao.DB, id)
 	if err != nil {
 		return nil, common.CodeNotFound, err
@@ -689,7 +694,11 @@ func (s *UserService) UpdateUserSettings(ctx context.Context, user *entity.User,
 		}
 	}
 	if req.Nickname != nil {
-		user.Nickname = *req.Nickname
+		nickname := strings.TrimSpace(*req.Nickname)
+		if err := common.ValidateNameRunes(nickname, common.NicknameLimit); err != nil {
+			return common.CodeDataError, err
+		}
+		user.Nickname = nickname
 	}
 	if req.Avatar != nil {
 		// In Go version, avatar might be stored differently
@@ -777,7 +786,7 @@ func (s *UserService) resolveAPITokenIdentity(ctx context.Context, apiToken *ent
 		return nil, common.CodeUnauthorized, fmt.Errorf("API token is missing user identity")
 	}
 
-	user, err := s.userDAO.GetByIDString(ctx, dao.DB, *apiToken.UserID)
+	user, err := s.userDAO.GetByID(ctx, dao.DB, *apiToken.UserID)
 	if err != nil {
 		return nil, common.CodeUnauthorized, fmt.Errorf("user not found for API token")
 	}

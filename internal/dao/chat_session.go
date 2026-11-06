@@ -183,7 +183,7 @@ func (dao *ChatSessionDAO) ListByResourceIDs(ctx context.Context, db *gorm.DB, c
 	query = query.Order(chatSessionOrderClause(terms)).Order("id DESC")
 	if pageSize > 0 {
 		if page < 1 {
-			page = 1
+			page = common.DefaultPage
 		}
 		query = query.Offset((page - 1) * pageSize).Limit(pageSize)
 	}
@@ -242,10 +242,10 @@ func (dao *ChatSessionDAO) ListAgentSessionNames(ctx context.Context, db *gorm.D
 	}
 
 	if page <= 0 {
-		page = 1
+		page = common.DefaultPage
 	}
 	if pageSize <= 0 {
-		pageSize = 30
+		pageSize = common.DefaultPageSize
 	}
 
 	var rows []map[string]interface{}
@@ -302,8 +302,7 @@ func (dao *ChatSessionDAO) ListAgentSessions(ctx context.Context, db *gorm.DB, p
 	if params.Keywords != "" {
 		keywords := strings.ToLower(params.Keywords)
 		keywordPattern := "%" + keywords + "%"
-		messageMatch := "EXISTS (SELECT 1 FROM " + apiConversationMessageTable + " AS cm WHERE cm.conversation_id = api_4_conversation.id AND LOWER(cm.content) LIKE ?)"
-		query = query.Where("(LOWER(id) LIKE ? OR LOWER(name) LIKE ? OR "+messageMatch+")", keywordPattern, keywordPattern, keywordPattern)
+		query = query.Where("(LOWER(id) LIKE ? OR LOWER(name) LIKE ?)", keywordPattern, keywordPattern)
 	}
 
 	dateColumn := "create_date"
@@ -337,12 +336,12 @@ func (dao *ChatSessionDAO) ListAgentSessions(ctx context.Context, db *gorm.DB, p
 
 	page := params.Page
 	if page <= 0 {
-		page = 1
+		page = common.DefaultPage
 	}
 
 	pageSize := params.PageSize
 	if pageSize <= 0 {
-		pageSize = 30
+		pageSize = common.DefaultPageSize
 	}
 
 	var sessions []*entity.API4Conversation

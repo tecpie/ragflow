@@ -24,6 +24,7 @@ import (
 
 	"ragflow/internal/common"
 	modelModule "ragflow/internal/entity/models"
+	"ragflow/internal/permission"
 )
 
 // ModelCallService provides the model-call API described in Model方法.pdf.
@@ -41,11 +42,11 @@ func NewModelCallService() *ModelCallService {
 
 // ChatToModelWithMessages sends messages to the model selected by modelRef.
 func (s *ModelCallService) ChatToModelWithMessages(ctx context.Context, modelRef string, messages []modelModule.Message, config *modelModule.ChatConfig, usage *common.ModelUsage) (*modelModule.ChatResponse, common.ErrorCode, error) {
-	identity, code, err := s.identityForRequest(ctx)
+	tenantID, code, err := s.tenantIDForRequest(ctx)
 	if err != nil {
 		return nil, code, err
 	}
-	chatModel, err := s.modelFactory.NewChatModel(ctx, identity, modelRef)
+	chatModel, err := s.modelFactory.NewChatModel(permission.WithTenantID(ctx, tenantID), modelRef)
 	if err != nil {
 		return nil, common.CodeNotFound, err
 	}
@@ -53,7 +54,7 @@ func (s *ModelCallService) ChatToModelWithMessages(ctx context.Context, modelRef
 		config = &modelModule.ChatConfig{}
 	}
 	info := chatModel.Info()
-	populateModelUsage(usage, info, chatModel.APIConfig, identity.TenantID, identity.UserID)
+	populateModelUsage(ctx, usage, info, chatModel.APIConfig, tenantID)
 
 	response, err := chatModel.ChatWithMessages(ctx, messages, config, usage)
 	if err != nil {
@@ -65,18 +66,18 @@ func (s *ModelCallService) ChatToModelWithMessages(ctx context.Context, modelRef
 	return response, common.CodeSuccess, nil
 }
 func (s *ModelCallService) ChatToModelStreamWithSender(ctx context.Context, modelRef string, messages []modelModule.Message, config *modelModule.ChatConfig, usage *common.ModelUsage, sender func(*string, *string) error) (common.ErrorCode, error) {
-	identity, code, err := s.identityForRequest(ctx)
+	tenantID, code, err := s.tenantIDForRequest(ctx)
 	if err != nil {
 		return code, err
 	}
-	chatModel, err := s.modelFactory.NewChatModel(ctx, identity, modelRef)
+	chatModel, err := s.modelFactory.NewChatModel(permission.WithTenantID(ctx, tenantID), modelRef)
 	if err != nil {
 		return common.CodeNotFound, err
 	}
 	if config == nil {
 		config = &modelModule.ChatConfig{}
 	}
-	populateModelUsage(usage, chatModel.Info(), chatModel.APIConfig, identity.TenantID, identity.UserID)
+	populateModelUsage(ctx, usage, chatModel.Info(), chatModel.APIConfig, tenantID)
 
 	if err := chatModel.ChatStreamlyWithSender(ctx, messages, config, usage, sender); err != nil {
 		return common.CodeServerError, err
@@ -84,11 +85,11 @@ func (s *ModelCallService) ChatToModelStreamWithSender(ctx context.Context, mode
 	return common.CodeSuccess, nil
 }
 func (s *ModelCallService) EmbedText(ctx context.Context, modelRef string, texts []string, config *modelModule.EmbeddingConfig) ([]modelModule.EmbeddingData, common.ErrorCode, error) {
-	identity, code, err := s.identityForRequest(ctx)
+	tenantID, code, err := s.tenantIDForRequest(ctx)
 	if err != nil {
 		return nil, code, err
 	}
-	embeddingModel, err := s.modelFactory.NewEmbeddingModel(ctx, identity, modelRef)
+	embeddingModel, err := s.modelFactory.NewEmbeddingModel(permission.WithTenantID(ctx, tenantID), modelRef)
 	if err != nil {
 		return nil, common.CodeNotFound, err
 	}
@@ -127,11 +128,11 @@ func embeddingCallConfig(catalog *modelModule.Model, config *modelModule.Embeddi
 }
 
 func (s *ModelCallService) RerankDocument(ctx context.Context, modelRef, query string, documents []string, config *modelModule.RerankConfig) (*modelModule.RerankResponse, common.ErrorCode, error) {
-	identity, code, err := s.identityForRequest(ctx)
+	tenantID, code, err := s.tenantIDForRequest(ctx)
 	if err != nil {
 		return nil, code, err
 	}
-	rerankModel, err := s.modelFactory.NewRerankModel(ctx, identity, modelRef)
+	rerankModel, err := s.modelFactory.NewRerankModel(permission.WithTenantID(ctx, tenantID), modelRef)
 	if err != nil {
 		return nil, common.CodeNotFound, err
 	}
@@ -149,11 +150,11 @@ func (s *ModelCallService) RerankDocument(ctx context.Context, modelRef, query s
 	return response, common.CodeSuccess, nil
 }
 func (s *ModelCallService) TranscribeAudio(ctx context.Context, modelRef string, audioFile *string, config *modelModule.ASRConfig) (*modelModule.ASRResponse, common.ErrorCode, error) {
-	identity, code, err := s.identityForRequest(ctx)
+	tenantID, code, err := s.tenantIDForRequest(ctx)
 	if err != nil {
 		return nil, code, err
 	}
-	asrModel, err := s.modelFactory.NewASRModel(ctx, identity, modelRef)
+	asrModel, err := s.modelFactory.NewASRModel(permission.WithTenantID(ctx, tenantID), modelRef)
 	if err != nil {
 		return nil, common.CodeNotFound, err
 	}
@@ -171,11 +172,11 @@ func (s *ModelCallService) TranscribeAudio(ctx context.Context, modelRef string,
 	return response, common.CodeSuccess, nil
 }
 func (s *ModelCallService) TranscribeAudioStream(ctx context.Context, modelRef string, audioFile *string, config *modelModule.ASRConfig, sender func(*string, *string) error) (common.ErrorCode, error) {
-	identity, code, err := s.identityForRequest(ctx)
+	tenantID, code, err := s.tenantIDForRequest(ctx)
 	if err != nil {
 		return code, err
 	}
-	asrModel, err := s.modelFactory.NewASRModel(ctx, identity, modelRef)
+	asrModel, err := s.modelFactory.NewASRModel(permission.WithTenantID(ctx, tenantID), modelRef)
 	if err != nil {
 		return common.CodeNotFound, err
 	}
@@ -188,7 +189,7 @@ func (s *ModelCallService) TranscribeAudioStream(ctx context.Context, modelRef s
 	return common.CodeSuccess, nil
 }
 func (s *ModelCallService) AudioSpeech(ctx context.Context, modelRef string, audioContent *string, config *modelModule.TTSConfig) (*modelModule.TTSResponse, common.ErrorCode, error) {
-	identity, code, err := s.identityForRequest(ctx)
+	tenantID, code, err := s.tenantIDForRequest(ctx)
 	if err != nil {
 		return nil, code, err
 	}
@@ -196,9 +197,9 @@ func (s *ModelCallService) AudioSpeech(ctx context.Context, modelRef string, aud
 		ttsModel *modelModule.TTSModel
 	)
 	if strings.TrimSpace(modelRef) == "" {
-		ttsModel, err = s.modelFactory.NewDefaultTTSModel(ctx, identity)
+		ttsModel, err = s.modelFactory.NewDefaultTTSModel(permission.WithTenantID(ctx, tenantID))
 	} else {
-		ttsModel, err = s.modelFactory.NewTTSModel(ctx, identity, modelRef)
+		ttsModel, err = s.modelFactory.NewTTSModel(permission.WithTenantID(ctx, tenantID), modelRef)
 	}
 	if err != nil {
 		return nil, common.CodeNotFound, err
@@ -220,15 +221,15 @@ func (s *ModelCallService) AudioSpeechForTenant(ctx context.Context, modelRef, t
 	if s == nil || s.modelFactory == nil {
 		return nil, common.CodeServerError, errors.New("model call service is not initialized")
 	}
-	access := Identity{TenantID: tenantID}
+	modelCtx := permission.WithTenantID(ctx, tenantID)
 	var (
 		ttsModel *modelModule.TTSModel
 		err      error
 	)
 	if strings.TrimSpace(modelRef) == "" {
-		ttsModel, err = s.modelFactory.NewDefaultTTSModel(ctx, access)
+		ttsModel, err = s.modelFactory.NewDefaultTTSModel(modelCtx)
 	} else {
-		ttsModel, err = s.modelFactory.NewTTSModel(ctx, access, modelRef)
+		ttsModel, err = s.modelFactory.NewTTSModel(modelCtx, modelRef)
 	}
 	if err != nil {
 		return nil, common.CodeNotFound, err
@@ -247,11 +248,11 @@ func (s *ModelCallService) AudioSpeechForTenant(ctx context.Context, modelRef, t
 	return response, common.CodeSuccess, nil
 }
 func (s *ModelCallService) AudioSpeechStream(ctx context.Context, modelRef string, audioContent *string, config *modelModule.TTSConfig, sender func(*string, *string) error) (common.ErrorCode, error) {
-	identity, code, err := s.identityForRequest(ctx)
+	tenantID, code, err := s.tenantIDForRequest(ctx)
 	if err != nil {
 		return code, err
 	}
-	ttsModel, err := s.modelFactory.NewTTSModel(ctx, identity, modelRef)
+	ttsModel, err := s.modelFactory.NewTTSModel(permission.WithTenantID(ctx, tenantID), modelRef)
 	if err != nil {
 		return common.CodeNotFound, err
 	}
@@ -264,11 +265,11 @@ func (s *ModelCallService) AudioSpeechStream(ctx context.Context, modelRef strin
 	return common.CodeSuccess, nil
 }
 func (s *ModelCallService) OCRFile(ctx context.Context, modelRef string, content []byte, url *string, config *modelModule.OCRConfig) (*modelModule.OCRFileResponse, common.ErrorCode, error) {
-	identity, code, err := s.identityForRequest(ctx)
+	tenantID, code, err := s.tenantIDForRequest(ctx)
 	if err != nil {
 		return nil, code, err
 	}
-	ocrModel, err := s.modelFactory.NewOCRModel(ctx, identity, modelRef)
+	ocrModel, err := s.modelFactory.NewOCRModel(permission.WithTenantID(ctx, tenantID), modelRef)
 	if err != nil {
 		return nil, common.CodeNotFound, err
 	}
@@ -289,11 +290,11 @@ func (s *ModelCallService) OCRFile(ctx context.Context, modelRef string, content
 // ParseFile parses content or url with the document parser selected by
 // modelRef. A zero model type resolves catalog-only capabilities such as doc_parse.
 func (s *ModelCallService) ParseFile(ctx context.Context, modelRef string, content []byte, url *string, config *modelModule.ParseFileConfig) (*modelModule.ParseFileResponse, common.ErrorCode, error) {
-	identity, code, err := s.identityForRequest(ctx)
+	tenantID, code, err := s.tenantIDForRequest(ctx)
 	if err != nil {
 		return nil, code, err
 	}
-	target, err := s.modelFactory.resolveConfig(ctx, identity, 0, modelRef)
+	target, err := s.modelFactory.resolveConfig(permission.WithTenantID(ctx, tenantID), 0, modelRef)
 	if err != nil {
 		return nil, common.CodeNotFound, err
 	}
@@ -314,22 +315,22 @@ func (s *ModelCallService) ParseFile(ctx context.Context, modelRef string, conte
 	return response, common.CodeSuccess, nil
 }
 
-func (s *ModelCallService) identityForRequest(ctx context.Context) (Identity, common.ErrorCode, error) {
+func (s *ModelCallService) tenantIDForRequest(ctx context.Context) (string, common.ErrorCode, error) {
 	if s == nil || s.modelFactory == nil {
-		return Identity{}, common.CodeServerError, errors.New("model call service is not initialized")
+		return "", common.CodeServerError, errors.New("model call service is not initialized")
 	}
-	identity, err := ResolveIdentity(ctx)
+	tenantID, err := requireCurrentTenantID(ctx)
 	if err != nil {
-		return Identity{}, common.CodeNotFound, err
+		return "", common.CodeNotFound, err
 	}
-	return identity, common.CodeSuccess, nil
+	return tenantID, common.CodeSuccess, nil
 }
 
-func populateModelUsage(usage *common.ModelUsage, info *modelModule.ModelInfo, apiConfig *modelModule.APIConfig, tenantID, userID string) {
+func populateModelUsage(ctx context.Context, usage *common.ModelUsage, info *modelModule.ModelInfo, apiConfig *modelModule.APIConfig, tenantID string) {
 	if usage == nil || info == nil {
 		return
 	}
-	usage.UserID = userID
+	usage.UserID = permission.UserIDFromContext(ctx)
 	usage.TenantID = tenantID
 	usage.ProviderName = info.ProviderName
 	usage.InstanceID = info.InstanceID
