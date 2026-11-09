@@ -16,6 +16,8 @@
 
 package entity
 
+import "strings"
+
 const (
 	// OntologySourceKnowledge is a TBox induced from knowledge compilation or imported Turtle.
 	OntologySourceKnowledge = "knowledge"
@@ -24,6 +26,17 @@ const (
 	// OntologySourceBuiltin is the shipped workbench case, stored as Turtle.
 	OntologySourceBuiltin = "builtin"
 )
+
+// OntologySourceModeled reports whether the ontology was authored in the
+// workbench. Compilation must not rewrite its classes from extracted types.
+func OntologySourceModeled(source string) bool {
+	switch strings.TrimSpace(source) {
+	case OntologySourceModeling, OntologySourceBuiltin:
+		return true
+	default:
+		return false
+	}
+}
 
 // Ontology stores a tenant-owned TBox as Turtle.
 type Ontology struct {

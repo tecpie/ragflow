@@ -36,7 +36,16 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { Brain, CircleStop, Globe, Paperclip, Send, Upload, X } from 'lucide-react';
+import {
+  Brain,
+  CircleStop,
+  Globe,
+  Paperclip,
+  Send,
+  Upload,
+  Waypoints,
+  X,
+} from 'lucide-react';
 import * as React from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -46,12 +55,14 @@ import {
   ThinkingMode,
   useThinkingLevel,
 } from '@/hooks/use-thinking-level';
+import storage from '@/utils/authorization-util';
 import { SelectWithSearch } from '../originui/select-with-search';
 import { AudioButton } from '../ui/audio-button';
 
 export type NextMessageInputOnPressEnterParameter = {
   enableThinking?: string;
   enableModelThinking?: boolean;
+  enableOntologyWalk?: boolean;
   enableInternet?: boolean;
   storeHistoryMessages?: boolean;
   omitSessionId?: boolean;
@@ -70,6 +81,7 @@ interface NextMessageInputProps {
   onPressEnter({
     enableThinking,
     enableModelThinking,
+    enableOntologyWalk,
     enableInternet,
   }: NextMessageInputOnPressEnterParameter): void;
   onInputChange: React.ChangeEventHandler<HTMLTextAreaElement>;
@@ -108,6 +120,9 @@ export function NextMessageInput({
 
   const enableThinking = useThinkingLevel();
   const [enableModelThinking, setEnableModelThinking] = useState(false);
+  const [enableOntologyWalk, setEnableOntologyWalk] = useState(
+    storage.getOntologyWalk,
+  );
   const [enableInternet, setEnableInternet] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -184,6 +199,13 @@ export function NextMessageInput({
     setEnableModelThinking((prev) => !prev);
   }, []);
 
+  const handleOntologyWalkToggle = useCallback(() => {
+    setEnableOntologyWalk((prev) => {
+      storage.setOntologyWalk(!prev);
+      return !prev;
+    });
+  }, []);
+
   const handleInternetToggle = useCallback(() => {
     setEnableInternet((prev) => !prev);
   }, []);
@@ -192,12 +214,14 @@ export function NextMessageInput({
     onPressEnter({
       enableThinking,
       enableModelThinking,
+      enableOntologyWalk,
       enableInternet: showInternet ? enableInternet : false,
     });
   }, [
     onPressEnter,
     enableThinking,
     enableModelThinking,
+    enableOntologyWalk,
     enableInternet,
     showInternet,
   ]);
@@ -370,6 +394,29 @@ export function NextMessageInput({
                 triggerClassName="h-7 border-0 !bg-bg-card text-sm"
                 testId="chat-detail-thinking-toggle"
               />
+            )}
+
+            {showReasoning && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className={cn('border-0 h-7 text-sm bg-bg-card', {
+                      'bg-text-primary text-bg-base': enableOntologyWalk,
+                    })}
+                    onClick={handleOntologyWalkToggle}
+                    data-testid="chat-detail-ontology-walk-toggle"
+                  >
+                    <Waypoints />
+                    <span>{t('chat.ontologyWalk')}</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{t('chat.ontologyWalkTip')}</p>
+                </TooltipContent>
+              </Tooltip>
             )}
 
             {showModelThinking && (

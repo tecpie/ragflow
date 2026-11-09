@@ -33,6 +33,8 @@ GO_PACKAGE_INCLUDE = (
     "internal",
     "locales",
     "deps/download_deps.py",
+    # build.sh sources tools/scripts/native_lib_version.sh for ORT/pdfium versions
+    "tools/scripts",
 )
 DEFAULT_REMOTE_BUILD_DIR = "/data/src/ragflow-build"
 DEFAULT_RUNNER_IMAGE = "docker.m.daocloud.io/infiniflow/github_action_runner:latest"
@@ -951,24 +953,31 @@ fi
 
 echo "=== build go (reuse cpp static libs when present) ==="
 mkdir -p /data/src/ragflow-gomod
+mkdir -p /data/src/ragflow-native-libs /data/src/ragflow-gocache
 docker run --rm --entrypoint bash -u 0 \\
   -v "$remote_dir:/ragflow" \\
   -v /data/src/ragflow-gomod:/go/pkg/mod \\
+  -v /data/src/ragflow-native-libs:/root/ragflow-native-libs \\
+  -v /data/src/ragflow-gocache:/root/.cache/go-build \\
   -w /ragflow \\
   -e HOME=/root \\
   -e GOMODCACHE=/go/pkg/mod \\
+  -e GOCACHE=/root/.cache/go-build \\
+  -e GH_PROXY=https://gh-proxy.com/ \\
   -e GOPROXY=https://goproxy.cn,https://goproxy.io,direct \\
   "$runner_img" \\
   -lc '
     set -euo pipefail
     mkdir -p "$HOME/ragflow-native-libs/onnxruntime/static_lib"
-    _src=/opt/ragflow-native-libs/onnxruntime/static_lib
-    _v=$(ls -d "$_src"/onnxruntime-linux-x64-static_lib-1.29.0-* 2>/dev/null | head -1 || true)
-    if [ -z "$_v" ]; then
-      _v=$(ls -d "$_src"/onnxruntime-linux-x64-static_lib-* 2>/dev/null | head -1 || true)
-    fi
-    if [ -n "$_v" ] && [ ! -e "$HOME/ragflow-native-libs/onnxruntime/static_lib/$(basename "$_v")" ]; then
-      cp -a "$_v" "$HOME/ragflow-native-libs/onnxruntime/static_lib/"
+    if ! find "$HOME/ragflow-native-libs/onnxruntime/static_lib" -type f -name '*.a' -print -quit | grep -q .; then
+      _src=/opt/ragflow-native-libs/onnxruntime/static_lib
+      _v=$(ls -d "$_src"/onnxruntime-linux-x64-static_lib-1.29.0-* 2>/dev/null | head -1 || true)
+      if [ -z "$_v" ]; then
+        _v=$(ls -d "$_src"/onnxruntime-linux-x64-static_lib-* 2>/dev/null | head -1 || true)
+      fi
+      if [ -n "$_v" ] && [ ! -e "$HOME/ragflow-native-libs/onnxruntime/static_lib/$(basename "$_v")" ]; then
+        cp -a "$_v" "$HOME/ragflow-native-libs/onnxruntime/static_lib/"
+      fi
     fi
     chmod 1777 /tmp || true
     find /etc/apt -type f \\( -name "*.list" -o -name "*.sources" \\) -print0 \\

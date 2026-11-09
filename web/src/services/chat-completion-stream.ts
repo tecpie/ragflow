@@ -23,6 +23,7 @@ export type ChatCompletionStreamParams = {
   enableThinking?: string;
   enableInternet?: boolean;
   enableModelThinking?: boolean;
+  enableOntologyWalk?: boolean;
   llmSetting?: Variable;
 };
 
@@ -47,6 +48,7 @@ export function requestChatCompletionStream(
     enableThinking,
     enableInternet,
     enableModelThinking,
+    enableOntologyWalk,
     llmSetting,
   }: ChatCompletionStreamParams,
   signal: AbortSignal,
@@ -74,6 +76,7 @@ export function requestChatCompletionStream(
       pass_all_history_messages: true,
       reasoning: Number(enableThinking),
       enable_thinking: enableModelThinking,
+      ontology_walk: enableOntologyWalk,
       internet: enableInternet,
       ...(temperature === undefined ? {} : { temperature }),
       ...(top_p === undefined ? {} : { top_p }),

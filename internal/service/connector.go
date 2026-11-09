@@ -397,7 +397,7 @@ type QueryConnectorRequest struct {
 // QueryConnector previews connector data or resolves enum_options for a
 // metadata value_source, mirroring Python connector_api.query_connector.
 func (s *ConnectorService) QueryConnector(ctx context.Context, connectorID, userID string, req *QueryConnectorRequest) (map[string]any, error) {
-	connector, err := s.GetConnector(ctx, connectorID, userID)
+	connector, err := s.GetConnector(ctx, connectorID)
 	if err != nil {
 		return nil, err
 	}

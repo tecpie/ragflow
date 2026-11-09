@@ -59,10 +59,10 @@ func buildAgentMCPTools(ctx context.Context, db *gorm.DB, raw any, timeout time.
 		contextUserID := permission.UserIDFromContext(ctx)
 		contextTenantID := permission.TenantIDFromContext(ctx)
 		if contextUserID != "" && contextUserID != userID {
-			return nil, permission.ErrIdentityMismatch
+			return nil, nil, permission.ErrIdentityMismatch
 		}
 		if contextTenantID != "" && tenantID != "" && contextTenantID != tenantID {
-			return nil, permission.ErrIdentityMismatch
+			return nil, nil, permission.ErrIdentityMismatch
 		}
 		if contextUserID == "" || contextTenantID == "" {
 			ctx = permission.WithIdentity(ctx, userID, tenantID)

@@ -222,6 +222,14 @@ func upsertInducedOntology(ctx context.Context, ontDAO *dao.OntologyDAO, tenantI
 		}
 	}
 
+	if row != nil && (entity.OntologySourceModeled(row.Source) || strings.TrimSpace(t.ontologyID) != "") {
+		common.Info("knowledge_compile: ontology induce skipped",
+			zap.String("tenant_id", tenantID),
+			zap.String("ontology_id", row.ID),
+			zap.String("source", row.Source))
+		return nil, nil
+	}
+
 	existingTurtle := ""
 	if row != nil {
 		existingTurtle = row.Turtle

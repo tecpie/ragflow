@@ -19,6 +19,7 @@ package dao
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"ragflow/internal/entity"
@@ -76,5 +77,33 @@ func TestSeedCanvasTemplatesIsIdempotentAndRemovesStaleRows(t *testing.T) {
 	}
 	if templates[0].ID != "kept" || templates[0].Title["en"] != "updated" {
 		t.Fatalf("unexpected template after reseed: %#v", templates[0])
+	}
+}
+
+func TestOntologyModelingTemplateParses(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "agent", "templates", "ontology_modeling_agent.json"))
+	if err != nil {
+		t.Fatalf("read ontology modeling template: %v", err)
+	}
+	tmpl, err := parseCanvasTemplateFile(raw)
+	if err != nil {
+		t.Fatalf("parse ontology modeling template: %v", err)
+	}
+	if tmpl.ID != "ontology-modeling" {
+		t.Fatalf("template id = %q", tmpl.ID)
+	}
+	if tmpl.CanvasType == nil || *tmpl.CanvasType != "Agent" {
+		t.Fatalf("canvas type = %#v", tmpl.CanvasType)
+	}
+	components, _ := tmpl.DSL["components"].(map[string]any)
+	if components["begin"] == nil || components["Agent:OntologyModeler"] == nil || components["Message:OntologySchema"] == nil {
+		t.Fatalf("template components = %#v", components)
+	}
+	agent, _ := components["Agent:OntologyModeler"].(map[string]any)
+	obj, _ := agent["obj"].(map[string]any)
+	params, _ := obj["params"].(map[string]any)
+	prompt, _ := params["sys_prompt"].(string)
+	if !strings.Contains(prompt, `"schema"`) {
+		t.Fatalf("sys_prompt missing schema contract")
 	}
 }

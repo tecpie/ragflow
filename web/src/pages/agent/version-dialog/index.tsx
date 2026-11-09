@@ -39,7 +39,7 @@ import {
   ArrowDownToLine,
   Pencil,
   RotateCcw,
-  SavePlus,
+  Plus,
   Trash2,
 } from 'lucide-react';
 import {
@@ -267,7 +267,7 @@ export function VersionDialog({
                         )}
                         {/* Alias edit entry (design G2, section 4.4): PATCHes
   the version metadata without creating a new version or touching the DSL.
-  Pencil edits an existing alias, SavePlus adds one. */}
+  Pencil edits an existing alias, Plus adds one. */}
                         <RAGFlowTooltip
                           asChild
                           tooltip={
@@ -285,7 +285,7 @@ export function VersionDialog({
                             {x.alias ? (
                               <Pencil className="size-3.5" />
                             ) : (
-                              <SavePlus className="size-4" />
+                              <Plus className="size-4" />
                             )}
                           </Button>
                         </RAGFlowTooltip>

@@ -139,7 +139,6 @@ func (s *EvaluationService) GenerateDatasetFromKBs(ctx context.Context, userID s
 	for _, kbID := range kbIDs {
 		if err := checker.CheckResource(
 			ctx,
-			permission.Subject{UserID: userID},
 			permission.ResourceRef{Kind: permission.ResourceKindDataset, ID: kbID},
 			permission.OperationRead,
 		); err != nil {
@@ -163,7 +162,7 @@ func (s *EvaluationService) GenerateDatasetFromKBs(ctx context.Context, userID s
 		samples = append([]EvalStyleSample(nil), defaultEvalStyleSamples...)
 	}
 
-	tenantID, err := requireCurrentTenantID(ctx, userID)
+	tenantID, err := requireCurrentTenantID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -445,7 +444,7 @@ func (s *EvaluationService) llmGenerateQA(ctx context.Context, tenantID, llmID, 
 	if s.factory == nil {
 		return nil, fmt.Errorf("model factory not initialized")
 	}
-	chatModel, err := s.factory.NewChatModel(ctx, Identity{TenantID: tenantID}, llmID)
+	chatModel, err := s.factory.NewChatModel(permission.WithTenantID(ctx, tenantID), llmID)
 	if err != nil {
 		return nil, err
 	}

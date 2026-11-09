@@ -120,6 +120,7 @@ func (c *KnowledgeCompilerComponent) Invoke(ctx context.Context, db *gorm.DB, in
 	if err != nil {
 		return nil, err
 	}
+	bindOntologyToGraphSpecs(ctx, db, tenantID, specs)
 
 	// The eino wiring does not auto-merge run-level metadata into every
 	// component's input map, so doc_id may arrive only via CanvasState.Globals

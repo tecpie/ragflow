@@ -47,10 +47,14 @@ var compiledKnowledgeToolNames = []string{
 
 // compiledKnowledgeTools builds the injected compiled-knowledge tool set scoped
 // to the given tenant/datasets.
-func compiledKnowledgeTools(tenantID string, datasetIDs []string) []tool.BaseTool {
+func compiledKnowledgeTools(tenantID string, datasetIDs []string, ontologyBound bool) []tool.BaseTool {
+	names := compiledKnowledgeToolNames
+	if ontologyBound {
+		names = []string{ontologyExploreToolName, graphDocOutlineToolName}
+	}
 	reg := toolRegistry()
-	out := make([]tool.BaseTool, 0, len(compiledKnowledgeToolNames))
-	for _, name := range compiledKnowledgeToolNames {
+	out := make([]tool.BaseTool, 0, len(names))
+	for _, name := range names {
 		if f, ok := reg[name]; ok {
 			out = append(out, f(tenantID, datasetIDs))
 		}
@@ -98,11 +102,16 @@ func toolsForRun(ctx context.Context, tmpl Template, in Input, de engine.DocEngi
 			zap.Strings("datasets", in.DatasetIDs),
 			zap.String("reason", "explicit tool selection"))
 	} else if datasetsHaveCompiledKnowledge(ctx, de, in.TenantID, in.DatasetIDs) {
-		compiled := compiledKnowledgeTools(in.TenantID, in.DatasetIDs)
+		ontologyBound := datasetsHaveOntology(ctx, in.TenantID, in.DatasetIDs)
+		compiled := compiledKnowledgeTools(in.TenantID, in.DatasetIDs, ontologyBound)
 		tools = append(tools, compiled...)
+		reason := "compile_kwd rows present in the bound datasets"
+		if ontologyBound {
+			reason = "compile_kwd rows present and an ontology is bound; ontology_explore replaces graph_explore"
+		}
 		common.InfoCtx(ctx, "agentic_rag: compiled-knowledge tools injected",
 			zap.Strings("datasets", in.DatasetIDs),
-			zap.String("reason", "compile_kwd rows present in the bound datasets"),
+			zap.String("reason", reason),
 			zap.Int("tools", len(compiled)))
 	} else {
 		common.InfoCtx(ctx, "agentic_rag: compiled-knowledge tools skipped",

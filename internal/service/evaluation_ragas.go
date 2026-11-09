@@ -24,6 +24,7 @@ import (
 	"strings"
 
 	modelModule "ragflow/internal/entity/models"
+	"ragflow/internal/permission"
 )
 
 const (
@@ -85,15 +86,15 @@ func (s *ragasScorer) judgeChat(ctx context.Context, system, user string) (strin
 	if s.factory == nil {
 		return "", fmt.Errorf("model factory not initialized")
 	}
-	access := Identity{TenantID: s.tenantID}
+	ctx = permission.WithTenantID(ctx, s.tenantID)
 	var (
 		chatModel *modelModule.ChatModel
 		err       error
 	)
 	if strings.TrimSpace(s.judgeLLMID) == "" {
-		chatModel, err = s.factory.NewDefaultChatModel(ctx, access)
+		chatModel, err = s.factory.NewDefaultChatModel(ctx)
 	} else {
-		chatModel, err = s.factory.NewChatModel(ctx, access, s.judgeLLMID)
+		chatModel, err = s.factory.NewChatModel(ctx, s.judgeLLMID)
 	}
 	if err != nil {
 		return "", err
@@ -123,7 +124,7 @@ func (s *ragasScorer) embedTexts(ctx context.Context, texts []string) ([][]float
 	if strings.TrimSpace(s.judgeEmbdID) == "" {
 		return nil, fmt.Errorf("embedding model not configured")
 	}
-	embModel, err := s.factory.NewEmbeddingModel(ctx, Identity{TenantID: s.tenantID}, s.judgeEmbdID)
+	embModel, err := s.factory.NewEmbeddingModel(permission.WithTenantID(ctx, s.tenantID), s.judgeEmbdID)
 	if err != nil {
 		return nil, err
 	}

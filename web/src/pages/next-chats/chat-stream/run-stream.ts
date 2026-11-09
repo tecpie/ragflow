@@ -21,6 +21,7 @@ export type RunChatCompletionStreamParams = {
   enableThinking?: string;
   enableInternet?: boolean;
   enableModelThinking?: boolean;
+  enableOntologyWalk?: boolean;
   llmSetting?: Variable;
 };
 
@@ -36,6 +37,7 @@ export async function runChatCompletionStream({
   enableThinking,
   enableInternet,
   enableModelThinking,
+  enableOntologyWalk,
   llmSetting,
 }: RunChatCompletionStreamParams): Promise<RunChatCompletionStreamResult> {
   const { beginStream, applyAnswer, endStream } = useChatStreamStore.getState();
@@ -81,6 +83,7 @@ export async function runChatCompletionStream({
         enableThinking,
         enableInternet,
         enableModelThinking,
+        enableOntologyWalk,
         llmSetting,
       },
       controller.signal,

@@ -1526,7 +1526,7 @@ func (h *DocumentHandler) CompileDocuments(c *gin.Context) {
 
 	userID := c.GetString("user_id")
 	ctx := c.Request.Context()
-	if err := h.datasetService.CheckAccess(ctx, permission.Subject{UserID: userID}, datasetID, permission.OperationRun); err != nil {
+	if err := permission.NewDatabaseChecker(dao.DB).CheckResource(ctx, permission.ResourceRef{Kind: permission.ResourceKindDataset, ID: datasetID}, permission.OperationRun); err != nil {
 		respondPermissionError(c, err, false)
 		return
 	}

@@ -234,6 +234,8 @@ type ChatbotCompletionRequest struct {
 	// to a bool — resolveReasoningLevel reads it directly.
 	Reasoning any `json:"reasoning"`
 	Internet  any `json:"internet"`
+	// OntologyWalk is the composer toggle beside Agentic. Nil means off.
+	OntologyWalk any `json:"ontology_walk"`
 	// DocIDs is an optional comma-separated document filter,
 	// same shape as the regular chat completion kwargs.
 	DocIDs string `json:"doc_ids"`

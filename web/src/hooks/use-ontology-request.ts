@@ -1,0 +1,48 @@
+/*
+ *  Copyright 2026 The InfiniFlow Authors. All Rights Reserved.
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ */
+
+import { IOntology } from '@/interfaces/database/ontology';
+import ontologyService from '@/services/ontology-service';
+import { useQuery } from '@tanstack/react-query';
+
+export const enum OntologyApiAction {
+  FetchOntologies = 'fetchOntologies',
+}
+
+export const OntologyKeys = {
+  list: () => [OntologyApiAction.FetchOntologies] as const,
+};
+
+export const useFetchOntologies = () => {
+  const {
+    data,
+    isFetching: loading,
+    isError,
+  } = useQuery<IOntology[]>({
+    queryKey: OntologyKeys.list(),
+    initialData: [],
+    gcTime: 0,
+    queryFn: async () => {
+      const { data } = await ontologyService.listOntologies(
+        { params: {} },
+        true,
+      );
+      return (data?.data?.ontologies ?? []) as IOntology[];
+    },
+  });
+
+  return { ontologies: data ?? [], loading, isError };
+};

@@ -1,0 +1,80 @@
+# 电力领域编译模板组。与 docs/ 一起使用：知识图谱模板的类型名就是本体算子要归纳的类和关系，组内再放 ontology 算子。
+# 不要改用内置的 person/org 图谱模板，那个模板归纳不出这些类，并且会丢掉 other。
+templates:
+  - kind: knowledge_graph
+    name: 电力知识图谱
+    config:
+      kind: knowledge_graph
+      entity:
+        description: 从电力台账、线路、保护和故障记录中抽取实体。类型必须使用下列中文类型名，名称与文档中的专名保持一致。
+        fields:
+          - type: 变电站
+            description: 变电站或开关站。
+            rule: |
+              - 使用文档中的全称，例如城南500kV变电站。
+          - type: 电力变压器
+            description: 主变等电力变压器。
+            rule: |
+              - 使用文档中的全称，例如城南1号主变。
+          - type: 断路器
+            description: 断路器。
+            rule: |
+              - 使用文档中的全称，例如城南1号断路器。
+          - type: 间隔
+            description: 变电站间隔。
+            rule: |
+              - 使用文档中的全称，例如城南1号主变间隔。
+          - type: 输电线路
+            description: 输电线路。
+            rule: |
+              - 使用文档中的全称，例如城南—江北Ⅰ线。
+          - type: 保护装置
+            description: 继电保护装置。
+            rule: |
+              - 使用文档中的全称，例如城南1号主变保护装置。
+          - type: 故障
+            description: 一次设备或线路故障。
+            rule: |
+              - 名称中保留日期和故障设备，例如2026-03-12城南—江北Ⅰ线故障。
+          - type: 停电事件
+            description: 故障导致的停电。
+            rule: |
+              - 使用文档中的事件名，例如江北220kV变电站停电。
+          - type: 调度机构
+            description: 调度机构。
+            rule: |
+              - 使用文档中的全称，例如城南调度机构。
+      relation:
+        description: 抽取实体之间的关系。类型必须使用下列中文类型名，方向按每条规则。
+        fields:
+          - type: 电源侧厂站
+            description: 输电线路指向其电源侧变电站。
+            rule: |
+              - 方向从输电线路到变电站。
+          - type: 负荷侧厂站
+            description: 输电线路指向其负荷侧变电站。
+            rule: |
+              - 方向从输电线路到变电站。
+          - type: 保护对象
+            description: 保护装置指向被保护设备。
+            rule: |
+              - 方向从保护装置到电力变压器。
+          - type: 发生设备
+            description: 故障指向发生该故障的设备或线路。
+            rule: |
+              - 方向从故障到输电线路。
+          - type: 导致停电
+            description: 故障指向其造成的停电事件。
+            rule: |
+              - 方向从故障到停电事件。
+          - type: 受管辖
+            description: 变电站指向管辖它的调度机构。
+            rule: |
+              - 方向从变电站到调度机构。
+  - kind: ontology
+    name: 电力本体
+    config:
+      kind: ontology
+      ontology_name: 电力行业本体
+      ontology_base_iri: http://ragflow.local/ontology/power#
+      ontology_id: ''

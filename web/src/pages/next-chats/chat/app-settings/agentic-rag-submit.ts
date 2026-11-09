@@ -14,12 +14,15 @@ export function resolveAgenticRagSubmitValue(
 ): AgenticRagOverride | null {
   const content = value?.content;
   const tools = value?.tools?.length ? value.tools : undefined;
+  const kept = {
+    ...(tools ? { tools } : {}),
+  };
 
   if (!content?.trim()) {
-    return tools ? { tools } : null;
+    return tools ? kept : null;
   }
   if (defaultContent !== undefined && content === defaultContent) {
-    return tools ? { tools } : null;
+    return tools ? kept : null;
   }
-  return tools ? { content, tools } : { content };
+  return { content, ...kept };
 }

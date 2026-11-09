@@ -164,3 +164,38 @@ func TestGroupBucketsByOntologyTarget_SkipUngroupedTemplate(t *testing.T) {
 		t.Fatalf("targets=%d, want 0 for ungrouped template", len(targets))
 	}
 }
+
+func TestUpsertInducedOntologySkipsModeledSource(t *testing.T) {
+	db := setupOntologySyncDB(t)
+	if err := db.AutoMigrate(&entity.Ontology{}); err != nil {
+		t.Fatalf("migrate ontology: %v", err)
+	}
+	status := string(entity.StatusValid)
+	turtle := ontology.BuildTurtle("http://example.org/onto#", ontology.InducedSchema{
+		Classes: []ontology.InducedClass{{ID: "Substation", Label: "变电站"}},
+	})
+	if err := db.Create(&entity.Ontology{
+		ID: "onto-model", TenantID: "tenant-1", Name: "电力", BaseIRI: "http://example.org/onto#",
+		Turtle: turtle, Source: entity.OntologySourceModeling, Status: &status,
+	}).Error; err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	got, err := upsertInducedOntology(t.Context(), dao.NewOntologyDAO(), "tenant-1", ontologyTarget{
+		ontologyID: "onto-model",
+		name:       "电力",
+		schema:     ontology.InducedSchema{Classes: []ontology.InducedClass{{ID: "Person", Label: "Person"}}},
+	})
+	if err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	if got != nil {
+		t.Fatalf("modeled ontology was rewritten: %+v", got)
+	}
+	var saved entity.Ontology
+	if err := db.Where("id = ?", "onto-model").Take(&saved).Error; err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if saved.Turtle != turtle {
+		t.Fatalf("turtle changed:\n%s", saved.Turtle)
+	}
+}

@@ -19,6 +19,7 @@ import {
   AdminToken,
   AdminUserInfo,
   Authorization,
+  OntologyWalk,
   ThinkingLevel,
   Token,
   UserInfo,
@@ -91,6 +92,10 @@ const storage = {
     const level = localStorage.getItem(ThinkingLevel);
     return level === '0' || level === '5' ? level : '0';
   },
+  setOntologyWalk: (on: boolean) => {
+    localStorage.setItem(OntologyWalk, on ? '1' : '0');
+  },
+  getOntologyWalk: (): boolean => localStorage.getItem(OntologyWalk) === '1',
 };
 
 export const adminStorage = createCredentialStorage(AdminCredentialKeys);

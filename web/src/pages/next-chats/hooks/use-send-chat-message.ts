@@ -111,6 +111,7 @@ export const useSendMessage = () => {
       enableInternet,
       enableThinking,
       enableModelThinking,
+      enableOntologyWalk,
     }: {
       message: IMessage;
       currentConversationId?: string;
@@ -122,6 +123,7 @@ export const useSendMessage = () => {
         enableInternet,
         enableThinking,
         enableModelThinking,
+        enableOntologyWalk,
       };
 
       const { ok, aborted } = await runChatCompletionStream({
@@ -136,6 +138,7 @@ export const useSendMessage = () => {
         enableThinking,
         enableInternet,
         enableModelThinking,
+        enableOntologyWalk,
         llmSetting: currentDialog?.llm_setting,
       });
 
@@ -203,6 +206,7 @@ export const useSendMessage = () => {
     async ({
       enableThinking,
       enableModelThinking,
+      enableOntologyWalk,
       enableInternet,
     }: NextMessageInputOnPressEnterParameter) => {
       if (trim(value) === '' || isStreaming) return;
@@ -274,6 +278,7 @@ export const useSendMessage = () => {
         enableInternet,
         enableThinking,
         enableModelThinking,
+        enableOntologyWalk,
       });
 
       clearFiles();

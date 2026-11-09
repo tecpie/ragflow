@@ -1,0 +1,43 @@
+questions:
+  - id: line_source
+    kind: relation
+    question: 城南—江北Ⅰ线的电源侧厂站是哪一座？
+    expect_classes: []
+    expect_properties: [电源侧厂站]
+    expect_answers: [城南500kV变电站]
+    sources: [02-城南江北Ⅰ线线路台账.docx]
+  - id: protection
+    kind: class
+    question: 哪套保护装置保护城南1号主变？
+    expect_classes: [保护装置]
+    expect_properties: [保护对象]
+    expect_answers: [城南1号主变保护装置]
+    sources: [03-城南1号主变保护配置.docx]
+  - id: fault_outage
+    kind: class
+    question: 2026-03-12的故障发生在哪条线路，并导致了哪次停电？
+    expect_classes: [故障]
+    expect_properties: [发生设备, 导致停电]
+    expect_answers: [城南—江北Ⅰ线, 江北220kV变电站停电]
+    sources: [04-城南江北Ⅰ线故障跳闸快报.docx]
+  - id: list_substations
+    kind: class
+    question: 有哪些变电站？
+    expect_classes: [变电站]
+    expect_properties: []
+    expect_answers: [城南500kV变电站, 江北220kV变电站]
+    sources: [01-城南供区厂站一次设备清册.docx]
+  - id: dispatch
+    kind: class
+    question: 城南500kV变电站由哪个调度机构管辖？
+    expect_classes: [变电站, 调度机构]
+    expect_properties: [受管辖]
+    expect_answers: [城南调度机构]
+    sources: [05-城南供区调度管辖通知.docx]
+  - id: canteen
+    kind: negative
+    question: 变电站食堂今天供应什么？
+    expect_classes: []
+    expect_properties: []
+    expect_answers: []
+    sources: []

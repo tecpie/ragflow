@@ -61,6 +61,7 @@ export function useSendSingleMessage({
       enableInternet,
       enableThinking,
       enableModelThinking,
+      enableOntologyWalk,
       storeHistoryMessages,
       omitSessionId,
       ...params
@@ -83,6 +84,7 @@ export function useSendSingleMessage({
           ],
           reasoning: Number(enableThinking),
           enable_thinking: enableModelThinking,
+          ontology_walk: enableOntologyWalk,
           internet: enableInternet,
           ...params,
           ...(storeHistoryMessages === undefined
@@ -115,6 +117,7 @@ export function useSendSingleMessage({
     async ({
       enableThinking,
       enableModelThinking,
+      enableOntologyWalk,
       enableInternet,
       currentMessages,
       targetConversationId,
@@ -147,6 +150,7 @@ export function useSendSingleMessage({
           enableInternet,
           enableThinking,
           enableModelThinking,
+          enableOntologyWalk,
           ...params,
         });
       }

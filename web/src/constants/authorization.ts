@@ -18,6 +18,7 @@ export const Authorization = 'Authorization';
 export const Token = 'token';
 export const UserInfo = 'userInfo';
 export const ThinkingLevel = 'thinkingLevel';
+export const OntologyWalk = 'ontologyWalk';
 
 // The admin interface stores credentials under its own keys: localStorage is
 // origin-wide, so sharing these keys with /login let each session silently

@@ -88,7 +88,8 @@ func toolRegistry() map[string]toolFactory {
 		"search_metadata":        func(t string, d []string) tool.BaseTool { return NewMetadataSearchTool(t, d) },
 		// The compiled-knowledge-graph walk. Registered always; a template that
 		// omits it simply never offers it to the model.
-		"graph_explore": func(t string, d []string) tool.BaseTool { return NewGraphExploreTool(t, d) },
+		"graph_explore":    func(t string, d []string) tool.BaseTool { return NewGraphExploreTool(t, d) },
+		"ontology_explore": func(t string, d []string) tool.BaseTool { return NewOntologyExploreTool(t, d) },
 		// The compiled-graph panorama read: one call returns a whole document's
 		// entities and relations instead of scanning it chunk by chunk.
 		// Registered always; a template that omits it never offers it to the

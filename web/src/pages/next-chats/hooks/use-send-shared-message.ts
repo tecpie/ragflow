@@ -69,6 +69,7 @@ export const useSendSharedMessage = () => {
       id?: string,
       enableThinking?: string,
       enableModelThinking?: boolean,
+      enableOntologyWalk?: boolean,
       enableInternet?: boolean,
     ) => {
       const res = await send(completionUrl, {
@@ -78,6 +79,7 @@ export const useSendSharedMessage = () => {
         session_id: get(derivedMessages, '0.session_id'),
         reasoning: Number(enableThinking),
         enable_thinking: enableModelThinking,
+        ontology_walk: enableOntologyWalk,
         internet: enableInternet,
         ...(chatInfo?.llm_id ? { model_name: chatInfo.llm_id } : {}),
       });
@@ -104,6 +106,7 @@ export const useSendSharedMessage = () => {
       message: Message,
       enableThinking?: string,
       enableModelThinking?: boolean,
+      enableOntologyWalk?: boolean,
       enableInternet?: boolean,
     ) => {
       sendMessage(
@@ -111,6 +114,7 @@ export const useSendSharedMessage = () => {
         undefined,
         enableThinking,
         enableModelThinking,
+        enableOntologyWalk,
         enableInternet,
       );
     },
@@ -140,6 +144,7 @@ export const useSendSharedMessage = () => {
     ({
       enableThinking,
       enableModelThinking,
+      enableOntologyWalk,
       enableInternet,
     }: NextMessageInputOnPressEnterParameter) => {
       if (trim(value) === '' || !done) return;
@@ -160,6 +165,7 @@ export const useSendSharedMessage = () => {
           },
           enableThinking,
           enableModelThinking,
+          enableOntologyWalk,
           enableInternet,
         );
       }

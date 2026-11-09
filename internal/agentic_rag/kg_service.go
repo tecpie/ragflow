@@ -27,6 +27,7 @@ import (
 
 	"ragflow/internal/engine"
 	enginetypes "ragflow/internal/engine/types"
+	"ragflow/internal/ontology"
 )
 
 // Knowledge-graph walk backing the graph_explore tool: seed entity rows for
@@ -51,6 +52,7 @@ const (
 	kgSeeds       = 2   // top-N entities matched directly to the question
 	kgSeedPool    = 64  // KNN candidate pool before the mention_count re-sort
 	kgSeedSim     = 0.8 // dense seed similarity floor
+	kgTypeSeeds   = 8   // entities taken per aligned class or relation endpoint type
 	kgHops        = 2   // relation hops out from the seeds
 	kgNeighbors   = 128 // cap on neighbour entity rows resolved per hop
 	kgRelLimit    = 32  // relations fetched per endpoint filter
@@ -80,6 +82,13 @@ type KgEntity struct {
 	// MentionCount is how often the corpus mentions the entity: a centrality
 	// proxy that lets the caller tell a hub from a leaf.
 	MentionCount int
+	// Seed is true when the entity was matched directly to the question
+	// (dense / keyword seedSearch), not merely sampled by aligned type.
+	// Walk frontier only — UI highlight comes from the model focus judge.
+	Seed bool
+	// Relevant is true when the turn's chat model selected this entity as
+	// part of the answer path (see applyKgModelFocus).
+	Relevant bool
 }
 
 // KgRelation is one relation (edge) row of the compiled graph.
@@ -90,6 +99,9 @@ type KgRelation struct {
 	Type           string
 	SourceChunkIDs []string
 	DocID          string
+	// Relevant is true when the turn's chat model selected this edge as
+	// part of the answer path (see applyKgModelFocus).
+	Relevant bool
 }
 
 // KgPassage is one source chunk behind a graph node or edge.
@@ -108,6 +120,10 @@ type KgExploreRequest struct {
 	DatasetIDs []string
 	DocScope   []string
 	Query      string
+	// Constraint, when set, keeps the walk on the aligned classes and object
+	// properties. Nil leaves the walk unconstrained. An empty constraint matches
+	// nothing and does not fall through to an unconstrained walk.
+	Constraint *ontology.Alignment
 }
 
 // KgExploreResult is the walk output: the seeded + hopped subgraph and the
@@ -202,6 +218,10 @@ func (a *KgAdapter) Explore(ctx context.Context, req KgExploreRequest) (KgExplor
 	if query == "" || len(datasetIDs) == 0 {
 		return empty, nil
 	}
+	if req.Constraint != nil && req.Constraint.Empty() {
+		return empty, nil
+	}
+	classOnly := kgClassOnly(req.Constraint)
 
 	// Encode the seed text ONCE: one embedding request serves every dataset.
 	seedVec := a.seedVector(ctx, req.TenantID, query)
@@ -233,17 +253,57 @@ func (a *KgAdapter) Explore(ctx context.Context, req KgExploreRequest) (KgExplor
 		scopeKwd = kgScopeDoc
 	}
 
+	// querySeeds tracks entities matched directly to the question text
+	// (embedding / keyword). Type-sampled seeds expand the frontier only.
+	querySeeds := map[string]bool{}
+
 	for _, kbID := range datasetIDs {
 		seedRows := a.seedSearch(ctx, req.TenantID, kbID, docs, query, scopeKwd, seedVec)
 		var seeds []KgEntity
 		for _, row := range seedRows {
-			if e, ok := kgParseEntity(row); ok {
+			e, ok := kgParseEntity(row)
+			if !ok {
+				continue
+			}
+			if classOnly && !kgClassAllowed(req.Constraint, e.Type) {
+				continue
+			}
+			e.Seed = true
+			querySeeds[strings.ToLower(e.Name)] = true
+			seeds = append(seeds, e)
+		}
+		// The question names ontology types ("故障", "调度机构") rather than
+		// entity names. Those rows are indexed as pre-tokenized text, so the
+		// raw question matches none of them. Take the entities of each aligned
+		// type directly, then hop.
+		for _, typ := range kgConstraintTypes(req.Constraint) {
+			for _, row := range a.kgSearch(ctx, req.TenantID, kbID, docs, "entity", "", kgTypeSeeds, scopeKwd,
+				map[string]interface{}{"entity_type_kwd": typ}, "", 0) {
+				e, ok := kgParseEntity(row)
+				if !ok {
+					continue
+				}
+				if classOnly && !kgClassAllowed(req.Constraint, e.Type) {
+					continue
+				}
+				if querySeeds[strings.ToLower(e.Name)] {
+					e.Seed = true
+				}
 				seeds = append(seeds, e)
 			}
 		}
 		frontier := addEntities(seeds, kbID)
+		if classOnly {
+			continue
+		}
+		// A question that names several relations needs one hop per relation.
+		// Two hops stop at the middle entity of a three-relation chain.
+		hops := kgHops
+		if req.Constraint != nil && len(req.Constraint.Properties) > hops {
+			hops = len(req.Constraint.Properties)
+		}
 
-		for hop := 0; hop < kgHops; hop++ {
+		for hop := 0; hop < hops; hop++ {
 			if len(frontier) == 0 {
 				break
 			}
@@ -273,7 +333,6 @@ func (a *KgAdapter) Explore(ctx context.Context, req KgExploreRequest) (KgExplor
 				seenRel[key] = true
 				hopRelations = append(hopRelations, rel)
 			}
-			relations = append(relations, hopRelations...)
 
 			seenLower := map[string]bool{}
 			for key := range seenNames {
@@ -291,24 +350,44 @@ func (a *KgAdapter) Explore(ctx context.Context, req KgExploreRequest) (KgExplor
 					neighSet[strings.ToLower(name)] = name
 				}
 			}
+			var found []KgEntity
+			if len(neighSet) > 0 {
+				neighbours := make([]string, 0, len(neighSet))
+				for _, name := range neighSet {
+					neighbours = append(neighbours, name)
+				}
+				limit := kgNeighbors
+				if len(neighbours) < limit {
+					limit = len(neighbours)
+				}
+				neighRows := a.kgSearch(ctx, req.TenantID, kbID, docs, "entity", "", limit, scopeKwd,
+					map[string]interface{}{"name_kwd": kgEndpointTerms(neighbours)}, "", 0)
+				for _, row := range neighRows {
+					if e, ok := kgParseEntity(row); ok {
+						found = append(found, e)
+					}
+				}
+			}
+			if req.Constraint != nil && len(req.Constraint.Properties) > 0 {
+				hopRelations = kgFilterRelations(req.Constraint, hopRelations, entities, found)
+				relations = append(relations, hopRelations...)
+				keep := map[string]bool{}
+				for _, rel := range hopRelations {
+					keep[strings.ToLower(strings.TrimSpace(rel.From))] = true
+					keep[strings.ToLower(strings.TrimSpace(rel.To))] = true
+				}
+				var next []KgEntity
+				for _, e := range found {
+					if keep[strings.ToLower(e.Name)] {
+						next = append(next, e)
+					}
+				}
+				frontier = addEntities(next, kbID)
+				continue
+			}
+			relations = append(relations, hopRelations...)
 			if len(neighSet) == 0 {
 				break
-			}
-			neighbours := make([]string, 0, len(neighSet))
-			for _, name := range neighSet {
-				neighbours = append(neighbours, name)
-			}
-			limit := kgNeighbors
-			if len(neighbours) < limit {
-				limit = len(neighbours)
-			}
-			neighRows := a.kgSearch(ctx, req.TenantID, kbID, docs, "entity", "", limit, scopeKwd,
-				map[string]interface{}{"name_kwd": kgEndpointTerms(neighbours)}, "", 0)
-			var found []KgEntity
-			for _, row := range neighRows {
-				if e, ok := kgParseEntity(row); ok {
-					found = append(found, e)
-				}
 			}
 			frontier = addEntities(found, kbID)
 		}
@@ -341,11 +420,101 @@ func (a *KgAdapter) Explore(ctx context.Context, req KgExploreRequest) (KgExplor
 		}
 		return KgExploreResult{GraphAbsent: true}, nil
 	}
+	// UI relevance is stamped later by applyKgModelFocus (chat model), not by
+	// retrieval topology. Seed flags above only steer the walk frontier.
 	return KgExploreResult{
 		Entities:  entities,
 		Relations: relations,
 		Passages:  a.evidencePassages(ctx, req.TenantID, datasetIDs, entities, relations),
 	}, nil
+}
+
+func kgConstraintTypes(c *ontology.Alignment) []string {
+	if c == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	add := func(v string) {
+		v = strings.TrimSpace(v)
+		if v == "" || seen[strings.ToLower(v)] {
+			return
+		}
+		seen[strings.ToLower(v)] = true
+		out = append(out, v)
+	}
+	for _, class := range c.Classes {
+		add(class.Label)
+		add(class.ID)
+	}
+	for _, prop := range c.Properties {
+		add(prop.Domain)
+		add(prop.Range)
+	}
+	return out
+}
+
+func kgClassOnly(c *ontology.Alignment) bool {
+	return c != nil && len(c.Properties) == 0 && len(c.Classes) > 0
+}
+
+func kgClassAllowed(c *ontology.Alignment, entityType string) bool {
+	if c == nil {
+		return true
+	}
+	for _, class := range c.Classes {
+		if kgTypeMatches(entityType, class.ID, class.Label) {
+			return true
+		}
+	}
+	return false
+}
+
+func kgFilterRelations(c *ontology.Alignment, rels []KgRelation, known, extra []KgEntity) []KgRelation {
+	types := map[string]string{}
+	for _, list := range [][]KgEntity{known, extra} {
+		for _, e := range list {
+			types[strings.ToLower(strings.TrimSpace(e.Name))] = e.Type
+		}
+	}
+	out := make([]KgRelation, 0, len(rels))
+	for _, rel := range rels {
+		prop, ok := kgMatchProperty(c, rel.Type)
+		if !ok {
+			continue
+		}
+		if prop.Domain != "" && !kgTypeMatches(types[strings.ToLower(strings.TrimSpace(rel.From))], prop.Domain, "") {
+			continue
+		}
+		if prop.Range != "" && !kgTypeMatches(types[strings.ToLower(strings.TrimSpace(rel.To))], prop.Range, "") {
+			continue
+		}
+		out = append(out, rel)
+	}
+	return out
+}
+
+func kgMatchProperty(c *ontology.Alignment, relType string) (ontology.AlignedProperty, bool) {
+	for _, prop := range c.Properties {
+		if kgTypeMatches(relType, prop.ID, prop.Label) {
+			return prop, true
+		}
+	}
+	return ontology.AlignedProperty{}, false
+}
+
+func kgTypeMatches(value, id, label string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false
+	}
+	if id != "" && (strings.EqualFold(value, id) || strings.EqualFold(ontology.SafeLocalName(value), ontology.SafeLocalName(id))) {
+		return true
+	}
+	if label != "" && (strings.EqualFold(value, label) || strings.EqualFold(ontology.SafeLocalName(value), ontology.SafeLocalName(label))) {
+		return true
+	}
+	return false
 }
 
 // seedVector encodes the query for the dense seed search. A nil result (no
@@ -367,8 +536,8 @@ func (a *KgAdapter) seedVector(ctx context.Context, tenantID, text string) []flo
 }
 
 // seedSearch resolves the seed entity rows: dense KNN over the entity rows
-// re-ranked by mention_count desc, or a keyword match when no vector is
-// available.
+// re-ranked by mention_count desc. An empty dense hit falls back to a keyword
+// match, which is also the path when no vector is available.
 func (a *KgAdapter) seedSearch(ctx context.Context, tenantID, kbID string, docs []string, text, scopeKwd string, seedVec []float64) []map[string]interface{} {
 	if len(seedVec) > 0 {
 		dense := &enginetypes.MatchDenseExpr{
@@ -380,7 +549,9 @@ func (a *KgAdapter) seedSearch(ctx context.Context, tenantID, kbID string, docs 
 			ExtraOptions:      map[string]interface{}{"similarity": kgSeedSim},
 		}
 		rows := a.kgSearchRaw(ctx, tenantID, kbID, docs, "entity", scopeKwd, nil, []interface{}{dense}, "mention_count_int", kgSeedPool)
-		return kgTopMentionCount(rows, kgSeeds)
+		if len(rows) > 0 {
+			return kgTopMentionCount(rows, kgSeeds)
+		}
 	}
 	return a.kgSearch(ctx, tenantID, kbID, docs, "entity", text, kgSeeds, scopeKwd, nil, "mention_count_int", kgSeedPool)
 }

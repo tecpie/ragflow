@@ -129,6 +129,25 @@ func (h *OntologyHandler) Delete(c *gin.Context) {
 	common.SuccessWithData(c, true, "success")
 }
 
+// Instances lists compiled-graph entities and relations bound to this ontology.
+func (h *OntologyHandler) Instances(c *gin.Context) {
+	user, code, msg := GetUser(c)
+	if code != common.CodeSuccess {
+		common.ErrorWithCode(c, code, msg)
+		return
+	}
+	items, err := h.svc.Instances(c.Request.Context(), user.ID, c.Param("ontology_id"))
+	if err != nil {
+		common.ResponseWithCodeData(c, common.CodeDataError, nil, err.Error())
+		return
+	}
+	if items == nil {
+		common.ResponseWithCodeData(c, common.CodeNotFound, nil, "ontology not found")
+		return
+	}
+	common.SuccessWithData(c, items, "success")
+}
+
 // Playground returns Playground-compatible JSON for embed inline loading.
 func (h *OntologyHandler) Playground(c *gin.Context) {
 	user, code, msg := GetUser(c)

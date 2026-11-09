@@ -298,6 +298,19 @@ func resolveAllTemplateIDs(ctx context.Context, tenantID string, params map[stri
 	return uniqueStrings(kept), nil
 }
 
+func uniqueStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
+}
+
 func allCompiledRows(output map[string]any) []map[string]any {
 	rows := make([]map[string]any, 0)
 	items, _ := output["chunks"].([]any)

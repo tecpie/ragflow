@@ -78,7 +78,7 @@ func kbIDsToJSONSlice(kbIDs []string) entity.JSONSlice {
 }
 
 func (s *EvaluationService) CreateDataset(ctx context.Context, userID, name, description string, kbIDs []string) (*entity.EvaluationDataset, error) {
-	tenantID, err := requireCurrentTenantID(ctx, userID)
+	tenantID, err := requireCurrentTenantID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -110,7 +110,7 @@ func (s *EvaluationService) CreateDataset(ctx context.Context, userID, name, des
 }
 
 func (s *EvaluationService) ListDatasets(ctx context.Context, userID string) ([]entity.EvaluationDataset, error) {
-	tenantID, err := requireCurrentTenantID(ctx, userID)
+	tenantID, err := requireCurrentTenantID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +123,7 @@ func (s *EvaluationService) ListDatasets(ctx context.Context, userID string) ([]
 }
 
 func (s *EvaluationService) GetDataset(ctx context.Context, userID, datasetID string) (*entity.EvaluationDataset, error) {
-	tenantID, err := requireCurrentTenantID(ctx, userID)
+	tenantID, err := requireCurrentTenantID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -280,7 +280,7 @@ func (s *EvaluationService) StartRun(
 	if dialogID == "" {
 		return nil, common.NewCodedError(common.CodeArgumentError, "dialog_id is required")
 	}
-	if err := checkChatPermission(ctx, nil, userID, dialogID, permission.OperationRun); err != nil {
+	if err := permission.NewDatabaseChecker(dao.DB).CheckResource(ctx, permission.ResourceRef{Kind: permission.ResourceKindChat, ID: dialogID}, permission.OperationRun); err != nil {
 		return nil, err
 	}
 	llmID = strings.TrimSpace(llmID)
@@ -327,7 +327,7 @@ func (s *EvaluationService) StartRun(
 		return nil, err
 	}
 
-	tenantID, err := requireCurrentTenantID(ctx, userID)
+	tenantID, err := requireCurrentTenantID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -417,6 +417,7 @@ func (s *EvaluationService) runWorker(
 	metrics []string,
 	kbIDs []string,
 ) {
+	ctx = permission.WithIdentity(ctx, userID, tenantID)
 	fail := func(msg string) {
 		now := time.Now().UnixMilli()
 		_ = s.db.WithContext(ctx).Model(&entity.EvaluationRun{}).
@@ -504,7 +505,7 @@ func (s *EvaluationService) runWorker(
 					kwargs["kb_ids"] = kbIDs
 				}
 				result, err := s.chatSession.ChatCompletions(
-					gctx, userID, dialogID, "",
+					gctx, dialogID, "",
 					[]map[string]any{{"role": "user", "content": caze.Question}},
 					"", nil, llmID, nil,
 					kwargs,
@@ -728,7 +729,7 @@ func (s *EvaluationService) ListRuns(ctx context.Context, userID, datasetID stri
 }
 
 func (s *EvaluationService) GetRun(ctx context.Context, userID, runID string) (*entity.EvaluationRun, error) {
-	tenantID, err := requireCurrentTenantID(ctx, userID)
+	tenantID, err := requireCurrentTenantID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -812,7 +813,7 @@ func (s *EvaluationService) preflightDialogChatModel(ctx context.Context, tenant
 	if modelRef == "" {
 		return fmt.Errorf("dialog %s has empty llm_id; select llm_id for the run", dialogID)
 	}
-	_, err := s.factory.NewChatModel(ctx, Identity{TenantID: tenantID}, modelRef)
+	_, err := s.factory.NewChatModel(ctx, modelRef)
 	if err != nil {
 		return fmt.Errorf("chat model unavailable (%s): %w", modelRef, err)
 	}

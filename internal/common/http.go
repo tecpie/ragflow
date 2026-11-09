@@ -725,13 +725,6 @@ func allZero(b []byte) bool {
 	return true
 }
 
-type response struct {
-	Code    ErrorCode   `json:"code"`
-	Data    interface{} `json:"data"`
-	Message string      `json:"message"`
-	Total   interface{} `json:"total,omitempty"`
-}
-
 // errorResponse error response
 type errorResponse struct {
 	Code    ErrorCode `json:"code"`

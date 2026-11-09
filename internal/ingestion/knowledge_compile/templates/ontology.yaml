@@ -1,10 +1,10 @@
 kind: ontology
 display_name: Ontology — Induce TBox from structure compilation
 description: >-
-  Config-only operator. When placed in the same compilation-template group as a
-  structure kind (knowledge graph, timeline, page index, …), induces class and
-  property definitions from merged structure entities/relations into a tenant
-  ontology after dataset merge. Does not call an LLM by itself.
+  Config-only operator. ontology_id, or ontology_name when id is empty, selects
+  the ontology whose classes and relations the sibling knowledge-graph operator
+  uses to extract instances. An ontology selected by id is not rewritten from
+  the extracted graph. Does not call an LLM by itself.
 config:
   kind: ontology
   ontology_name: Compiled Ontology

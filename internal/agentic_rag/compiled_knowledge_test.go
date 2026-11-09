@@ -17,8 +17,11 @@
 package agentic_rag
 
 import (
+	"context"
 	"sort"
 	"testing"
+
+	"github.com/cloudwego/eino/components/tool"
 )
 
 // TestCompiledKnowledgeSurfaceIsReachable pins the two ways a compiled-knowledge
@@ -59,7 +62,7 @@ func TestCompiledKnowledgeSurfaceIsReachable(t *testing.T) {
 
 	// Build must yield one tool per name, in the same order, with nothing
 	// silently dropped by a missing registry entry.
-	built := compiledKnowledgeTools("tenant", []string{"kb1"})
+	built := compiledKnowledgeTools("tenant", []string{"kb1"}, false)
 	if len(built) != len(compiledKnowledgeToolNames) {
 		t.Errorf("compiledKnowledgeTools built %d tools, want %d", len(built), len(compiledKnowledgeToolNames))
 	}
@@ -84,4 +87,31 @@ func TestCompiledKnowledgeNamesAreStable(t *testing.T) {
 			t.Fatalf("compiledKnowledgeToolNames = %v, want %v", got, want)
 		}
 	}
+}
+
+func TestCompiledKnowledgeToolsSwapGraphExploreForOntology(t *testing.T) {
+	plain := toolNamesOf(t, compiledKnowledgeTools("tenant", []string{"kb1"}, false))
+	if !plain[graphExploreToolName] || plain[ontologyExploreToolName] {
+		t.Fatalf("without an ontology the injected tools are %v", plain)
+	}
+	bound := toolNamesOf(t, compiledKnowledgeTools("tenant", []string{"kb1"}, true))
+	if !bound[ontologyExploreToolName] || bound[graphExploreToolName] {
+		t.Fatalf("with an ontology the injected tools are %v", bound)
+	}
+	if !bound[graphDocOutlineToolName] || !plain[graphDocOutlineToolName] {
+		t.Fatal("graph_doc_outline stays injected either way")
+	}
+}
+
+func toolNamesOf(t *testing.T, tools []tool.BaseTool) map[string]bool {
+	t.Helper()
+	names := map[string]bool{}
+	for _, item := range tools {
+		info, err := item.Info(context.Background())
+		if err != nil {
+			t.Fatalf("Info: %v", err)
+		}
+		names[info.Name] = true
+	}
+	return names
 }

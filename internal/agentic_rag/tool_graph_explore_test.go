@@ -18,12 +18,14 @@ package agentic_rag
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
 
 	"ragflow/internal/engine"
 	enginetypes "ragflow/internal/engine/types"
+	"ragflow/internal/ontology"
 )
 
 // fakeKgService records the request and returns a canned walk result.
@@ -253,6 +255,34 @@ func TestKgParseEntityReadsPayloadAndRowFields(t *testing.T) {
 	}
 	if _, ok := kgParseEntity(map[string]interface{}{"content_with_weight": "{}"}); ok {
 		t.Error("a nameless row must be dropped")
+	}
+}
+
+func TestRenderKgExploreMarksRelevant(t *testing.T) {
+	out := renderKgExplore(context.Background(), "q", KgExploreResult{
+		Entities: []KgEntity{
+			{Name: "A", Type: "线路", Relevant: true},
+			{Name: "B", Type: "站", Relevant: true},
+			{Name: "C", Type: "机构"},
+		},
+		Relations: []KgRelation{
+			{From: "A", To: "B", Type: "负荷侧厂站", Relevant: true},
+			{From: "B", To: "C", Type: "受管辖"},
+		},
+	}, nil)
+	for _, want := range []string{
+		`<entity name="A" type="线路" relevant="true"/>`,
+		`<entity name="B" type="站" relevant="true"/>`,
+		`<entity name="C" type="机构"/>`,
+		`<relation from="A" to="B" type="负荷侧厂站" relevant="true"/>`,
+		`<relation from="B" to="C" type="受管辖"/>`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output must contain %q, got:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, `seed="true"`) {
+		t.Error("retrieval seed must not appear in kg_explore XML")
 	}
 }
 
@@ -605,5 +635,174 @@ func TestGraphExploreToolWithEmptyDocumentScopeSkipsTheWalk(t *testing.T) {
 	}
 	if !navToolEnabled(ctx, graphExploreToolName) {
 		t.Error("an empty document scope must NOT disable graph_explore")
+	}
+}
+
+// chainWalkEngine returns no dense hits, then one keyword seed, then the
+// three-edge chain those relations name. A two-hop walk stops at the station.
+type chainWalkEngine struct {
+	engine.DocEngine
+	ignoreText bool
+}
+
+func (e *chainWalkEngine) Search(_ context.Context, req *enginetypes.SearchRequest) (*enginetypes.SearchResult, error) {
+	for _, expr := range req.MatchExprs {
+		if _, ok := expr.(*enginetypes.MatchDenseExpr); ok {
+			return &enginetypes.SearchResult{}, nil
+		}
+	}
+	kind, _ := req.Filter["knowledge_graph_kwd"].(string)
+	switch kind {
+	case "entity":
+		if typ := strings.TrimSpace(kgStr(req.Filter["entity_type_kwd"])); typ != "" {
+			if typ == "故障" {
+				return &enginetypes.SearchResult{Chunks: []map[string]interface{}{chainEntity("故障甲", "故障")}}, nil
+			}
+			return &enginetypes.SearchResult{}, nil
+		}
+		if text := chainMatchText(req); text != "" {
+			if !e.ignoreText && strings.Contains(text, "故障") {
+				return &enginetypes.SearchResult{Chunks: []map[string]interface{}{chainEntity("故障甲", "故障")}}, nil
+			}
+			return &enginetypes.SearchResult{}, nil
+		}
+		return &enginetypes.SearchResult{Chunks: chainEntitiesNamed(chainStrings(req.Filter["name_kwd"]))}, nil
+	case "relation":
+		return &enginetypes.SearchResult{Chunks: chainEdges(chainStrings(req.Filter["from_entity_kwd"]), chainStrings(req.Filter["to_entity_kwd"]))}, nil
+	default:
+		return &enginetypes.SearchResult{}, nil
+	}
+}
+
+func chainEntity(name, typ string) map[string]interface{} {
+	body, _ := json.Marshal(map[string]string{"name": name, "type": typ})
+	return map[string]interface{}{"content_with_weight": string(body), "doc_id": "d1", "name_kwd": name}
+}
+
+func chainEntitiesNamed(names []string) []map[string]interface{} {
+	known := map[string]string{"故障甲": "故障", "线路乙": "输电线路", "厂站丙": "变电站", "机构丁": "调度机构"}
+	var rows []map[string]interface{}
+	for _, name := range names {
+		if typ, ok := known[name]; ok {
+			rows = append(rows, chainEntity(name, typ))
+		}
+	}
+	return rows
+}
+
+func chainEdges(froms, tos []string) []map[string]interface{} {
+	type edge struct{ from, to, typ string }
+	all := []edge{
+		{"故障甲", "线路乙", "发生设备"},
+		{"线路乙", "厂站丙", "负荷侧厂站"},
+		{"厂站丙", "机构丁", "受管辖"},
+	}
+	fromSet := chainSet(froms)
+	toSet := chainSet(tos)
+	var rows []map[string]interface{}
+	for i, edge := range all {
+		if len(fromSet) > 0 && !fromSet[strings.ToLower(edge.from)] {
+			continue
+		}
+		if len(toSet) > 0 && !toSet[strings.ToLower(edge.to)] {
+			continue
+		}
+		body, _ := json.Marshal(map[string]string{"type": edge.typ})
+		rows = append(rows, map[string]interface{}{
+			"id": "r" + string(rune('a'+i)), "from_entity_kwd": edge.from, "to_entity_kwd": edge.to,
+			"content_with_weight": string(body), "doc_id": "d1",
+		})
+	}
+	return rows
+}
+
+func chainMatchText(req *enginetypes.SearchRequest) string {
+	for _, expr := range req.MatchExprs {
+		if text, ok := expr.(*enginetypes.MatchTextExpr); ok {
+			return text.MatchingText
+		}
+	}
+	return ""
+}
+
+func chainStrings(v interface{}) []string {
+	switch x := v.(type) {
+	case []string:
+		return x
+	case string:
+		if x != "" {
+			return []string{x}
+		}
+	}
+	return nil
+}
+
+func chainSet(values []string) map[string]bool {
+	set := map[string]bool{}
+	for _, value := range values {
+		set[strings.ToLower(value)] = true
+	}
+	return set
+}
+
+func TestExploreSeedsAlignedTypesWhenTheQuestionNamesNoEntity(t *testing.T) {
+	adapter := NewKgAdapter(&chainWalkEngine{ignoreText: true})
+	adapter.SetSeedEncoder(func(context.Context, string, string) []float64 { return []float64{0.1, 0.2} })
+	got, err := adapter.Explore(context.Background(), KgExploreRequest{
+		TenantID:   "t1",
+		DatasetIDs: []string{"kb1"},
+		Query:      "这次故障的发生设备，负荷侧厂站受管辖",
+		Constraint: &ontology.Alignment{
+			Classes: []ontology.AlignedClass{{ID: "fault", Label: "故障"}},
+			Properties: []ontology.AlignedProperty{
+				{ID: "occurs", Label: "发生设备"},
+				{ID: "load", Label: "负荷侧厂站"},
+				{ID: "dispatch", Label: "受管辖"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Explore: %v", err)
+	}
+	names := map[string]bool{}
+	for _, entity := range got.Entities {
+		names[entity.Name] = true
+	}
+	if !names["机构丁"] {
+		t.Fatalf("entities = %v, type seed 故障 must walk to 机构丁", names)
+	}
+}
+
+func TestExploreFallsBackToKeywordAndWalksEveryNamedRelation(t *testing.T) {
+	adapter := NewKgAdapter(&chainWalkEngine{})
+	adapter.SetSeedEncoder(func(context.Context, string, string) []float64 { return []float64{0.1, 0.2} })
+	got, err := adapter.Explore(context.Background(), KgExploreRequest{
+		TenantID:   "t1",
+		DatasetIDs: []string{"kb1"},
+		Query:      "这次故障的发生设备，负荷侧厂站受管辖",
+		Constraint: &ontology.Alignment{Properties: []ontology.AlignedProperty{
+			{ID: "occurs", Label: "发生设备"},
+			{ID: "load", Label: "负荷侧厂站"},
+			{ID: "dispatch", Label: "受管辖"},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Explore: %v", err)
+	}
+	names := map[string]bool{}
+	for _, entity := range got.Entities {
+		names[entity.Name] = true
+	}
+	if !names["机构丁"] {
+		t.Fatalf("entities = %v, the third hop must reach 机构丁", names)
+	}
+	types := map[string]bool{}
+	for _, rel := range got.Relations {
+		types[rel.Type] = true
+	}
+	for _, want := range []string{"发生设备", "负荷侧厂站", "受管辖"} {
+		if !types[want] {
+			t.Errorf("relations %v, missing %s", types, want)
+		}
 	}
 }

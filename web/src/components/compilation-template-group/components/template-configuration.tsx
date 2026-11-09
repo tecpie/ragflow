@@ -41,6 +41,7 @@ import { useTemplatePreviewSheets } from '../hooks/use-template-preview-sheets';
 import { useTemplateSectionData } from '../hooks/use-template-section-data';
 
 import { AddFieldModal } from './add-field-modal';
+import { OntologyIdField } from './ontology-id-field';
 import { SectionFieldGrid } from './section-field-grid';
 import { TemplatePreviewHeader } from './template-preview-header';
 
@@ -214,15 +215,7 @@ export function TemplateConfiguration({
                   )}
                 />
               </RAGFlowFormItem>
-              <RAGFlowFormItem
-                name={`templates.${selectedTemplateIndex}.config.ontology_id`}
-                label={t('knowledgeCompilation.ontologyId')}
-                tooltip={t('knowledgeCompilation.ontologyIdTip')}
-              >
-                <Input
-                  placeholder={t('knowledgeCompilation.ontologyIdPlaceholder')}
-                />
-              </RAGFlowFormItem>
+              <OntologyIdField index={selectedTemplateIndex} />
             </>
           ) : (
             <>

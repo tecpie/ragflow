@@ -82,6 +82,7 @@ var compiledServeExcluded = map[string]bool{
 	webSearchToolName:         true,
 	metadataSearchToolName:    true,
 	graphExploreToolName:      true,
+	ontologyExploreToolName:   true,
 	graphDocOutlineToolName:   true,
 	navigateTreeToolName:      true,
 	navigateStructureToolName: true,

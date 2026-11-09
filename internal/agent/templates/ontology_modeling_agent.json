@@ -1,0 +1,178 @@
+{
+    "id": "ontology-modeling",
+    "title": {
+        "en": "Ontology modeling assistant",
+        "zh": "本体建模助手"
+    },
+    "description": {
+        "en": "Conversational assistant that turns a description or an uploaded document into a complete ontology TBox JSON.",
+        "zh": "根据说明或上传文件，多轮生成可直接采用的本体概念与关系 JSON。"
+    },
+    "canvas_type": "Agent",
+    "canvas_types": [
+        "Agent"
+    ],
+    "dsl": {
+        "components": {
+            "begin": {
+                "downstream": [
+                    "Agent:OntologyModeler"
+                ],
+                "obj": {
+                    "component_name": "Begin",
+                    "params": {
+                        "enablePrologue": true,
+                        "inputs": {},
+                        "mode": "conversational",
+                        "prologue": "说明要建的本体，或上传制度、台账、清册等文件。我会返回完整的概念与关系，供建模页采用。"
+                    }
+                },
+                "upstream": []
+            },
+            "Agent:OntologyModeler": {
+                "downstream": [
+                    "Message:OntologySchema"
+                ],
+                "obj": {
+                    "component_name": "Agent",
+                    "params": {
+                        "cite": false,
+                        "delay_after_error": 1,
+                        "description": "",
+                        "exception_comment": "",
+                        "exception_default_value": "",
+                        "exception_goto": [],
+                        "exception_method": null,
+                        "frequencyPenaltyEnabled": false,
+                        "frequency_penalty": 0.5,
+                        "llm_id": "",
+                        "maxTokensEnabled": false,
+                        "max_retries": 3,
+                        "max_rounds": 1,
+                        "max_tokens": 8192,
+                        "mcp": [],
+                        "message_history_window_size": 12,
+                        "outputs": {
+                            "content": {
+                                "type": "string",
+                                "value": ""
+                            }
+                        },
+                        "parameter": "Precise",
+                        "presencePenaltyEnabled": false,
+                        "presence_penalty": 0.5,
+                        "prompts": [
+                            {
+                                "role": "user",
+                                "content": "{sys.query}"
+                            }
+                        ],
+                        "sys_prompt": "你是本体建模助手。依据用户说明、对话中给出的当前本体，以及附件正文，输出当前完整 TBox。\n\n【规则】\n1. 只输出一个 JSON 对象。不要 markdown，不要代码围栏，不要额外说明。\n2. 每轮都返回完整 TBox，包含未改动的概念和关系。不要输出实体或实例。\n3. 用户明确要求删除的概念或关系不要再出现；未提及的保留。\n4. id 与属性 key 必须匹配 ^[A-Za-z0-9][A-Za-z0-9._:-]*$。中文只写在 name、label、description。\n5. 属性 type 只能是 string、number、boolean、date、datetime、enum、ref 这 7 个英文单词，禁止使用其他值。enum 另填 enumValues。引用概念时 type 必须写 ref，被引用概念 id 写在 refConceptTypeId，例如 {\"key\":\"station\",\"label\":\"所属变电站\",\"type\":\"ref\",\"refConceptTypeId\":\"Substation\"}。禁止把 refConceptTypeId 写进 type。\n6. parent、sourceConcepts、targetConcepts、refConceptTypeId 只能引用本次 conceptTypes 里已有的 id。\n7. 没有父概念时不要输出 parent。关系默认 directed 为 true。\n\n【输出】\n{\"schema\":{\"name\":\"\",\"description\":\"\",\"conceptTypes\":[{\"id\":\"\",\"name\":\"\",\"description\":\"\",\"properties\":[{\"key\":\"\",\"label\":\"\",\"type\":\"string\",\"required\":false}]}],\"relationTypes\":[{\"id\":\"\",\"name\":\"\",\"description\":\"\",\"sourceConcepts\":[\"\"],\"targetConcepts\":[\"\"],\"directed\":true,\"properties\":[]}]},\"summary\":\"\"}",
+                        "temperature": 0.2,
+                        "temperatureEnabled": true,
+                        "tools": [],
+                        "topPEnabled": false,
+                        "top_p": 0.75,
+                        "user_prompt": "",
+                        "visual_files_var": ""
+                    }
+                },
+                "upstream": [
+                    "begin"
+                ]
+            },
+            "Message:OntologySchema": {
+                "downstream": [],
+                "obj": {
+                    "component_name": "Message",
+                    "params": {
+                        "content": [
+                            "{Agent:OntologyModeler@content}"
+                        ]
+                    }
+                },
+                "upstream": [
+                    "Agent:OntologyModeler"
+                ]
+            }
+        },
+        "globals": {
+            "sys.conversation_turns": 0,
+            "sys.files": [],
+            "sys.query": "",
+            "sys.user_id": ""
+        },
+        "graph": {
+            "edges": [
+                {
+                    "id": "xy-edge__beginstart-Agent:OntologyModelerend",
+                    "source": "begin",
+                    "sourceHandle": "start",
+                    "target": "Agent:OntologyModeler",
+                    "targetHandle": "end"
+                },
+                {
+                    "id": "xy-edge__Agent:OntologyModelerstart-Message:OntologySchemaend",
+                    "source": "Agent:OntologyModeler",
+                    "sourceHandle": "start",
+                    "target": "Message:OntologySchema",
+                    "targetHandle": "end"
+                }
+            ],
+            "nodes": [
+                {
+                    "data": {
+                        "form": {
+                            "enablePrologue": true,
+                            "inputs": {},
+                            "mode": "conversational",
+                            "prologue": "说明要建的本体，或上传制度、台账、清册等文件。我会返回完整的概念与关系，供建模页采用。"
+                        },
+                        "label": "Begin",
+                        "name": "begin"
+                    },
+                    "id": "begin",
+                    "position": {
+                        "x": 40,
+                        "y": 180
+                    },
+                    "type": "beginNode"
+                },
+                {
+                    "data": {
+                        "label": "Agent",
+                        "name": "本体建模"
+                    },
+                    "id": "Agent:OntologyModeler",
+                    "position": {
+                        "x": 360,
+                        "y": 170
+                    },
+                    "type": "agentNode"
+                },
+                {
+                    "data": {
+                        "form": {
+                            "content": [
+                                "{Agent:OntologyModeler@content}"
+                            ]
+                        },
+                        "label": "Message",
+                        "name": "本体 JSON"
+                    },
+                    "id": "Message:OntologySchema",
+                    "position": {
+                        "x": 700,
+                        "y": 180
+                    },
+                    "type": "messageNode"
+                }
+            ]
+        },
+        "history": [],
+        "memory": [],
+        "messages": [],
+        "path": [],
+        "retrieval": []
+    }
+}

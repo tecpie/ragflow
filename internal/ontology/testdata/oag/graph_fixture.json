@@ -1,0 +1,146 @@
+{
+  "entities": [
+    {
+      "name": "城南调度机构",
+      "type": "调度机构",
+      "doc_id": "05-dispatch.md",
+      "doc_name": "05-dispatch.md",
+      "chunk_id": "c-dispatch",
+      "content": "城南500kV变电站的受管辖单位是城南调度机构。城南调度机构是调度机构。"
+    },
+    {
+      "name": "城南500kV变电站",
+      "type": "变电站",
+      "doc_id": "01-substations.md",
+      "doc_name": "01-substations.md",
+      "chunk_id": "c-sub-chengnan",
+      "content": "城南500kV变电站是一座变电站。站内城南1号主变是电力变压器，接入城南1号主变间隔。城南1号断路器是断路器。"
+    },
+    {
+      "name": "江北220kV变电站",
+      "type": "变电站",
+      "doc_id": "01-substations.md",
+      "doc_name": "01-substations.md",
+      "chunk_id": "c-sub-jiangbei",
+      "content": "江北220kV变电站是另一座变电站。"
+    },
+    {
+      "name": "城南1号主变",
+      "type": "电力变压器",
+      "doc_id": "01-substations.md",
+      "doc_name": "01-substations.md",
+      "chunk_id": "c-transformer",
+      "content": "城南1号主变是电力变压器，接入城南1号主变间隔。"
+    },
+    {
+      "name": "城南1号断路器",
+      "type": "断路器",
+      "doc_id": "01-substations.md",
+      "doc_name": "01-substations.md",
+      "chunk_id": "c-breaker",
+      "content": "城南1号断路器是断路器，安装在城南1号主变间隔。"
+    },
+    {
+      "name": "城南1号主变间隔",
+      "type": "间隔",
+      "doc_id": "01-substations.md",
+      "doc_name": "01-substations.md",
+      "chunk_id": "c-bay",
+      "content": "城南1号主变间隔接入城南1号主变。"
+    },
+    {
+      "name": "城南—江北Ⅰ线",
+      "type": "输电线路",
+      "doc_id": "02-lines.md",
+      "doc_name": "02-lines.md",
+      "chunk_id": "c-line",
+      "content": "城南—江北Ⅰ线是一条输电线路。该输电线路的电源侧厂站是城南500kV变电站，负荷侧厂站是江北220kV变电站。"
+    },
+    {
+      "name": "城南1号主变保护装置",
+      "type": "保护装置",
+      "doc_id": "03-protection.md",
+      "doc_name": "03-protection.md",
+      "chunk_id": "c-relay",
+      "content": "城南1号主变保护装置是一套保护装置，其保护对象是城南1号主变。"
+    },
+    {
+      "name": "2026-03-12城南—江北Ⅰ线故障",
+      "type": "故障",
+      "doc_id": "04-fault.md",
+      "doc_name": "04-fault.md",
+      "chunk_id": "c-fault",
+      "content": "2026-03-12城南—江北Ⅰ线故障的发生设备是城南—江北Ⅰ线，导致的停电事件是江北220kV变电站停电。"
+    },
+    {
+      "name": "江北220kV变电站停电",
+      "type": "停电事件",
+      "doc_id": "04-fault.md",
+      "doc_name": "04-fault.md",
+      "chunk_id": "c-outage",
+      "content": "江北220kV变电站停电是2026-03-12城南—江北Ⅰ线故障导致的停电事件。"
+    }
+  ],
+  "relations": [
+    {
+      "id": "r-source",
+      "from": "城南—江北Ⅰ线",
+      "to": "城南500kV变电站",
+      "type": "电源侧厂站",
+      "doc_id": "02-lines.md",
+      "doc_name": "02-lines.md",
+      "chunk_id": "c-line",
+      "content": "该输电线路的电源侧厂站是城南500kV变电站。"
+    },
+    {
+      "id": "r-load",
+      "from": "城南—江北Ⅰ线",
+      "to": "江北220kV变电站",
+      "type": "负荷侧厂站",
+      "doc_id": "02-lines.md",
+      "doc_name": "02-lines.md",
+      "chunk_id": "c-line",
+      "content": "该输电线路的负荷侧厂站是江北220kV变电站。"
+    },
+    {
+      "id": "r-protect",
+      "from": "城南1号主变保护装置",
+      "to": "城南1号主变",
+      "type": "保护对象",
+      "doc_id": "03-protection.md",
+      "doc_name": "03-protection.md",
+      "chunk_id": "c-relay",
+      "content": "城南1号主变保护装置的保护对象是城南1号主变。"
+    },
+    {
+      "id": "r-occurs",
+      "from": "2026-03-12城南—江北Ⅰ线故障",
+      "to": "城南—江北Ⅰ线",
+      "type": "发生设备",
+      "doc_id": "04-fault.md",
+      "doc_name": "04-fault.md",
+      "chunk_id": "c-fault",
+      "content": "该故障的发生设备是城南—江北Ⅰ线。"
+    },
+    {
+      "id": "r-outage",
+      "from": "2026-03-12城南—江北Ⅰ线故障",
+      "to": "江北220kV变电站停电",
+      "type": "导致停电",
+      "doc_id": "04-fault.md",
+      "doc_name": "04-fault.md",
+      "chunk_id": "c-fault",
+      "content": "该故障导致的停电事件是江北220kV变电站停电。"
+    },
+    {
+      "id": "r-dispatch",
+      "from": "城南500kV变电站",
+      "to": "城南调度机构",
+      "type": "受管辖",
+      "doc_id": "05-dispatch.md",
+      "doc_name": "05-dispatch.md",
+      "chunk_id": "c-dispatch",
+      "content": "城南500kV变电站的受管辖单位是城南调度机构。"
+    }
+  ]
+}

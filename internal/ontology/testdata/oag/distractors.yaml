@@ -1,0 +1,173 @@
+# 干扰供区事实索引。城南供区原 5 份文件不在本表，其中的标准答案不变。
+# 同一套关系句式在每个供区都重复了一遍。不点明城南供区的问题不再有唯一答案。
+# 110kV 线路投运日都晚于城南—城西Ⅱ线的 2014-11-02。
+near_line:
+  name: 城南—江北Ⅱ线
+  kv: 110kV
+  source: 城南220kV变电站
+  source_dispatch: 城南地调
+  load: 江北110kV变电站
+  load_dispatch: 江北县调
+  commissioned: 2016-03-03
+  doc: 38-城南江北Ⅱ线线路台账.docx
+regions:
+  - area: 城东供区
+    source_station: 城东500kV变电站
+    source_dispatch: 城东调度机构
+    load_station: 江东220kV变电站
+    load_dispatch: 江东地调
+    terminal_station: 城北110kV变电站
+    terminal_dispatch: 城北县调
+    line_220: 城东—江东Ⅰ线
+    line_220_commissioned: 2018-04-16
+    line_110: 城东—城北Ⅱ线
+    line_110_commissioned: 2016-09-01
+    transformer: 城东1号主变
+    transformer_mva: 1000
+    ledger_aux_without_protection: 城东站用变
+    protection_aux_not_in_ledger: 江东站用变
+    docs:
+      - 06-城东供区厂站一次设备清册.docx
+      - 07-城东供区线路台账.docx
+      - 08-城东供区保护配置.docx
+      - 09-城东供区调度管辖通知.docx
+  - area: 临江供区
+    source_station: 临江500kV变电站
+    source_dispatch: 临江调度机构
+    load_station: 河北220kV变电站
+    load_dispatch: 河北地调
+    terminal_station: 江北110kV变电站
+    terminal_dispatch: 江北县调
+    line_220: 临江—河北Ⅰ线
+    line_220_commissioned: 2017-03-22
+    line_110: 临江—江北Ⅱ线
+    line_110_commissioned: 2015-08-19
+    transformer: 临江1号主变
+    transformer_mva: 1200
+    ledger_aux_without_protection: 临江站用变
+    protection_aux_not_in_ledger: 河北站用变
+    docs:
+      - 10-临江供区厂站一次设备清册.docx
+      - 11-临江供区线路台账.docx
+      - 12-临江供区保护配置.docx
+      - 13-临江供区调度管辖通知.docx
+  - area: 新区供区
+    source_station: 新区500kV变电站
+    source_dispatch: 新区调度机构
+    load_station: 城西220kV变电站
+    load_dispatch: 城西地调
+    terminal_station: 河西110kV变电站
+    terminal_dispatch: 河西县调
+    line_220: 新区—城西Ⅰ线
+    line_220_commissioned: 2020-01-09
+    line_110: 新区—河西Ⅱ线
+    line_110_commissioned: 2015-12-11
+    transformer: 新区1号主变
+    transformer_mva: 1500
+    ledger_aux_without_protection: 新区站用变
+    protection_aux_not_in_ledger: 城西220站用变
+    docs:
+      - 14-新区供区厂站一次设备清册.docx
+      - 15-新区供区线路台账.docx
+      - 16-新区供区保护配置.docx
+      - 17-新区供区调度管辖通知.docx
+  - area: 江南供区
+    source_station: 江南500kV变电站
+    source_dispatch: 江南调度机构
+    load_station: 城南220kV变电站
+    load_dispatch: 城南地调
+    terminal_station: 南城110kV变电站
+    terminal_dispatch: 南城县调
+    line_220: 江南—城南Ⅰ线
+    line_220_commissioned: 2019-11-03
+    line_110: 江南—南城Ⅱ线
+    line_110_commissioned: 2016-05-27
+    transformer: 江南1号主变
+    transformer_mva: 900
+    ledger_aux_without_protection: 江南站用变
+    protection_aux_not_in_ledger: 城南220站用变
+    docs:
+      - 18-江南供区厂站一次设备清册.docx
+      - 19-江南供区线路台账.docx
+      - 20-江南供区保护配置.docx
+      - 21-江南供区调度管辖通知.docx
+  - area: 港东供区
+    source_station: 港东500kV变电站
+    source_dispatch: 港东调度机构
+    load_station: 港北220kV变电站
+    load_dispatch: 港北地调
+    terminal_station: 港西110kV变电站
+    terminal_dispatch: 港西县调
+    line_220: 港东—港北Ⅰ线
+    line_220_commissioned: 2021-07-14
+    line_110: 港东—港西Ⅱ线
+    line_110_commissioned: 2017-02-08
+    transformer: 港东1号主变
+    transformer_mva: 1100
+    ledger_aux_without_protection: 港东站用变
+    protection_aux_not_in_ledger: 港北站用变
+    docs:
+      - 22-港东供区厂站一次设备清册.docx
+      - 23-港东供区线路台账.docx
+      - 24-港东供区保护配置.docx
+      - 25-港东供区调度管辖通知.docx
+  - area: 岭南供区
+    source_station: 岭南500kV变电站
+    source_dispatch: 岭南调度机构
+    load_station: 岭北220kV变电站
+    load_dispatch: 岭北地调
+    terminal_station: 岭西110kV变电站
+    terminal_dispatch: 岭西县调
+    line_220: 岭南—岭北Ⅰ线
+    line_220_commissioned: 2018-12-20
+    line_110: 岭南—岭西Ⅱ线
+    line_110_commissioned: 2015-04-30
+    transformer: 岭南1号主变
+    transformer_mva: 1000
+    ledger_aux_without_protection: 岭南站用变
+    protection_aux_not_in_ledger: 岭北站用变
+    docs:
+      - 26-岭南供区厂站一次设备清册.docx
+      - 27-岭南供区线路台账.docx
+      - 28-岭南供区保护配置.docx
+      - 29-岭南供区调度管辖通知.docx
+  - area: 湾东供区
+    source_station: 湾东500kV变电站
+    source_dispatch: 湾东调度机构
+    load_station: 湾北220kV变电站
+    load_dispatch: 湾北地调
+    terminal_station: 湾西110kV变电站
+    terminal_dispatch: 湾西县调
+    line_220: 湾东—湾北Ⅰ线
+    line_220_commissioned: 2022-06-01
+    line_110: 湾东—湾西Ⅱ线
+    line_110_commissioned: 2016-10-18
+    transformer: 湾东1号主变
+    transformer_mva: 1200
+    ledger_aux_without_protection: 湾东站用变
+    protection_aux_not_in_ledger: 湾北站用变
+    docs:
+      - 30-湾东供区厂站一次设备清册.docx
+      - 31-湾东供区线路台账.docx
+      - 32-湾东供区保护配置.docx
+      - 33-湾东供区调度管辖通知.docx
+  - area: 洲东供区
+    source_station: 洲东500kV变电站
+    source_dispatch: 洲东调度机构
+    load_station: 洲北220kV变电站
+    load_dispatch: 洲北地调
+    terminal_station: 洲西110kV变电站
+    terminal_dispatch: 洲西县调
+    line_220: 洲东—洲北Ⅰ线
+    line_220_commissioned: 2019-02-25
+    line_110: 洲东—洲西Ⅱ线
+    line_110_commissioned: 2015-06-06
+    transformer: 洲东1号主变
+    transformer_mva: 900
+    ledger_aux_without_protection: 洲东站用变
+    protection_aux_not_in_ledger: 洲北站用变
+    docs:
+      - 34-洲东供区厂站一次设备清册.docx
+      - 35-洲东供区线路台账.docx
+      - 36-洲东供区保护配置.docx
+      - 37-洲东供区调度管辖通知.docx

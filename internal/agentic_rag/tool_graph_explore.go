@@ -28,6 +28,7 @@ import (
 	"go.uber.org/zap"
 
 	"ragflow/internal/common"
+	"ragflow/internal/ontology"
 )
 
 // graphExploreToolName is the tool the model calls to walk the compiled
@@ -126,7 +127,7 @@ func (g *GraphExploreTool) invokableRun(ctx context.Context, argumentsInJSON str
 		// compiled knowledge graph): skip the backend and return the same
 		// "no graph" note the caller falls back from.
 		common.DebugCtx(ctx, "graph_explore: marked unavailable; skipping backend (no compiled knowledge graph)")
-		return renderKgExplore(ctx, query, KgExploreResult{GraphAbsent: true}), nil
+		return renderKgExplore(ctx, query, KgExploreResult{GraphAbsent: true}, nil), nil
 	}
 	datasetIDs, err := resolveDatasetScope(g.datasetIDs, args.DatasetIDs)
 	if err != nil {
@@ -137,12 +138,12 @@ func (g *GraphExploreTool) invokableRun(ctx context.Context, argumentsInJSON str
 		return "", fmt.Errorf("graph_explore: %w", err)
 	}
 	if docScope != nil && len(docScope) == 0 {
-		return renderKgExplore(ctx, query, KgExploreResult{}), nil
+		return renderKgExplore(ctx, query, KgExploreResult{}, nil), nil
 	}
 	if len(datasetIDs) == 0 {
 		// Bound scope is empty: short-circuit before touching the backend so the
 		// tool never reads outside the conversation's allowed datasets.
-		return renderKgExplore(ctx, query, KgExploreResult{GraphAbsent: true}), nil
+		return renderKgExplore(ctx, query, KgExploreResult{GraphAbsent: true}, nil), nil
 	}
 
 	result, err := GetKgService().Explore(ctx, KgExploreRequest{
@@ -173,13 +174,14 @@ func (g *GraphExploreTool) invokableRun(ctx context.Context, argumentsInJSON str
 		zap.Int("entities", len(result.Entities)),
 		zap.Int("relations", len(result.Relations)),
 		zap.Int("passages", len(result.Passages)))
-	return renderKgExplore(ctx, query, result), nil
+	return renderKgExplore(ctx, query, result, nil), nil
 }
 
 // renderKgExplore serialises one walk result. Passages carry the same `ref`
 // handles the locate/deep-read tools stamp, so a fact read from the graph is
-// citable exactly like one read from a chunk.
-func renderKgExplore(ctx context.Context, query string, result KgExploreResult) string {
+// citable exactly like one read from a chunk. aligned, when set, is the
+// ontology slice the walk was constrained to.
+func renderKgExplore(ctx context.Context, query string, result KgExploreResult, aligned *ontology.Alignment) string {
 	entities := result.Entities
 	if len(entities) > graphExploreMaxEntities {
 		entities = entities[:graphExploreMaxEntities]
@@ -193,32 +195,58 @@ func renderKgExplore(ctx context.Context, query string, result KgExploreResult) 
 		passages = passages[:graphExploreMaxPassages]
 	}
 
+	// When the turn carries a chat model, ask it which of the (already
+	// truncated) nodes/edges answer the question. Tests that pre-stamp
+	// Relevant and pass a model-less context keep those marks.
+	if chatModelFrom(ctx) != nil {
+		applyKgModelFocus(ctx, query, entities, relations)
+	}
+
 	var b strings.Builder
+	mode := ""
+	if aligned != nil {
+		mode = ` mode="ontology"`
+	}
 	b.WriteString(fmt.Sprintf(
-		"<kg_explore query=\"%s\" entities=\"%d\" relations=\"%d\" passages=\"%d\">\n",
-		xmlEscape(query), len(entities), len(relations), len(passages)))
+		"<kg_explore query=\"%s\" entities=\"%d\" relations=\"%d\" passages=\"%d\"%s>\n",
+		xmlEscape(query), len(entities), len(relations), len(passages), mode))
 
 	if len(entities) == 0 && len(relations) == 0 {
-		if result.GraphAbsent {
+		switch {
+		case result.GraphAbsent && aligned != nil:
+			b.WriteString("<note error=\"no compiled knowledge graph\">This dataset has NO compiled knowledge graph (or none in the given scope). ontology_explore is unavailable here - do not retry it; use grep_chunks / search_bm25_chunks / search_semantic_chunks / list_chunks instead.</note>\n")
+		case result.GraphAbsent:
 			b.WriteString("<note error=\"no compiled knowledge graph\">This dataset has NO compiled knowledge graph (or none in the given scope). graph_explore is unavailable here - do not retry it; use grep_chunks / search_bm25_chunks / search_semantic_chunks / list_chunks instead.</note>\n")
-		} else {
+		case aligned != nil && aligned.Empty():
+			b.WriteString("<note>This question did not align to any class or relation in the dataset ontology, so the graph was not walked. Rephrase using the ontology's own class and relation names, or use grep_chunks / search_bm25_chunks / search_semantic_chunks.</note>\n")
+		case aligned != nil:
+			b.WriteString("<note>No compiled-graph entity matched this question under the aligned ontology. Rephrase using the ontology's class and relation names. The graph was not walked without that constraint.</note>\n")
+		default:
 			b.WriteString("<note>No compiled-graph entity matched THIS query. The graph may exist - rephrase with the question's own proper nouns (entities, not verbs), or go back to grep_chunks / search_bm25_chunks / search_semantic_chunks.</note>\n")
 		}
 		b.WriteString("</kg_explore>")
 		return b.String()
 	}
 
+	writeOntologyAlignment(&b, aligned)
 	b.WriteString("<subgraph>\n")
 	for _, e := range entities {
 		b.WriteString(fmt.Sprintf("<entity name=\"%s\" type=\"%s\"", xmlEscape(e.Name), xmlEscape(e.Type)))
 		if e.Description != "" {
 			b.WriteString(fmt.Sprintf(" description=\"%s\"", xmlEscape(truncateRunes(e.Description, 300))))
 		}
+		if e.Relevant {
+			b.WriteString(` relevant="true"`)
+		}
 		b.WriteString("/>\n")
 	}
 	for _, r := range relations {
-		b.WriteString(fmt.Sprintf("<relation from=\"%s\" to=\"%s\" type=\"%s\"/>\n",
+		b.WriteString(fmt.Sprintf("<relation from=\"%s\" to=\"%s\" type=\"%s\"",
 			xmlEscape(r.From), xmlEscape(r.To), xmlEscape(r.Type)))
+		if r.Relevant {
+			b.WriteString(` relevant="true"`)
+		}
+		b.WriteString("/>\n")
 	}
 	b.WriteString("</subgraph>\n")
 
@@ -237,4 +265,19 @@ func renderKgExplore(ctx context.Context, query string, result KgExploreResult) 
 	}
 	b.WriteString("</kg_explore>")
 	return b.String()
+}
+
+func writeOntologyAlignment(b *strings.Builder, aligned *ontology.Alignment) {
+	if aligned == nil || aligned.Empty() {
+		return
+	}
+	b.WriteString("<ontology>\n")
+	for _, class := range aligned.Classes {
+		b.WriteString(fmt.Sprintf("<class id=\"%s\" label=\"%s\"/>\n", xmlEscape(class.ID), xmlEscape(class.Label)))
+	}
+	for _, prop := range aligned.Properties {
+		b.WriteString(fmt.Sprintf("<property id=\"%s\" label=\"%s\" domain=\"%s\" range=\"%s\"/>\n",
+			xmlEscape(prop.ID), xmlEscape(prop.Label), xmlEscape(prop.Domain), xmlEscape(prop.Range)))
+	}
+	b.WriteString("</ontology>\n")
 }

@@ -43,6 +43,9 @@ func TestParseOverride(t *testing.T) {
 		{"empty", map[string]any{"tools": []any{}}, "corpus search"},
 		{"missing search", map[string]any{"tools": []any{"list_chunks"}}, "corpus search"},
 		{"missing deep read", map[string]any{"tools": []any{"grep_chunks"}}, "list_chunks"},
+		{"ontology walk", map[string]any{"ontology_walk": true}, ""},
+		{"ontology walk off", map[string]any{"ontology_walk": false}, ""},
+		{"ontology walk type", map[string]any{"ontology_walk": "yes"}, "boolean"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := ParseOverride(tc.raw)

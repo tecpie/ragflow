@@ -339,6 +339,7 @@ export function MultipleChatBox({
       enableInternet,
       enableThinking,
       enableModelThinking,
+      enableOntologyWalk,
     }: NextMessageInputOnPressEnterParameter) => {
       if (trim(value) === '') return;
 
@@ -353,6 +354,7 @@ export function MultipleChatBox({
           enableInternet,
           enableThinking,
           enableModelThinking,
+          enableOntologyWalk,
           ...data,
         });
       });

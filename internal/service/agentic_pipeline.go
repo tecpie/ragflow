@@ -262,12 +262,17 @@ func (s *ChatPipelineService) agenticRag(
 		// the authoritative Final (and session reload) still show knowledge
 		// retrieval the way the Agent canvas does.
 		var toolTrace strings.Builder
+		walk := false
+		if flag := normalizeInternetFlag(kwargs["ontology_walk"]); flag != nil && *flag {
+			walk = true
+		}
 		final, runErr := agentic_rag.Run(runCtx, agentic_rag.Input{
 			Model:           model,
 			SynthModel:      synth,
 			Messages:        agentMessages,
 			TemplateID:      mode,
 			Template:        &tmpl,
+			OntologyWalk:    walk,
 			TenantID:        chat.TenantID,
 			UserID:          userID,
 			DatasetIDs:      chatDatasetIDs(chat),

@@ -52,6 +52,7 @@ var agenticToolDisplayNames = map[string]string{
 	"list_chunks":            "阅读文档",
 	"search_metadata":        "元数据检索",
 	"graph_explore":          "知识图谱",
+	"ontology_explore":       "本体图谱",
 	"graph_doc_outline":      "文档大纲",
 	"navigate_tree":          "目录导航",
 	"navigate_structure":     "结构导航",
@@ -120,6 +121,9 @@ type Input struct {
 	TemplateID string
 	// Template is the per-run resolved configuration, shared with model setup.
 	Template *Template
+	// OntologyWalk is the composer switch. On walks the knowledge-base graph
+	// before the model chooses tools. Off leaves the turn on the text tools.
+	OntologyWalk bool
 	// OnDelta, when non-nil, receives each incremental (content, reasoning)
 	// delta as it streams. When nil, deltas fall back to runtime.EmitAgentMessage.
 	OnDelta func(contentDelta, thinkingDelta string)
@@ -350,6 +354,7 @@ func Run(ctx context.Context, in Input) (string, error) {
 	if in.Model == nil {
 		return "", errNilModel
 	}
+	ctx = withChatModel(ctx, in.Model)
 	if in.DocIDs != nil {
 		ctx = withDocumentScope(ctx, in.DocIDs)
 	}
@@ -561,6 +566,13 @@ func Run(ctx context.Context, in Input) (string, error) {
 		seed = seed[:len(seed)-1]
 	}
 	runMessages := sess.explorer.turnMessages(seed, "", question)
+	// The chat switch gates the walk. A question that does not name an
+	// ontology relation still stays on the text tools.
+	if in.OntologyWalk {
+		if walked := ontologyWalkMessages(ctx, tools, lastUserQuestion(in.Messages), in.OnDelta, in.ToolCallCounts); len(walked) > 0 {
+			runMessages = append(runMessages, walked...)
+		}
+	}
 	// Everything the ReAct loop calls the model for is the exploration phase:
 	// the loop is where a turn's token budget is actually spent, so it must be
 	// attributable on its own and not merge into the final synthesis.
@@ -1423,6 +1435,62 @@ const finalizeInstruction = "You have reached the end of your investigation. Bas
 // a threshold high enough to catch a real sentence would retry answers that are
 // terse but complete, doubling the synthesis cost of every capped run.
 const finalizeMinAnswerRunes = 12
+
+// ontologyWalkMessages runs ontology_explore before the model chooses tools
+// and emits that call as a chat card. The caller already checked the composer
+// switch. No ontology tool leaves the turn unchanged.
+func ontologyWalkMessages(ctx context.Context, tools []tool.BaseTool, question string, onDelta func(string, string), counts map[string]int) []adk.Message {
+	question = strings.TrimSpace(question)
+	if question == "" {
+		return nil
+	}
+	var inv tool.InvokableTool
+	for _, item := range tools {
+		info, err := item.Info(ctx)
+		if err != nil || info == nil || info.Name != ontologyExploreToolName {
+			continue
+		}
+		it, ok := item.(tool.InvokableTool)
+		if !ok {
+			return nil
+		}
+		inv = it
+		break
+	}
+	if inv == nil {
+		return nil
+	}
+	raw, err := json.Marshal(map[string]string{"query": question})
+	if err != nil {
+		return nil
+	}
+	args := string(raw)
+	result, err := inv.InvokableRun(ctx, args)
+	if err != nil {
+		result = err.Error()
+	}
+	const callID = "ontology-walk"
+	call := schema.ToolCall{
+		ID:   callID,
+		Type: "function",
+		Function: schema.FunctionCall{
+			Name:      ontologyExploreToolName,
+			Arguments: args,
+		},
+	}
+	if counts != nil {
+		counts[ontologyExploreToolName]++
+	}
+	emit(ctx, onDelta, formatAgenticToolCall(&schema.Message{
+		Role:       schema.Tool,
+		Content:    result,
+		ToolCallID: callID,
+	}, map[string]schema.ToolCall{callID: call}), "")
+	return []adk.Message{
+		schema.AssistantMessage("", []schema.ToolCall{call}),
+		schema.ToolMessage(result, callID),
+	}
+}
 
 // lastUserQuestion returns the content of the last user message, used as the
 // question for the final-answer fallback and for per-question usage logs.

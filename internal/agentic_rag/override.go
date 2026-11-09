@@ -12,6 +12,9 @@ import (
 type Override struct {
 	Content *string   `json:"content,omitempty"`
 	Tools   *[]string `json:"tools,omitempty"`
+	// OntologyWalk forces a knowledge-base graph walk before the model
+	// chooses tools.
+	OntologyWalk *bool `json:"ontology_walk,omitempty"`
 }
 
 // ParseOverride validates the decoded prompt_config.agentic_rag value.
@@ -51,6 +54,12 @@ func ParseOverride(raw any) (*Override, error) {
 				return nil, fmt.Errorf("agentic_rag.tools must be an array of strings")
 			}
 			result.Tools = &names
+		case "ontology_walk":
+			on, ok := value.(bool)
+			if !ok {
+				return nil, fmt.Errorf("agentic_rag.ontology_walk must be a boolean")
+			}
+			result.OntologyWalk = &on
 		default:
 			return nil, fmt.Errorf("agentic_rag has unknown field %q", key)
 		}

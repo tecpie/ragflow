@@ -421,6 +421,9 @@ func (s *BotService) ChatbotCompletion(
 	if req.Internet != nil {
 		kwargs["internet"] = req.Internet
 	}
+	if req.OntologyWalk != nil {
+		kwargs["ontology_walk"] = req.OntologyWalk
+	}
 	if req.DocIDs != "" {
 		kwargs["doc_ids"] = req.DocIDs
 	}

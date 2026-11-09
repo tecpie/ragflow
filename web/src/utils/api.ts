@@ -428,6 +428,7 @@ const apiEndpoints = {
   compilationTemplateGroup: (id: string) =>
     `${restAPIv1}/compilation-template-groups/${id}`,
   wikiPresets: `${restAPIv1}/compilation-templates/wiki-presets`,
+  ontologies: `${restAPIv1}/ontologies`,
 
   // mcp server
   listMcpServer: `${restAPIv1}/mcp/servers`,

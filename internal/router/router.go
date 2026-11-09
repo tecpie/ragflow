@@ -629,6 +629,7 @@ func (r *Router) Setup(engine *gin.Engine) {
 			v1.PUT("/ontologies/:ontology_id", r.ontologyHandler.Update)
 			v1.DELETE("/ontologies/:ontology_id", r.ontologyHandler.Delete)
 			v1.GET("/ontologies/:ontology_id/playground", r.ontologyHandler.Playground)
+			v1.GET("/ontologies/:ontology_id/instances", r.ontologyHandler.Instances)
 			v1.GET("/ontologies/:ontology_id/export.rdf", r.ontologyHandler.ExportRDFXML)
 
 			evaluations := v1.Group("/evaluations", ToggleEvaluation())
