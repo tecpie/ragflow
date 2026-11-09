@@ -66,7 +66,6 @@ func GetParserConfig(parserID string, parserConfig map[string]interface{}) map[s
 			"delimiter":        "\n",
 			"auto_keywords":    0,
 			"auto_questions":   0,
-			"html4excel":       false,
 			"topn_tags":        3,
 		},
 		"qa":           nil,
@@ -105,7 +104,7 @@ func ExtractPipelineDefaults(dsl map[string]interface{}) map[string]interface{} 
 			continue
 		}
 		name, _ := obj["component_name"].(string)
-		if name == "" || name == "File" {
+		if name == "" || name == ComponentNameFile {
 			continue
 		}
 		params, _ := obj["params"].(map[string]interface{})

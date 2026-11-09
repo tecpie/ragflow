@@ -220,7 +220,8 @@ func maybeDispatchVisionEnhancement(
 	// Collect visual resources (figures/tables) and DeepDOC signature-label
 	// lines. Markdown images whose type is text because flatten_media_to_text
 	// is enabled still carry an inline image payload. Backend-described items
-	// are skipped inside collectVisionEnhanceTargets.
+	// (e.g. MinerU vlm_description) are skipped inside collectVisionEnhanceTargets
+	// to avoid a duplicate second description and an extra VLM call.
 	targets := collectVisionEnhanceTargets(dispatched.JSON, tableVisionOn, signatureVisionOn)
 	if len(targets) == 0 {
 		return stripBackendDescribedResult(dispatched), false, nil
