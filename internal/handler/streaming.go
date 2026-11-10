@@ -30,3 +30,13 @@ import (
 func clearResponseWriteDeadline(c *gin.Context) {
 	_ = http.NewResponseController(c.Writer).SetWriteDeadline(time.Time{})
 }
+
+func writeSSEComment(w http.ResponseWriter) error {
+	if _, err := w.Write([]byte(": ping\n\n")); err != nil {
+		return err
+	}
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
+	}
+	return nil
+}
