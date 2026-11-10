@@ -93,6 +93,10 @@ func (m *OpenAIAPICompatibleModel) ChatWithMessages(ctx context.Context, modelNa
 	if err != nil {
 		return nil, err
 	}
+	messages, err = adaptSGCCVisionMessages(modelName, url, m.baseModel.BaseURL, messages)
+	if err != nil {
+		return nil, err
+	}
 
 	// Build request body
 	reqBody := buildRequestBody(chatModelConfig, modelName, messages, false)
@@ -120,6 +124,10 @@ func (m *OpenAIAPICompatibleModel) ChatStreamlyWithSender(ctx context.Context, m
 	}
 
 	url, err := m.baseModel.EndpointURL(apiConfig, m.baseModel.URLSuffix.Chat)
+	if err != nil {
+		return err
+	}
+	messages, err = adaptSGCCVisionMessages(modelName, url, m.baseModel.BaseURL, messages)
 	if err != nil {
 		return err
 	}

@@ -107,6 +107,10 @@ func (v *VllmModel) ChatWithMessages(ctx context.Context, modelName string, mess
 	if modelType == "qwen" || modelType == "glm" {
 		url = joinURL(resolvedBaseURL, v.baseModel.URLSuffix.AsyncChat)
 	}
+	messages, err = adaptSGCCVisionMessages(modelName, url, v.baseModel.BaseURL, messages)
+	if err != nil {
+		return nil, err
+	}
 
 	// Build request body
 	reqBody := buildRequestBody(chatModelConfig, modelName, messages, false)
@@ -138,6 +142,10 @@ func (v *VllmModel) ChatStreamlyWithSender(ctx context.Context, modelName string
 	modelType := strings.Split(modelName, "-")[0]
 	if modelType == "qwen" || modelType == "glm" {
 		url = joinURL(resolvedBaseURL, v.baseModel.URLSuffix.AsyncChat)
+	}
+	messages, err = adaptSGCCVisionMessages(modelName, url, v.baseModel.BaseURL, messages)
+	if err != nil {
+		return err
 	}
 
 	// Build request body with streaming enabled
