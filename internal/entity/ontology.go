@@ -48,7 +48,7 @@ type Ontology struct {
 	Description *string `gorm:"column:description;type:text" json:"description,omitempty"`
 	BaseIRI     string  `gorm:"column:base_iri;size:512;not null;default:''" json:"base_iri"`
 	Turtle      string  `gorm:"column:turtle;type:longtext;not null" json:"turtle"`
-	Document    string  `gorm:"column:document;type:longtext;not null;default:''" json:"document,omitempty"`
+	Document    string  `gorm:"column:document;type:longtext" json:"document,omitempty"`
 	Source      string  `gorm:"column:source;size:32;not null;default:knowledge" json:"source"`
 	Status      *string `gorm:"column:status;size:1;default:1;index" json:"status,omitempty"`
 	BaseModel
