@@ -124,7 +124,7 @@ func TestParseResultText_EmptyJSONWithoutFallbackReturnsEmpty(t *testing.T) {
 }
 
 func TestParseAgentUploadContent_JSONUsesParsedItemText(t *testing.T) {
-	content, err := parseAgentUploadContent(t.Context(), "data.csv", []byte("a,b\n1,2\n"), "")
+	content, err := parseAgentUploadContent(t.Context(), "data.csv", []byte("a,b\n1,2\n"), "", "")
 	if err != nil {
 		t.Fatalf("parseAgentUploadContent: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestHTMLContentExtractionWithoutMediaCache(t *testing.T) {
 	input := []byte(`<p>before</p><img alt="figure" src="data:image/png;base64,aGVsbG8="><p>after</p>`)
 	for name, parse := range map[string]func() (string, error){
 		"file":  func() (string, error) { return parseFileContent(t.Context(), "sample.html", input), nil },
-		"agent": func() (string, error) { return parseAgentUploadContent(t.Context(), "sample.html", input, "") },
+		"agent": func() (string, error) { return parseAgentUploadContent(t.Context(), "sample.html", input, "", "") },
 	} {
 		t.Run(name, func(t *testing.T) {
 			got, err := parse()
@@ -196,7 +196,7 @@ func TestEPUBContentExtractionWithoutMediaCache(t *testing.T) {
 	input := buildTestEPUBForContent(t)
 	for name, parse := range map[string]func() (string, error){
 		"file":  func() (string, error) { return parseFileContent(t.Context(), "book.epub", input), nil },
-		"agent": func() (string, error) { return parseAgentUploadContent(t.Context(), "book.epub", input, "") },
+		"agent": func() (string, error) { return parseAgentUploadContent(t.Context(), "book.epub", input, "", "") },
 	} {
 		t.Run(name, func(t *testing.T) {
 			got, err := parse()

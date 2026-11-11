@@ -2410,7 +2410,7 @@ func (s *AgentService) buildRunFunc(canvasID string, versionRow *entity.UserCanv
 			// Only used for ParseAgentUploads (read-only); nil DocRemover means
 			// this FileService MUST NOT be used for DeleteFiles.
 			fileSvc := file.NewFileService(nil)
-			files, ferr := fileSvc.ParseAgentUploads(ctx, rawFiles, beginLayoutRecognize(c))
+			files, ferr := fileSvc.ParseAgentUploads(ctx, rawFiles, beginLayoutRecognize(c), seedTenantID)
 			if ferr != nil {
 				s.markAgentSessionFailed(ctx2, canvasID, sessionID, "parse files: "+ferr.Error())
 				s.markRunFailed(ctx2, runID, "parse files: "+ferr.Error())

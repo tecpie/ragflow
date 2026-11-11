@@ -56,7 +56,7 @@ func TestSplitChatAttachments_FileDictModeReturnsDataURIs(t *testing.T) {
 	seedChatImageStorage(t)
 
 	svc := NewChatPipelineService()
-	texts, images := svc.splitChatAttachments(permission.WithIdentity(t.Context(), "user-1", ""), []interface{}{chatImageFileDict})
+	texts, images := svc.splitChatAttachments(permission.WithIdentity(t.Context(), "user-1", ""), []interface{}{chatImageFileDict}, "")
 	if len(images) != 1 {
 		t.Fatalf("expected 1 image, got %v", images)
 	}
@@ -75,7 +75,7 @@ func TestSplitChatAttachments_StringModeKeepsDataURIsOnly(t *testing.T) {
 	svc := NewChatPipelineService()
 	texts, images := svc.splitChatAttachments(permission.WithIdentity(t.Context(), "user-1", ""), []interface{}{
 		"data:image/png;base64,AAA", "https://example.com/a.png", "plain text", "  ",
-	})
+	}, "")
 	if len(images) != 1 || images[0] != "data:image/png;base64,AAA" {
 		t.Fatalf("unexpected images: %v", images)
 	}
@@ -116,7 +116,7 @@ func TestSplitChatAttachments_FetchesStorageOnce(t *testing.T) {
 	texts, images := svc.splitChatAttachments(permission.WithIdentity(t.Context(), "user-1", ""), []interface{}{
 		chatImageFileDict,
 		map[string]interface{}{"id": "img-2", "name": "photo2.jpeg", "mime_type": "image/jpeg", "created_by": "user-1"},
-	})
+	}, "")
 	if len(images) != 2 {
 		t.Fatalf("expected 2 images, got %v", images)
 	}
@@ -135,7 +135,7 @@ func TestSplitChatAttachments_FetchesStorageOnce(t *testing.T) {
 func TestSplitFileAttachmentsRawImagesFeedMultimodalConversion(t *testing.T) {
 	seedChatImageStorage(t)
 
-	_, images := splitFileAttachments(permission.WithIdentity(t.Context(), "user-1", ""), []interface{}{chatImageFileDict}, true)
+	_, images := splitFileAttachments(permission.WithIdentity(t.Context(), "user-1", ""), []interface{}{chatImageFileDict}, true, "")
 	if len(images) != 1 {
 		t.Fatalf("expected 1 image from splitFileAttachments, got %v", images)
 	}
@@ -179,7 +179,7 @@ func TestSplitFileAttachmentsRawImagesFeedMultimodalConversion(t *testing.T) {
 func TestGateImageAttachmentsDropsImagesForTextOnlyChatModel(t *testing.T) {
 	seedChatImageStorage(t)
 
-	texts, images := splitFileAttachments(permission.WithIdentity(t.Context(), "user-1", ""), []interface{}{chatImageFileDict}, false)
+	texts, images := splitFileAttachments(permission.WithIdentity(t.Context(), "user-1", ""), []interface{}{chatImageFileDict}, false, "")
 	if len(images) != 1 {
 		t.Fatalf("split still resolves file-dict images with raw=false, got %v", images)
 	}
@@ -202,7 +202,7 @@ func TestGateImageAttachmentsKeepsImagesForVisionModel(t *testing.T) {
 	seedChatImageStorage(t)
 
 	for _, raw := range []bool{false, true} {
-		texts, images := splitFileAttachments(permission.WithIdentity(t.Context(), "user-1", ""), []interface{}{chatImageFileDict}, raw)
+		texts, images := splitFileAttachments(permission.WithIdentity(t.Context(), "user-1", ""), []interface{}{chatImageFileDict}, raw, "")
 		kept, attached := gateImageAttachments("qwen3-vl-plus@Tongyi-Qianwen", "image2text", images)
 		if !attached || len(kept) != 1 {
 			t.Fatalf("raw=%v: vision model must keep the image (kept=%v attached=%v)", raw, kept, attached)

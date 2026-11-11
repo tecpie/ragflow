@@ -230,6 +230,7 @@ func (s *ChatPipelineService) AsyncChat(
 ) (<-chan AsyncChatResult, error) {
 
 	common.Info("AsyncChat started", zap.String("chat_id", chat.ID))
+	ctx = permission.WithTenantID(ctx, chat.TenantID)
 
 	// === Phase 1: Entry Validation ===
 	// Guard: messages must be non-empty and the last role must be "user".
@@ -462,7 +463,7 @@ func (s *ChatPipelineService) AsyncChat(
 				}
 			}
 			var images []string
-			textAttachmentsList, images = splitFileAttachments(ctx, files, modelType == "image2text")
+			textAttachmentsList, images = splitFileAttachments(ctx, files, modelType == "image2text", chatLayoutRecognize(chat))
 			imageFiles, hasImageAttachments = gateImageAttachments(chat.LLMID, modelType, images)
 			attachments = strings.Join(textAttachmentsList, "\n\n")
 			// Log counts only: attachment payloads are base64 images or
@@ -476,7 +477,7 @@ func (s *ChatPipelineService) AsyncChat(
 		var historyImageFiles []string
 		for _, previous := range messages[:len(messages)-1] {
 			if previous["role"] == "user" && previous["files"] != nil {
-				_, images := s.splitChatAttachments(ctx, previous["files"])
+				_, images := s.splitChatAttachments(ctx, previous["files"], chatLayoutRecognize(chat))
 				modelType, _ := llmModelConfig["model_type"].(string)
 				images, _ = gateImageAttachments(chat.LLMID, modelType, images)
 				historyImageFiles = append(historyImageFiles, images...)
@@ -1038,7 +1039,7 @@ func (s *ChatPipelineService) AsyncChat(
 		// Fit messages within token budget.
 		usedTokenCount, llmMessages := s.messageFitIn(llmMessages, int(float64(modelMaxTokens)*0.95))
 		for i := range llmMessages[:len(llmMessages)-1] {
-			llmMessages[i] = s.chatHistoryMessage(ctx, llmMessages[i], modelType, factoryName)
+			llmMessages[i] = s.chatHistoryMessage(ctx, llmMessages[i], modelType, factoryName, chatLayoutRecognize(chat))
 		}
 		common.Debug("Messages fitted in token budget",
 			zap.Int("model max_tokens", modelMaxTokens),
@@ -1545,7 +1546,7 @@ func (s *ChatPipelineService) AsyncChatSolo(
 		if len(messages) > 0 {
 			if files, hasFiles := messages[len(messages)-1]["files"]; hasFiles {
 				var images []string
-				attachmentsStr, images = s.splitChatAttachments(ctx, files)
+				attachmentsStr, images = s.splitChatAttachments(ctx, files, chatLayoutRecognize(chat))
 				imageFiles, _ = gateImageAttachments(chat.LLMID, modelType, images)
 				common.Info("AsyncChatSolo: file attachments resolved",
 					zap.Bool("vision_model", isImage2Text),
@@ -1562,7 +1563,7 @@ func (s *ChatPipelineService) AsyncChatSolo(
 				continue
 			}
 			if i < len(messages)-1 {
-				m = s.chatHistoryMessage(ctx, m, modelType, factoryName)
+				m = s.chatHistoryMessage(ctx, m, modelType, factoryName, chatLayoutRecognize(chat))
 			}
 			llmMessage := normalizeLLMMessage(m)
 			content := llmMessage["content"]
@@ -1816,13 +1817,21 @@ func (s *ChatPipelineService) AsyncChatSolo(
 //
 // Downstream ConvertLastUserMsgToMultimodal → parseDataURIOrB64 accepts the
 // returned data URIs directly.
-func (s *ChatPipelineService) splitChatAttachments(ctx context.Context, files interface{}) (string, []string) {
+func chatLayoutRecognize(chat *entity.Chat) string {
+	if chat == nil || chat.PromptConfig == nil {
+		return ""
+	}
+	layout, _ := chat.PromptConfig["layout_recognize"].(string)
+	return strings.TrimSpace(layout)
+}
+
+func (s *ChatPipelineService) splitChatAttachments(ctx context.Context, files interface{}, layoutRecognize string) (string, []string) {
 	// ── File-dict mode ──
 	if fileDicts, ok := parseFileDicts(files); ok {
 		// Only used for GetFileContents (read-only); nil DocRemover means
 		// this FileService MUST NOT be used for DeleteFiles.
 		fileSvc := file.NewFileService(nil)
-		texts, images, err := fileSvc.GetFileContents(ctx, fileDicts)
+		texts, images, err := fileSvc.GetFileContents(ctx, fileDicts, layoutRecognize)
 		if err != nil {
 			common.Warn("GetFileContents failed in splitChatAttachments",
 				zap.Error(err))
@@ -2263,13 +2272,13 @@ func emptyResponseApplies(knowledgeCount int, attachments string, imageAttachmen
 //     URIs → image files.
 //     - raw=true: all items go to textAttachments (Python's FileService.get_files
 //     with raw=True pre-separates images, so non-image content arrives here).
-func splitFileAttachments(ctx context.Context, files interface{}, raw bool) (textAttachments []string, imageAttachments []string) {
+func splitFileAttachments(ctx context.Context, files interface{}, raw bool, layoutRecognize string) (textAttachments []string, imageAttachments []string) {
 	// ── Mode 1: file dicts (Python-compatible) ──
 	if fileDicts, ok := parseFileDicts(files); ok {
 		// Only used for GetFileContents (read-only); nil DocRemover means
 		// this FileService MUST NOT be used for DeleteFiles.
 		fileSvc := file.NewFileService(nil)
-		texts, images, err := fileSvc.GetFileContents(ctx, fileDicts)
+		texts, images, err := fileSvc.GetFileContents(ctx, fileDicts, layoutRecognize)
 		if err != nil {
 			common.Warn("GetFileContents failed, falling back to string splitting",
 				zap.Error(err))
@@ -2731,11 +2740,11 @@ func (s *ChatPipelineService) buildChatMessages(systemContent string, messages [
 	return result
 }
 
-func (s *ChatPipelineService) chatHistoryMessage(ctx context.Context, message map[string]interface{}, modelType, factory string) map[string]interface{} {
+func (s *ChatPipelineService) chatHistoryMessage(ctx context.Context, message map[string]interface{}, modelType, factory, layoutRecognize string) map[string]interface{} {
 	if message["role"] != "user" || message["files"] == nil {
 		return message
 	}
-	_, images := s.splitChatAttachments(ctx, message["files"])
+	_, images := s.splitChatAttachments(ctx, message["files"], layoutRecognize)
 	images, _ = gateImageAttachments("", modelType, images)
 	msg := normalizeLLMMessage(message)
 	converted, err := common.ConvertLastUserMsgToMultimodal(msg, images, factory)

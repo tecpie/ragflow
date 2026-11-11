@@ -90,6 +90,7 @@ export function ChatSettings({ hasSingleChatBox }: ChatSettingsProps) {
         keyword: false,
         tts: false,
         refine_multiturn: true,
+        layout_recognize: 'DeepDOC',
         system: '',
         parameters: [],
         reasoning: false,
@@ -175,6 +176,7 @@ export function ChatSettings({ hasSingleChatBox }: ChatSettingsProps) {
         ...data.prompt_config,
         // reset() skips undefined values, so fall back to '' to clear the field
         web_search_provider: getWebSearchProvider(data.prompt_config) ?? '',
+        layout_recognize: data.prompt_config?.layout_recognize || 'DeepDOC',
       },
       llm_setting: {
         ...data.llm_setting,

@@ -27,6 +27,7 @@ export function buildChatSettingFormSchema(t: (key: string) => string) {
     tts: z.boolean(),
     empty_response: z.string().optional(),
     prologue: z.string().optional(),
+    layout_recognize: z.string().optional(),
     system: z.string().min(1, { message: t('systemMessage') }),
     refine_multiturn: z.boolean(),
     parameters: z
