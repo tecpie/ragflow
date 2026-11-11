@@ -17,10 +17,74 @@
 package knowledge_compiler
 
 import (
+	"strings"
 	"testing"
 
 	"ragflow/internal/ontology"
 )
+
+func TestParserConfigFromModelingIncludesProperties(t *testing.T) {
+	cfg := parserConfigFromModeling(map[string]any{
+		"kind":          "ontology",
+		"ontology_name": "电力",
+		"ontology_id":   "onto-1",
+		"global_rules":  "keep names",
+	}, ontology.ModelingDocument{
+		Concepts: []ontology.ModelingConcept{
+			{
+				ID: "Substation", Name: "变电站", Description: "厂站",
+				Properties: []ontology.ModelingProperty{
+					{Key: "voltage", Label: "电压等级", Type: "enum", Required: true, EnumValues: []string{"220kV", "500kV"}},
+				},
+			},
+			{ID: "Line", Name: "线路"},
+		},
+		Relations: []ontology.ModelingRelation{
+			{
+				ID: "feeds", Name: "供电", Source: []string{"Substation"}, Target: []string{"Line"},
+				Properties: []ontology.ModelingProperty{
+					{Key: "capacity", Label: "容量", Type: "number"},
+				},
+			},
+		},
+	})
+	if cfg["kind"] != "ontology" {
+		t.Fatalf("kind = %#v", cfg["kind"])
+	}
+	if cfg["ontology_id"] != "onto-1" {
+		t.Fatalf("ontology_id lost: %#v", cfg["ontology_id"])
+	}
+	entity, _ := cfg["entity"].(map[string]any)
+	fields, _ := entity["fields"].([]any)
+	if len(fields) != 2 {
+		t.Fatalf("entity fields = %#v", fields)
+	}
+	first, _ := fields[0].(map[string]any)
+	if first["type"] != "变电站" {
+		t.Fatalf("first field = %#v", first)
+	}
+	rule, _ := first["rule"].(string)
+	if !strings.Contains(rule, "voltage") || !strings.Contains(rule, "500kV") {
+		t.Fatalf("property rule missing: %s", rule)
+	}
+	outFields, _ := entity["output_fields"].([]any)
+	if len(outFields) != 1 {
+		t.Fatalf("entity output_fields = %#v", outFields)
+	}
+	relation, _ := cfg["relation"].(map[string]any)
+	relFields, _ := relation["fields"].([]any)
+	if len(relFields) != 1 {
+		t.Fatalf("relation fields = %#v", relFields)
+	}
+	rel, _ := relFields[0].(map[string]any)
+	if rel["type"] != "供电" {
+		t.Fatalf("relation = %#v", rel)
+	}
+	desc, _ := rel["description"].(string)
+	if !strings.Contains(desc, "变电站") || !strings.Contains(desc, "线路") || !strings.Contains(desc, "capacity") {
+		t.Fatalf("relation description = %s", desc)
+	}
+}
 
 func TestOverlayOntologyFieldsReplacesGraphTypes(t *testing.T) {
 	pg := ontology.PlaygroundOntology{
@@ -34,7 +98,7 @@ func TestOverlayOntologyFieldsReplacesGraphTypes(t *testing.T) {
 		},
 	}
 	cfg := overlayOntologyFields(map[string]any{
-		"kind":     "knowledge_graph",
+		"kind":     "ontology",
 		"entity":   map[string]any{"fields": []any{map[string]any{"type": "person"}}},
 		"relation": map[string]any{"fields": []any{map[string]any{"type": "owns"}}},
 	}, pg)
@@ -56,7 +120,7 @@ func TestOverlayOntologyFieldsReplacesGraphTypes(t *testing.T) {
 	if rel["type"] != "供电" {
 		t.Fatalf("relation = %#v", rel)
 	}
-	if cfg["kind"] != "knowledge_graph" {
+	if cfg["kind"] != "ontology" {
 		t.Fatalf("kind overwritten: %#v", cfg["kind"])
 	}
 }

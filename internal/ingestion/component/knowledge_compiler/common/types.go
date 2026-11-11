@@ -25,8 +25,8 @@ const (
 	VariantWiki      Variant = "wiki"
 	VariantTree      Variant = "tree"
 	VariantMindmap   Variant = "mindmap"
-	// VariantOntology is config-only: no LLM compile. TBox induction runs after
-	// structure merge when a sibling ontology template is present in the group.
+	// VariantOntology extracts ABox instances from documents using the modeled
+	// ontology TBox (concept/relation types and their properties).
 	VariantOntology Variant = "ontology"
 )
 

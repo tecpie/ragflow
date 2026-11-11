@@ -1,4 +1,7 @@
-# 电力领域编译模板组。与 docs/ 一起使用：知识图谱模板的类型名就是本体算子要归纳的类和关系，组内再放 ontology 算子。
+# 电力领域 OAG 编译模板组。与 docs/ 一起使用。
+# 兼容约束：OAG walk 对齐 TBox（ontology 算子绑定的本体），游走 ABox（索引里的 entity/relation）。
+# 本夹具仍用 knowledge_graph 产出与问题词表一致的类型名；生产若改为仅 ontology 自抽，
+# 建模概念/关系标签须与下列中文类型保持一致，且 ontology 产品须进入 dataset merge。
 # 不要改用内置的 person/org 图谱模板，那个模板归纳不出这些类，并且会丢掉 other。
 templates:
   - kind: knowledge_graph

@@ -135,6 +135,10 @@ func ontologyTargetsForStructureTemplate(
 	if row == nil || row.GroupID == nil || strings.TrimSpace(*row.GroupID) == "" {
 		return nil
 	}
+	// Ontology-operator ABox products must not induce/rewrite TBox.
+	if strings.EqualFold(strings.TrimSpace(row.Kind), "ontology") {
+		return nil
+	}
 	groupID := strings.TrimSpace(*row.GroupID)
 	if cached, ok := siblingCache[groupID]; ok {
 		return cached

@@ -36,7 +36,7 @@ func compilationString(value any) string {
 
 func isCompilationKind(kind string) bool {
 	switch kind {
-	case "graph", "mind_map", "page_index", "tree", "timeline", "wiki", "session_graph", "session_essence":
+	case "graph", "mind_map", "page_index", "tree", "timeline", "wiki", "session_graph", "session_essence", "ontology":
 		return true
 	}
 	return false

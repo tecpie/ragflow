@@ -1,10 +1,11 @@
 kind: ontology
-display_name: Ontology — Induce TBox from structure compilation
+display_name: Ontology — Extract ABox from modeled TBox
 description: >-
-  Config-only operator. ontology_id, or ontology_name when id is empty, selects
-  the ontology whose classes and relations the sibling knowledge-graph operator
-  uses to extract instances. An ontology selected by id is not rewritten from
-  the extracted graph. Does not call an LLM by itself.
+  Extracts concept and relation instances from documents according to the
+  ontology selected by ontology_id (preferred) or ontology_name. Uses the
+  workbench modeling document when stored, including concept/relation
+  properties; otherwise falls back to Turtle class and relation labels.
+  Does not rewrite a modeled ontology from extracted types.
 config:
   kind: ontology
   ontology_name: Compiled Ontology

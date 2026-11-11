@@ -38,7 +38,9 @@ func OntologySourceModeled(source string) bool {
 	}
 }
 
-// Ontology stores a tenant-owned TBox as Turtle.
+// Ontology stores a tenant-owned TBox as Turtle, and optionally the workbench
+// modeling Document used to generate that Turtle (needed for property-aware
+// ABox extraction).
 type Ontology struct {
 	ID          string  `gorm:"column:id;primaryKey;size:32" json:"id"`
 	TenantID    string  `gorm:"column:tenant_id;size:32;not null;index" json:"tenant_id"`
@@ -46,6 +48,7 @@ type Ontology struct {
 	Description *string `gorm:"column:description;type:text" json:"description,omitempty"`
 	BaseIRI     string  `gorm:"column:base_iri;size:512;not null;default:''" json:"base_iri"`
 	Turtle      string  `gorm:"column:turtle;type:longtext;not null" json:"turtle"`
+	Document    string  `gorm:"column:document;type:longtext;not null;default:''" json:"document,omitempty"`
 	Source      string  `gorm:"column:source;size:32;not null;default:knowledge" json:"source"`
 	Status      *string `gorm:"column:status;size:1;default:1;index" json:"status,omitempty"`
 	BaseModel

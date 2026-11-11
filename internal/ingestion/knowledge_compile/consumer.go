@@ -1638,7 +1638,7 @@ func (c *Consumer) mergeStructureDataset(ctx context.Context, tenant, kb string,
 	// Config["dataset_merge"] flag (that was a stale runner.py concept). So
 	// structure/mindmap entity/relation products always enter the dataset merge.
 	for _, p := range products {
-		if p.Variant != kccommon.VariantStructure && p.Variant != kccommon.VariantMindmap {
+		if p.Variant != kccommon.VariantStructure && p.Variant != kccommon.VariantMindmap && p.Variant != kccommon.VariantOntology {
 			continue
 		}
 		// Dataset rows retain the producing compilation kind. Extraction shape
@@ -1806,6 +1806,7 @@ func appendBucket(b *StructureBucket, p kccommon.Product) {
 	// Each entity product carries mention_count ≥ 1 (structure compile.go L231);
 	// mindmap entities carry none, so they contribute a default of 0 and are
 	// simply not stamped (mention_count_int is omitted when 0).
+	foldBucketProperties(b, p.Content)
 	if mc, ok := kccommon.MetaInt(p.Meta, "mention_count"); ok && mc > 0 {
 		b.MentionCount += int(mc)
 	}
@@ -1823,6 +1824,40 @@ func appendBucket(b *StructureBucket, p kccommon.Product) {
 				b.Vector[i] += (p.Vector[i] - b.Vector[i]) / float32(b.VecCount)
 			}
 		}
+	}
+}
+
+// foldBucketProperties merges ontology ABox property values from a product
+// payload into the dataset bucket. Later non-empty values overwrite earlier ones.
+func foldBucketProperties(b *StructureBucket, content string) {
+	content = strings.TrimSpace(content)
+	if b == nil || content == "" || content[0] != '{' {
+		return
+	}
+	var m map[string]any
+	if err := json.Unmarshal([]byte(content), &m); err != nil {
+		return
+	}
+	raw, ok := m["properties"]
+	if !ok || raw == nil {
+		return
+	}
+	props, ok := raw.(map[string]any)
+	if !ok || len(props) == 0 {
+		return
+	}
+	if b.Properties == nil {
+		b.Properties = map[string]any{}
+	}
+	for k, v := range props {
+		key := strings.TrimSpace(k)
+		if key == "" || v == nil {
+			continue
+		}
+		if s, ok := v.(string); ok && strings.TrimSpace(s) == "" {
+			continue
+		}
+		b.Properties[key] = v
 	}
 }
 

@@ -117,6 +117,9 @@ type StructureBucket struct {
 	RelationType string
 	// MentionCount is the entity mention count (mention_count_int); 0 when unset.
 	MentionCount int
+	// Properties carries ontology-modeled property values folded from ABox
+	// payloads (key → value). Empty for templates that do not extract properties.
+	Properties map[string]any
 }
 
 // engineWriter persists dataset-level merged products through the injected
@@ -545,6 +548,9 @@ func (w engineWriter) WriteMergedStructure(ctx context.Context, tenant, kb strin
 				"type":        typ,
 				"description": desc,
 			}
+		}
+		if len(b.Properties) > 0 {
+			payloadMap["properties"] = b.Properties
 		}
 		payloadBytes, err := json.Marshal(payloadMap)
 		if err != nil {
@@ -1538,13 +1544,13 @@ func (w engineWriter) DeleteMergedForVariant(ctx context.Context, tenant, kb str
 			}, baseName, kb); err != nil {
 				return fmt.Errorf("delete merged (wiki): %w", err)
 			}
-		case kccommon.VariantStructure, kccommon.VariantMindmap:
+		case kccommon.VariantStructure, kccommon.VariantMindmap, kccommon.VariantOntology:
 			if !w.datasetStructureSupported() {
 				return w.errDatasetStructureUnsupported()
 			}
-			// structure/mindmap dataset rows are scope_kwd="dataset" +
+			// structure/mindmap/ontology dataset rows are scope_kwd="dataset" +
 			// type_kwd ∈ {entity,relation,kg_build_meta} with a raw
-			// compile_kwd (timeline/graph/session_graph/mindmap). type_kwd
+			// compile_kwd (timeline/graph/session_graph/mindmap/ontology). type_kwd
 			// is required: wiki merged rows ALSO carry scope_kwd="dataset" (W5), so
 			// a scope-only sweep would wrongly delete wiki merged rows too (review
 			// Major). kg_build_meta (the build marker) is deleted together with the
@@ -1554,7 +1560,7 @@ func (w engineWriter) DeleteMergedForVariant(ctx context.Context, tenant, kb str
 				"scope_kwd":           "dataset",
 				"knowledge_graph_kwd": []string{"entity", "relation", "kg_build_meta"},
 			}, baseName, kb); err != nil {
-				return fmt.Errorf("delete merged (structure/mindmap): %w", err)
+				return fmt.Errorf("delete merged (structure/mindmap/ontology): %w", err)
 			}
 		case kccommon.VariantTree:
 			// Navigation rows have available_int=0;

@@ -58,3 +58,46 @@ func TestTurtleFromModelingJSONRejectsNonModel(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestParseModelingDocumentKeepsPropertyDefs(t *testing.T) {
+	raw := `{
+	  "name": "电网",
+	  "conceptTypes": [
+	    {
+	      "id": "Substation",
+	      "name": "变电站",
+	      "description": "厂站",
+	      "properties": [
+	        {"key": "voltage", "label": "电压", "type": "enum", "required": true, "enumValues": ["220kV", "500kV"]},
+	        {"key": "station", "label": "所属站", "type": "ref", "refConceptTypeId": "Substation"}
+	      ]
+	    }
+	  ],
+	  "relationTypes": [
+	    {
+	      "id": "feeds",
+	      "name": "供电",
+	      "sourceConcepts": ["Substation"],
+	      "targetConcepts": ["Substation"],
+	      "properties": [{"key": "capacity", "type": "number"}]
+	    }
+	  ]
+	}`
+	doc, present, err := ParseModelingDocument(raw)
+	if err != nil || !present {
+		t.Fatalf("present=%v err=%v", present, err)
+	}
+	if doc.Name != "电网" || len(doc.Concepts) != 1 || len(doc.Relations) != 1 {
+		t.Fatalf("doc = %+v", doc)
+	}
+	props := doc.Concepts[0].Properties
+	if len(props) != 2 || props[0].Key != "voltage" || props[0].Type != "enum" || len(props[0].EnumValues) != 2 {
+		t.Fatalf("concept props = %+v", props)
+	}
+	if props[1].RefConceptTypeID != "Substation" {
+		t.Fatalf("ref prop = %+v", props[1])
+	}
+	if len(doc.Relations[0].Properties) != 1 || doc.Relations[0].Properties[0].Key != "capacity" {
+		t.Fatalf("relation props = %+v", doc.Relations[0].Properties)
+	}
+}

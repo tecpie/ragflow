@@ -120,7 +120,6 @@ func (c *KnowledgeCompilerComponent) Invoke(ctx context.Context, db *gorm.DB, in
 	if err != nil {
 		return nil, err
 	}
-	bindOntologyToGraphSpecs(ctx, db, tenantID, specs)
 
 	// The eino wiring does not auto-merge run-level metadata into every
 	// component's input map, so doc_id may arrive only via CanvasState.Globals
@@ -158,13 +157,6 @@ func (c *KnowledgeCompilerComponent) Invoke(ctx context.Context, db *gorm.DB, in
 		specParam.TemplateID = spec.ID
 		specParam.TemplateConfig = spec.Config
 		overlayTemplateConfig(&specParam, spec.Config)
-
-		// Ontology is config-only: no LLM compile, no products. TBox induction
-		// runs after structure merge when this template is a sibling in the group.
-		if variant == common.VariantOntology {
-			(progress.Window{Span: 0.99}).Sub(specIndex, len(specs)).Report(ctx, 1)
-			continue
-		}
 
 		deps, err := common.ResolveDeps(ctx, tenantID, specParam.LLMID, specParam.EmbeddingModel)
 		if err != nil {
@@ -207,6 +199,14 @@ func (c *KnowledgeCompilerComponent) Invoke(ctx context.Context, db *gorm.DB, in
 
 		var o common.Outputs
 		switch variant {
+		case common.VariantOntology:
+			extractCfg, prepErr := prepareOntologyExtractionConfig(ctx, db, tenantID, spec.Config)
+			if prepErr != nil {
+				return nil, prepErr
+			}
+			specParam.TemplateConfig = extractCfg
+			specIn.VariantSpecific["parser_config"] = extractCfg
+			o, err = structure.Run(ctx, deps, specParam, specIn)
 		case common.VariantStructure:
 			o, err = structure.Run(ctx, deps, specParam, specIn)
 		case common.VariantWiki:
@@ -421,7 +421,7 @@ func productsToChunkDocs(products []common.Product, language string) ([]schema.C
 		// tokenizing p.Content here would feed JSON keys/brackets and opaque
 		// chunk ids into the inverted index.
 		indexText := p.Content
-		if p.Variant == common.VariantStructure {
+		if p.Variant == common.VariantStructure || p.Variant == common.VariantOntology {
 			if d := structure.IndexText(p.Content); strings.TrimSpace(d) != "" {
 				indexText = d
 			}
@@ -498,7 +498,7 @@ func applyVariantColumns(doc *schema.ChunkDoc, p common.Product, tok tokenizer.T
 	kind := common.MetaString(p.Meta, "kind")
 
 	switch p.Variant {
-	case common.VariantStructure:
+	case common.VariantStructure, common.VariantOntology:
 		// type_kwd: "entity" | "relation" | "graph".
 		return applyStructureGraphColumns(doc, p, kind)
 

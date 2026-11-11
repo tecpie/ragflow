@@ -35,23 +35,29 @@ func TestProjectInstancesKeepsOntologyTypes(t *testing.T) {
 		},
 	}
 	entities := projectEntities(pg, "kb1", []map[string]interface{}{
-		{"type_kwd": "entity", "content_with_weight": `{"name":"城南变","type":"变电站","description":"主变"}`},
+		{"type_kwd": "entity", "content_with_weight": `{"name":"城南变","type":"变电站","description":"主变","properties":{"voltage":"500kV"}}`},
 		{"type_kwd": "entity", "content_with_weight": `{"name":"Alice","type":"person"}`},
 		{"type_kwd": "entity", "content_with_weight": `{"name":"城南变","type":"变电站"}`},
 	})
 	if len(entities) != 1 || entities[0].Name != "城南变" || entities[0].TypeID != "Substation" {
 		t.Fatalf("entities = %+v", entities)
 	}
+	if entities[0].Properties["voltage"] != "500kV" {
+		t.Fatalf("entity properties = %+v", entities[0].Properties)
+	}
 	names := map[string]bool{
 		strings.ToLower(entities[0].Name): true,
 		"江北线":                             true,
 	}
 	relations := projectRelations(pg, "kb1", names, []map[string]interface{}{
-		{"type_kwd": "relation", "from_entity_kwd": "城南变", "to_entity_kwd": "江北线", "content_with_weight": `{"type":"供电"}`},
+		{"type_kwd": "relation", "from_entity_kwd": "城南变", "to_entity_kwd": "江北线", "content_with_weight": `{"type":"供电","properties":{"capacity":120}}`},
 		{"type_kwd": "relation", "from_entity_kwd": "城南变", "to_entity_kwd": "江北线", "content_with_weight": `{"type":"子类于"}`},
 		{"type_kwd": "relation", "from_entity_kwd": "城南变", "to_entity_kwd": "不存在", "content_with_weight": `{"type":"供电"}`},
 	})
 	if len(relations) != 1 || relations[0].TypeID != "feeds" {
 		t.Fatalf("relations = %+v", relations)
+	}
+	if relations[0].Properties["capacity"] != float64(120) {
+		t.Fatalf("relation properties = %+v", relations[0].Properties)
 	}
 }

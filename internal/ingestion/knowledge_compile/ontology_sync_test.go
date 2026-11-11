@@ -118,6 +118,30 @@ func TestGroupBucketsByOntologyTarget_RequiresOntologySibling(t *testing.T) {
 	}
 }
 
+func TestGroupBucketsByOntologyTarget_SkipOntologyOperatorProducts(t *testing.T) {
+	db := setupOntologySyncDB(t)
+	status := string(entity.StatusValid)
+	tenant := "tenant-1"
+	groupID := "group-onto-only"
+	ontoID := "tpl-ontology-only"
+
+	if err := db.Create(&entity.CompilationTemplate{
+		ID: ontoID, TenantID: &tenant, GroupID: &groupID, Name: "Ontology", Kind: "ontology",
+		Config: entity.JSONMap{"kind": "ontology", "ontology_name": "SHOULD_NOT_INDUCE"},
+		Status: &status,
+	}).Error; err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	buckets := []StructureBucket{
+		{Name: "城南变", Type: "变电站", TemplateID: ontoID, TemplateKind: "ontology"},
+	}
+	targets := groupBucketsByOntologyTarget(t.Context(), tenant, buckets)
+	if len(targets) != 0 {
+		t.Fatalf("targets=%d, want 0 for ontology-operator products (got %+v)", len(targets), targets)
+	}
+}
+
 func TestGroupBucketsByOntologyTarget_SkipWithoutOntologyOperator(t *testing.T) {
 	db := setupOntologySyncDB(t)
 	status := string(entity.StatusValid)
