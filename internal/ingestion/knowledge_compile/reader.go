@@ -359,7 +359,7 @@ func productFromChunkMap(c map[string]interface{}, tenant string, expect kccommo
 
 	meta := map[string]any{}
 	var payload map[string]any
-	if expect == kccommon.VariantStructure || expect == kccommon.VariantMindmap {
+	if expect == kccommon.VariantStructure || expect == kccommon.VariantMindmap || expect == kccommon.VariantOntology {
 		if err := json.Unmarshal([]byte(content), &payload); err != nil {
 			if strings.HasPrefix(strings.TrimSpace(content), "{") {
 				common.Warn("knowledge_compile: failed to decode structure payload",

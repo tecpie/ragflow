@@ -90,7 +90,7 @@ func TestMisnamedOfficeContentExtraction(t *testing.T) {
 			if !strings.Contains(content, "Corrected document content") || content == string(data) {
 				t.Fatal("file extraction did not use the corrected parser")
 			}
-			content, err := parseAgentUploadContent(t.Context(), name, data, "")
+			content, err := parseAgentUploadContent(t.Context(), name, data, "", "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -113,7 +113,7 @@ func TestOfficeContentExtractionWithoutMediaCache(t *testing.T) {
 
 	for name, parse := range map[string]func() (string, error){
 		"file":  func() (string, error) { return parseFileContent(t.Context(), "image.docx", data), nil },
-		"agent": func() (string, error) { return parseAgentUploadContent(t.Context(), "image.docx", data, "") },
+		"agent": func() (string, error) { return parseAgentUploadContent(t.Context(), "image.docx", data, "", "") },
 	} {
 		t.Run(name, func(t *testing.T) {
 			got, err := parse()

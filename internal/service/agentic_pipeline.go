@@ -204,7 +204,8 @@ func (s *ChatPipelineService) agenticRag(
 		if info := chain[0].Info(); info != nil && entity.ModelTypeFromStrings(info.ModelTypes).Has(entity.ModelTypeImage2Text) {
 			modelType = "image2text"
 		}
-		agentMessages := s.convertMessagesToEino(runCtx, modelType, messages)
+		runCtx = permission.WithTenantID(runCtx, chat.TenantID)
+		agentMessages := s.convertMessagesToEino(runCtx, modelType, messages, chatLayoutRecognize(chat))
 		// Image-bearing turns cannot fail over to a text-only model.
 		for _, msg := range agentMessages {
 			if len(msg.UserInputMultiContent) > 0 {
@@ -539,14 +540,14 @@ func agenticFailoverModelIDs(chat *entity.Chat) []string {
 
 // convertMessagesToEino converts pre-filtered user/assistant messages into
 // eino schema messages, resolving uploaded attachments throughout the history.
-func (s *ChatPipelineService) convertMessagesToEino(ctx context.Context, modelType string, messages []map[string]interface{}) []*schema.Message {
+func (s *ChatPipelineService) convertMessagesToEino(ctx context.Context, modelType string, messages []map[string]interface{}, layoutRecognize string) []*schema.Message {
 	out := make([]*schema.Message, 0, len(messages))
 	for _, m := range messages {
 		role, _ := m["role"].(string)
 		content, _ := m["content"].(string)
 		switch role {
 		case "user":
-			text, images := s.splitChatAttachments(ctx, m["files"])
+			text, images := s.splitChatAttachments(ctx, m["files"], layoutRecognize)
 			if text != "" {
 				content += "\n\n" + text
 			}

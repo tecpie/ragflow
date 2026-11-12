@@ -36,6 +36,7 @@ export interface PromptConfig {
   empty_response: string;
   parameters: Parameter[];
   prologue: string;
+  layout_recognize?: string;
   system: string;
   tts?: boolean;
   quote: boolean;

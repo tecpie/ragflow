@@ -98,12 +98,16 @@ func Run(ctx context.Context, deps common.Deps, param common.Param, inputs commo
 	compileType := InferType(parserConfig)
 	docID := common.FirstNonEmpty(inputs.DocID, deps.DatasetID, "unknown")
 	llmID := common.FirstNonEmpty(param.LLMID, inputs.LLMID)
+	variant := common.VariantStructure
+	if param.Variant != "" {
+		variant = param.Variant
+	}
 	cfg := CompileConfig{
 		LLMID:        llmID,
 		Type:         compileType,
 		TenantID:     deps.TenantID,
 		DocID:        docID,
-		Variant:      common.VariantStructure,
+		Variant:      variant,
 		Lang:         param.Language,
 		ParserConfig: parserConfig,
 		TemplateID:   param.TemplateID,

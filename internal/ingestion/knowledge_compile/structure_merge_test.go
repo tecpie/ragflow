@@ -327,6 +327,62 @@ func TestDatasetLevelStructureID_StableAndCaseInsensitive(t *testing.T) {
 // stamp their inferred compile kind verbatim (hypergraph/list/set/timeline/
 // page_index/...), and KwdToVariant must reverse-map each to VariantStructure so
 // the reader does NOT drop them before the dataset-level merge / nav dispatch.
+func TestKwdToVariant_MapsOntology(t *testing.T) {
+	v, err := KwdToVariant("ontology")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v != kccommon.VariantOntology {
+		t.Fatalf("KwdToVariant(ontology) = %q", v)
+	}
+	if got := compileKwdForVariant(kccommon.VariantOntology); got != "ontology" {
+		t.Fatalf("compileKwdForVariant(ontology) = %q", got)
+	}
+}
+
+func TestMergeStructureDatasetIncludesOntologyProducts(t *testing.T) {
+	w := &fakeWriter{}
+	c := &Consumer{writer: w}
+	err := c.mergeStructureDataset(context.Background(), "t1", "kb1", []kccommon.Product{
+		{
+			Variant: kccommon.VariantOntology, DocID: "d1", Kind: "ontology", TemplateID: "tpl-onto",
+			Content: `{"name":"城南变","type":"变电站","description":"主变","properties":{"voltage":"500kV"}}`,
+			Meta:    map[string]any{"kind": "entity", "name": "城南变", "entity_type": "变电站"},
+		},
+		{
+			Variant: kccommon.VariantOntology, DocID: "d1", Kind: "ontology", TemplateID: "tpl-onto",
+			Content: `{"name":"江北线","type":"线路"}`,
+			Meta:    map[string]any{"kind": "entity", "name": "江北线", "entity_type": "线路"},
+		},
+		{
+			Variant: kccommon.VariantOntology, DocID: "d1", Kind: "ontology", TemplateID: "tpl-onto",
+			Content: `{"from":"城南变","to":"江北线","type":"供电","properties":{"capacity":120}}`,
+			Meta:    map[string]any{"kind": "relation", "from": "城南变", "to": "江北线", "relation_type": "供电"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(w.buckets) != 3 {
+		t.Fatalf("buckets = %d, want 3", len(w.buckets))
+	}
+	var entity, relation *StructureBucket
+	for i := range w.buckets {
+		b := &w.buckets[i]
+		if b.FromEntity != "" {
+			relation = b
+		} else if b.Name == "城南变" {
+			entity = b
+		}
+	}
+	if entity == nil || entity.CompileKwd != "ontology" || entity.Properties["voltage"] != "500kV" {
+		t.Fatalf("entity bucket = %+v", entity)
+	}
+	if relation == nil || relation.CompileKwd != "ontology" || relation.Properties["capacity"] != float64(120) {
+		t.Fatalf("relation bucket = %+v", relation)
+	}
+}
+
 func TestKwdToVariant_MapsStructureSubKinds(t *testing.T) {
 	for _, kwd := range []string{
 		"hypergraph", "list", "set", "timeline", "page_index",

@@ -38,7 +38,8 @@ func NewOntologyService() *OntologyService {
 }
 
 // CreateOntologyRequest is the create payload.
-// Document is workbench schema JSON used only to build Turtle. It is not stored.
+// Document is workbench schema JSON; when present it generates Turtle and is stored
+// for property-aware ontology-operator extraction.
 type CreateOntologyRequest struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
@@ -66,6 +67,7 @@ type OntologyItem struct {
 	Description   *string `json:"description,omitempty"`
 	BaseIRI       string  `json:"base_iri"`
 	Turtle        string  `json:"turtle,omitempty"`
+	Document      string  `json:"document,omitempty"`
 	Source        string  `json:"source"`
 	ConceptCount  int     `json:"concept_count"`
 	PropertyCount int     `json:"property_count"`
@@ -89,6 +91,13 @@ func normalizeOntologySource(source string, hasDocument bool) (string, error) {
 }
 
 func ontologyCounts(row *entity.Ontology) (int, int, int, error) {
+	if modeling, ok, err := ontology.ParseModelingDocument(row.Document); err == nil && ok {
+		props := 0
+		for _, c := range modeling.Concepts {
+			props += len(c.Properties)
+		}
+		return len(modeling.Concepts), props, len(modeling.Relations), nil
+	}
 	desc := ""
 	if row.Description != nil {
 		desc = *row.Description
@@ -129,6 +138,7 @@ func toOntologyItem(row *entity.Ontology, includeBody bool) (*OntologyItem, erro
 	}
 	if includeBody {
 		item.Turtle = row.Turtle
+		item.Document = row.Document
 	}
 	return item, nil
 }
@@ -179,6 +189,7 @@ func (s *OntologyService) Create(ctx context.Context, tenantID string, req Creat
 		Description: descPtr,
 		BaseIRI:     baseIRI,
 		Turtle:      turtleText,
+		Document:    document,
 		Source:      source,
 		Status:      &status,
 	}
@@ -259,6 +270,7 @@ func (s *OntologyService) Update(ctx context.Context, tenantID, id string, req U
 			return nil, err
 		}
 		row.Turtle = generated
+		row.Document = modelingJSON
 	} else if req.Turtle != nil {
 		row.Turtle = strings.TrimSpace(*req.Turtle)
 	}

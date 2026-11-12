@@ -358,8 +358,8 @@ func TestHypergraphPromptsSetUniquenessAndNoRelations(t *testing.T) {
 	if got := InferType(cfg); got != TypeSet {
 		t.Errorf("InferType = %q, want set", got)
 	}
-	// "graph" / "knowledge_graph" aliases resolve to hypergraph.
-	for _, alias := range []string{"graph", "knowledge_graph"} {
+	// "graph" / "knowledge_graph" / "ontology" aliases resolve to hypergraph.
+	for _, alias := range []string{"graph", "knowledge_graph", "ontology"} {
 		if got := InferType(map[string]any{"kind": alias}); got != TypeHypergraph {
 			t.Errorf("InferType(kind=%q) = %q, want hypergraph", alias, got)
 		}

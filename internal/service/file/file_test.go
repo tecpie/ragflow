@@ -164,7 +164,7 @@ func TestFileService_GetFileContents_NotAccessible(t *testing.T) {
 		"name":       "secret.txt",
 		"mime_type":  "text/plain",
 		"created_by": "other-user",
-	}})
+	}}, "")
 	if err == nil {
 		t.Fatal("expected authorization error")
 	}
@@ -193,7 +193,7 @@ func TestFileService_GetFileContents_Accessible(t *testing.T) {
 		"name":       "doc.txt",
 		"mime_type":  "text/plain",
 		"created_by": "user-1",
-	}})
+	}}, "")
 	if err != nil {
 		t.Fatalf("GetFileContents failed: %v", err)
 	}
@@ -226,7 +226,7 @@ func TestFileService_GetFileContents_ImageAttachmentAsDataURI(t *testing.T) {
 		"name":       "25336bcdd3126d32a522db5e9c9fcaf3.jpeg",
 		"mime_type":  "image/jpeg",
 		"created_by": "user-1",
-	}})
+	}}, "")
 	if err != nil {
 		t.Fatalf("GetFileContents failed: %v", err)
 	}
@@ -265,7 +265,7 @@ func TestFileService_GetFileContents_VideoAttachmentReportsNotice(t *testing.T) 
 	texts, images, err := svc.GetFileContents(ctx, []map[string]interface{}{
 		{"id": "vid-1", "name": "clip.mp4", "mime_type": "video/mp4", "created_by": "user-1"},
 		{"id": "img-1", "name": "photo.jpeg", "mime_type": "image/jpeg", "created_by": "user-1"},
-	})
+	}, "")
 	if err != nil {
 		t.Fatalf("GetFileContents failed: %v", err)
 	}
@@ -294,7 +294,7 @@ func TestFileService_ParseAgentUploads_TextAndImageInRequestOrder(t *testing.T) 
 	contents, err := testFileService().ParseAgentUploads(ctx, []map[string]interface{}{
 		{"id": "text-id", "name": "notes.txt", "mime_type": "text/plain", "created_by": "user-1"},
 		{"id": "image-id", "name": "photo.bin", "mime_type": "image/png", "created_by": "user-1"},
-	}, "Plain Text")
+	}, "Plain Text", "")
 	if err != nil {
 		t.Fatalf("ParseAgentUploads: %v", err)
 	}
@@ -322,7 +322,7 @@ func TestFileService_ParseAgentUploads_RejectsVideoWithImageMime(t *testing.T) {
 
 	_, err := testFileService().ParseAgentUploads(ctx, []map[string]interface{}{
 		{"id": "video-id", "name": "clip.mp4", "mime_type": "image/png", "created_by": "user-1"},
-	}, "")
+	}, "", "")
 	if err == nil || !strings.Contains(err.Error(), "video content is not supported") {
 		t.Fatalf("error = %v, want video rejection even with an image MIME type", err)
 	}
@@ -338,7 +338,7 @@ func TestFileService_ParseAgentUploads_RejectsForeignOwner(t *testing.T) {
 
 	_, err := testFileService().ParseAgentUploads(ctx, []map[string]interface{}{
 		{"id": "file-id", "name": "secret.txt", "mime_type": "text/plain", "created_by": "user-2"},
-	}, "")
+	}, "", "")
 	if err == nil || !strings.Contains(err.Error(), "created_by does not match") {
 		t.Fatalf("error = %v, want created_by mismatch", err)
 	}
@@ -354,7 +354,7 @@ func TestFileService_ParseAgentUploads_MissingObjectFails(t *testing.T) {
 
 	_, err := testFileService().ParseAgentUploads(ctx, []map[string]interface{}{
 		{"id": "missing", "name": "missing.txt", "mime_type": "text/plain", "created_by": "user-1"},
-	}, "")
+	}, "", "")
 	if err == nil || !strings.Contains(err.Error(), "read upload") {
 		t.Fatalf("error = %v, want storage read failure", err)
 	}

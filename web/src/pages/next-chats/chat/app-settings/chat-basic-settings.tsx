@@ -2,6 +2,7 @@
 
 import { AvatarNameDescription } from '@/components/avatar-name-description';
 import { KnowledgeBaseFormField } from '@/components/knowledge-base-item';
+import { LayoutRecognizeFormField } from '@/components/layout-recognize-form-field';
 import { LlmSettingFieldItems } from '@/components/llm-setting-items/next';
 import {
   FormControl,
@@ -78,6 +79,12 @@ export default function ChatBasicSetting({
       <KnowledgeBaseFormField
         name={prefixName(prefix, 'dataset_ids')}
       ></KnowledgeBaseFormField>
+      <LayoutRecognizeFormField
+        name={prefixName(prefix, 'prompt_config.layout_recognize')}
+        horizontal={false}
+        showMineruOptions={false}
+        showPaddleocrOptions={false}
+      />
     </div>
   );
 }

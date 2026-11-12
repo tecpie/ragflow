@@ -458,6 +458,7 @@ func (h *AgentHandler) RunAgent(c *gin.Context) {
 		return
 	}
 
+	clearResponseWriteDeadline(c)
 	ctx, cancel := context.WithCancel(c.Request.Context())
 	defer cancel()
 	events, err := h.chatRunner.RunAgent(ctx, canvasID, sessionID, version, userInput, nil)
@@ -1262,6 +1263,10 @@ func (h *AgentHandler) AgentChatCompletions(c *gin.Context) {
 	// req.Files is already normalized to the 1D file list by the
 	// agentFiles unmarshaler. A nil/empty list reaches RunAgent as-is so
 	// its `len(files) > 0` guard sees a file-less run.
+	// Review/CoVe agents routinely run past http.Server.WriteTimeout (180s);
+	// clear it for both SSE and non-stream JSON so the connection is not cut
+	// mid-run (mirrors chat_session / openai_chat).
+	clearResponseWriteDeadline(c)
 	ctx, cancel := context.WithCancel(c.Request.Context())
 	defer cancel()
 	events, err := h.chatRunner.RunAgent(ctx, req.AgentID, req.SessionID, "", userInput, req.Files)
@@ -1290,29 +1295,49 @@ func (h *AgentHandler) AgentChatCompletions(c *gin.Context) {
 		c.Writer.Header().Set("Connection", "keep-alive")
 		emitted := false
 		doneSent := false
-		for ev := range events {
-			h.persistAgentToolInvocations(c.Request.Context(), req.AgentID, ev)
-			if ev.Type == "error" {
-				ev = convertAgentRunErrorToMessage(ev)
-			}
-			emitted = true
-			if ev.Type == "done" {
-				doneSent = true
-			}
-			common.Debug("agent chat completions: streaming event",
-				zap.String("agent_id", req.AgentID),
-				zap.String("session_id", req.SessionID),
-				zap.String("event_type", ev.Type),
-				zap.String("message_id", ev.MessageID),
-			)
-			if err := service.WriteChatbotRunEvent(c.Writer, ev); err != nil {
-				common.Debug("agent chat completions: client disconnected",
-					zap.String("agent_id", req.AgentID),
-					zap.Error(err),
-				)
+		// File parsing and model calls can sit silent for minutes. A comment
+		// keeps proxies from treating the stream as idle and closing it.
+		if err := writeSSEComment(c.Writer); err != nil {
+			return
+		}
+		keepalive := time.NewTicker(15 * time.Second)
+		defer keepalive.Stop()
+		for {
+			select {
+			case <-ctx.Done():
 				return
+			case <-keepalive.C:
+				if err := writeSSEComment(c.Writer); err != nil {
+					return
+				}
+			case ev, ok := <-events:
+				if !ok {
+					goto streamClosed
+				}
+				h.persistAgentToolInvocations(c.Request.Context(), req.AgentID, ev)
+				if ev.Type == "error" {
+					ev = convertAgentRunErrorToMessage(ev)
+				}
+				emitted = true
+				if ev.Type == "done" {
+					doneSent = true
+				}
+				common.Debug("agent chat completions: streaming event",
+					zap.String("agent_id", req.AgentID),
+					zap.String("session_id", req.SessionID),
+					zap.String("event_type", ev.Type),
+					zap.String("message_id", ev.MessageID),
+				)
+				if err := service.WriteChatbotRunEvent(c.Writer, ev); err != nil {
+					common.Debug("agent chat completions: client disconnected",
+						zap.String("agent_id", req.AgentID),
+						zap.Error(err),
+					)
+					return
+				}
 			}
 		}
+	streamClosed:
 		if !emitted {
 			// Canvas produced no events (e.g. empty query). Echo the
 			// session_id so the client can resume the conversation

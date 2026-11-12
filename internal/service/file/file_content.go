@@ -8,6 +8,7 @@ import (
 	"ragflow/internal/common"
 	"ragflow/internal/dao"
 	"ragflow/internal/entity"
+	"ragflow/internal/ingestion/component"
 	"ragflow/internal/parser/parser"
 	"ragflow/internal/parser/tableutil"
 	"ragflow/internal/permission"
@@ -116,7 +117,7 @@ func (s *FileService) DownloadAgentFile(ctx context.Context, location string) ([
 // Blobs are stored directly in "{created_by}-downloads/{id}" in object
 // storage WITHOUT a corresponding File entity row in the database.
 // Mirrors Python's FileService.get_files → get_blob(user_id, file_id).
-func (s *FileService) GetFileContents(ctx context.Context, fileDicts []map[string]interface{}) (texts []string, images []string, err error) {
+func (s *FileService) GetFileContents(ctx context.Context, fileDicts []map[string]interface{}, layoutRecognize string) (texts []string, images []string, err error) {
 	uid := permission.UserIDFromContext(ctx)
 	if uid == "" {
 		return nil, nil, permission.ErrUnauthenticated
@@ -162,6 +163,12 @@ func (s *FileService) GetFileContents(ctx context.Context, fileDicts []map[strin
 				mediaType = utility.GetContentType(ext, string(ft))
 			}
 			images = append(images, "data:"+mediaType+";base64,"+base64.StdEncoding.EncodeToString(data))
+		} else if utility.GetFileType(name) == utility.FileTypePDF {
+			content, err := parseAgentUploadContent(ctx, name, data, layoutRecognize, permission.TenantIDFromContext(ctx))
+			if err != nil {
+				return nil, nil, err
+			}
+			texts = append(texts, content)
 		} else {
 			content := parseFileContent(ctx, name, data)
 			texts = append(texts, fmt.Sprintf("\n -----------------\nFile: %s\nContent as following: \n%s", name, content))
@@ -172,7 +179,7 @@ func (s *FileService) GetFileContents(ctx context.Context, fileDicts []map[strin
 
 // ParseAgentUploads resolves descriptors returned by upload_info from the
 // caller's downloads bucket and converts them to sys.files values.
-func (s *FileService) ParseAgentUploads(ctx context.Context, fileDicts []map[string]interface{}, layoutRecognize string) ([]string, error) {
+func (s *FileService) ParseAgentUploads(ctx context.Context, fileDicts []map[string]interface{}, layoutRecognize, tenantID string) ([]string, error) {
 	userID := permission.UserIDFromContext(ctx)
 	if userID == "" {
 		return nil, permission.ErrUnauthenticated
@@ -217,7 +224,7 @@ func (s *FileService) ParseAgentUploads(ctx context.Context, fileDicts []map[str
 			continue
 		}
 
-		content, err := parseAgentUploadContent(ctx, name, data, layoutRecognize)
+		content, err := parseAgentUploadContent(ctx, name, data, layoutRecognize, tenantID)
 		if err != nil {
 			return nil, fmt.Errorf("file %q: parse upload: %w", name, err)
 		}
@@ -226,9 +233,25 @@ func (s *FileService) ParseAgentUploads(ctx context.Context, fileDicts []map[str
 	return contents, nil
 }
 
-func parseAgentUploadContent(ctx context.Context, filename string, data []byte, layoutRecognize string) (string, error) {
+func parseAgentUploadContent(ctx context.Context, filename string, data []byte, layoutRecognize, tenantID string) (string, error) {
 	content := string(data)
 	fileType := utility.GetFileType(filename)
+	if fileType == utility.FileTypePDF {
+		parsed, handled, err := component.DispatchAgentPDF(ctx, dao.DB, tenantID, filename, data, layoutRecognize)
+		if err != nil {
+			return "", err
+		}
+		if handled {
+			if parsed.Err != nil {
+				return "", parsed.Err
+			}
+			text, err := parseResultText(parsed)
+			if err != nil {
+				return "", err
+			}
+			return agentUploadText(filename, text), nil
+		}
+	}
 	if fileType != utility.FileTypeOTHER {
 		fp, actual, err := parser.GetTextOnlyParser(fileType, data)
 		if err != nil {
@@ -237,8 +260,10 @@ func parseAgentUploadContent(ctx context.Context, filename string, data []byte, 
 		if actual != fileType {
 			common.Warn(fmt.Sprintf("file %q: requested format %s; detected %s; continuing with the %s parser", filename, fileType, actual, actual))
 		}
-		if configurable, ok := fp.(interface{ ConfigureFromSetup(map[string]any) }); ok {
-			configurable.ConfigureFromSetup(map[string]any{"layout_recognize": layoutRecognize})
+		if fileType == utility.FileTypePDF {
+			if configurable, ok := fp.(interface{ ConfigureFromSetup(map[string]any) }); ok {
+				configurable.ConfigureFromSetup(map[string]any(component.AgentPDFSetup(layoutRecognize)))
+			}
 		}
 		res := fp.ParseWithResult(ctx, filename, data)
 		if res.Err != nil {
@@ -250,7 +275,11 @@ func parseAgentUploadContent(ctx context.Context, filename string, data []byte, 
 		}
 		content = parsed
 	}
-	return fmt.Sprintf("\n -----------------\nFile: %s\nContent as following: \n%s", filename, content), nil
+	return agentUploadText(filename, content), nil
+}
+
+func agentUploadText(filename, content string) string {
+	return fmt.Sprintf("\n -----------------\nFile: %s\nContent as following: \n%s", filename, content)
 }
 
 // parseResultText converts a parser result into the readable text expected by

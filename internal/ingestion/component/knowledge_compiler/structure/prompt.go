@@ -25,10 +25,12 @@ const (
 )
 
 // typeAliases mirrors Python's _STRUCT_TYPE_ALIASES: "graph" and
-// "knowledge_graph" both mean the hypergraph compile.
+// "knowledge_graph" both mean the hypergraph compile. "ontology" uses the same
+// two-stage entity/relation extraction against a modeled TBox.
 var typeAliases = map[string]Type{
 	"graph":           TypeHypergraph,
 	"knowledge_graph": TypeHypergraph,
+	"ontology":        TypeHypergraph,
 }
 
 // normalizeKind mirrors _struct_normalize_kind.

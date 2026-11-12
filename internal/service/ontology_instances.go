@@ -36,20 +36,22 @@ const (
 
 // OntologyEntityInstance is one compiled-graph entity whose type is a class of the ontology.
 type OntologyEntityInstance struct {
-	Name        string `json:"name"`
-	Type        string `json:"type"`
-	TypeID      string `json:"type_id"`
-	Description string `json:"description,omitempty"`
-	DatasetID   string `json:"dataset_id"`
+	Name        string         `json:"name"`
+	Type        string         `json:"type"`
+	TypeID      string         `json:"type_id"`
+	Description string         `json:"description,omitempty"`
+	Properties  map[string]any `json:"properties,omitempty"`
+	DatasetID   string         `json:"dataset_id"`
 }
 
 // OntologyRelationInstance is one compiled-graph relation whose type is a relation of the ontology.
 type OntologyRelationInstance struct {
-	From      string `json:"from"`
-	To        string `json:"to"`
-	Type      string `json:"type"`
-	TypeID    string `json:"type_id"`
-	DatasetID string `json:"dataset_id"`
+	From       string         `json:"from"`
+	To         string         `json:"to"`
+	Type       string         `json:"type"`
+	TypeID     string         `json:"type_id"`
+	Properties map[string]any `json:"properties,omitempty"`
+	DatasetID  string         `json:"dataset_id"`
 }
 
 // OntologyInstances is the ABox extracted for one ontology.
@@ -244,6 +246,7 @@ func projectEntities(pg ontology.PlaygroundOntology, datasetID string, rows []ma
 			Type:        label,
 			TypeID:      typeID,
 			Description: instanceField(payload["description"]),
+			Properties:  instanceProperties(payload["properties"]),
 			DatasetID:   datasetID,
 		})
 	}
@@ -276,12 +279,32 @@ func projectRelations(pg ontology.PlaygroundOntology, datasetID string, names ma
 		}
 		seen[key] = true
 		out = append(out, OntologyRelationInstance{
-			From:      from,
-			To:        to,
-			Type:      label,
-			TypeID:    typeID,
-			DatasetID: datasetID,
+			From:       from,
+			To:         to,
+			Type:       label,
+			TypeID:     typeID,
+			Properties: instanceProperties(payload["properties"]),
+			DatasetID:  datasetID,
 		})
+	}
+	return out
+}
+
+func instanceProperties(v any) map[string]any {
+	m, ok := v.(map[string]any)
+	if !ok || len(m) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(m))
+	for k, val := range m {
+		key := strings.TrimSpace(k)
+		if key == "" || val == nil {
+			continue
+		}
+		out[key] = val
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }

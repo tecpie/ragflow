@@ -26,6 +26,7 @@ import (
 	"ragflow/internal/common"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -266,10 +267,17 @@ func (h *ChatSessionHandler) ChatCompletions(c *gin.Context) {
 			)
 		}()
 
+		if err := writeSSEComment(c.Writer); err != nil {
+			return
+		}
+		keepalive := time.NewTicker(15 * time.Second)
+		defer keepalive.Stop()
 		c.Stream(func(w io.Writer) bool {
 			select {
 			case <-ctx.Done():
 				return false
+			case <-keepalive.C:
+				return writeSSEComment(c.Writer) == nil
 			case data, ok := <-streamChan:
 				if !ok {
 					return false
