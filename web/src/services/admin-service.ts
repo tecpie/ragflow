@@ -145,7 +145,6 @@ const {
   adminRevokeRolePermissions,
 
   adminGetUserPermissions,
-  adminUpdateUserRole,
 
   adminListResources,
 
@@ -261,10 +260,6 @@ export const revokeRolePermissions = (
     data: { revoke_permissions: permissions },
   });
 
-export const updateUserRole = (username: string, role: string) =>
-  request.put<ResponseData<never>>(adminUpdateUserRole(username), {
-    role_name: role,
-  });
 export const getUserPermissions = (username: string) =>
   request.get<ResponseData<AdminService.UserDetailWithPermission>>(
     adminGetUserPermissions(username),

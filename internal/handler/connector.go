@@ -447,7 +447,7 @@ func (h *ConnectorHandler) RebuildConnector(c *gin.Context) {
 		KbID string `json:"kb_id" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		common.RespondError(c, common.CodeDataError, "required argument is missing: kb_id")
+		common.RespondError(c, common.CodeDataError, "required argument is missing: kb_id: "+err.Error())
 		return
 	}
 
@@ -478,7 +478,7 @@ func (h *ConnectorHandler) ResumeFailedSync(c *gin.Context) {
 
 	var req service.ResumeFailedSyncRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		common.RespondError(c, common.CodeDataError, "required argument is missing: kb_id or task_id")
+		common.RespondError(c, common.CodeDataError, "required argument is missing: kb_id or task_id: "+err.Error())
 		return
 	}
 

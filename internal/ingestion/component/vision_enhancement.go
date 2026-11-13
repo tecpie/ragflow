@@ -15,9 +15,8 @@
 //
 
 // Package component — vision media enhancement: enriches parsed JSON items
-// with vision-model descriptions of embedded images/tables.
-// Mirrors Python's enhance_media_sections_with_vision
-// (rag/flow/parser/utils.py:162, called at parser.py:772/978/1115).
+// with vision-model descriptions of embedded images/tables so downstream
+// retrieval can use image and table content as text.
 
 package component
 
@@ -35,6 +34,7 @@ import (
 
 	"go.uber.org/zap"
 
+	agentruntime "ragflow/internal/agent/runtime"
 	"ragflow/internal/common"
 	pdflayout "ragflow/internal/deepdoc/parser/pdf/layout"
 	"ragflow/internal/entity"
@@ -58,8 +58,8 @@ var (
 const (
 	visionEnhancementConcurrency int = 10
 	// visionChatTimeout bounds a single VLM call so a hung endpoint cannot
-	// occupy one of the concurrency slots indefinitely. Python wraps the
-	// per-image call in @timeout(30, 3) (deepdoc/parser/figure_parser.py).
+	// occupy one of the concurrency slots indefinitely. It wraps each
+	// per-image call with a 30-second timeout and 3 retries.
 	visionChatTimeout     = 30 * time.Second
 	visionMediaItemBudget = 10 * time.Second
 )
@@ -187,10 +187,8 @@ type visionImage struct {
 // Table crops use the table-seal prompt; approval/signature labels use a
 // rightward-extended crop plus the signature prompt (replace label-only OCR).
 // PDF OCR remains in the PDF parser; non-PDF image text comes from this
-// optional enhancement. Media materialization failures abort the enhancement.
-// Mirrors Python enhance_media_sections_with_vision plus
-// enhance_signature_sections_with_vision / _enhance_pdf_tables_with_vision
-// (deepdoc/parser/figure_parser.py).
+// optional enhancement. It is best-effort per item: a failed image is counted
+// in a warning and the rest of the parse result is still returned.
 func maybeDispatchVisionEnhancement(
 	ctx context.Context,
 	db *gorm.DB,
@@ -210,10 +208,11 @@ func maybeDispatchVisionEnhancement(
 
 	tenantID := getStringOr(inputs, "tenant_id", "")
 	family := resolveParserFamily(fileType)
-	// Captions follow the knowledge base language, which also drives
-	// tokenization. The family setup's lang is an OCR engine parameter
-	// (pdf_vision_dispatch.go), not an input here - see issue #20727.
-	language := resolveVisionLanguage(inputs)
+	// An explicit enhancement language wins; otherwise captions follow the
+	// knowledge base language, which also drives tokenization. The family
+	// setup's lang is an OCR engine parameter (pdf_vision_dispatch.go), not an
+	// input here — see issue #20727.
+	language := resolveVisionLanguage(inputs, vision.language)
 	tableVisionOn := !vision.skipTableEnhance
 	signatureVisionOn := !vision.skipSignatureEnhance
 
@@ -639,10 +638,10 @@ func buildVisionMessages(prompt, imageBase64 string) []modelModule.Message {
 	}}
 }
 
-// extractVisionAnswer strips ```markdown fences from the VLM response.
-// Python calls clean_markdown_block inside vision_llm_chunk (rag/app/picture.py:198,
-// i.e., inside the invoker wrapper). Go applies it here post-invoker so that
-// visionChatInvoker stays a pure, swappable test seam — output is equivalent.
+// extractVisionAnswer strips ```markdown fences from the VLM response. It
+// applies the same markdown cleanup the invoker wrapper would, but here
+// post-invoker so visionChatInvoker stays a pure, swappable test seam —
+// output is equivalent.
 func extractVisionAnswer(resp *modelModule.ChatResponse) string {
 	if resp == nil || resp.Answer == nil {
 		return ""
@@ -666,5 +665,8 @@ func defaultVisionChatInvoker(
 		config.Thinking = &thinking
 	}
 	chatModel := modelModule.NewChatModel(driver, &modelName, apiConfig)
-	return chatModel.ChatWithMessages(chatCtx, messages, config, nil)
+	finish := agentruntime.TrackIO(chatCtx, "Parser", "VLM", "operation=vision_enhancement")
+	resp, err := chatModel.ChatWithMessages(chatCtx, messages, config, nil)
+	finish()
+	return resp, err
 }

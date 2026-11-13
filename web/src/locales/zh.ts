@@ -1809,6 +1809,9 @@ NER：使用 spaCy NER 和基于规则的关键词提取来抽取 Entities 和 R
       avatar: '头像',
       avatarTip: '这会在你的个人主页展示',
       profileDescription: '在此更新您的照片和个人详细信息。',
+      editName: '编辑用户名',
+      editTimeZone: '编辑时区',
+      editPassword: '编辑密码',
       maxTokens: '最大上下文长度',
       maxTokensMessage: '最大上下文长度是必填项',
       maxTokensTip: `模型的最大上下文大小；无效或不正确的值会导致错误。`,
@@ -2371,13 +2374,6 @@ NER：使用 spaCy NER 和基于规则的关键词提取来抽取 Entities 和 R
     },
     flow: {
       exportCurrentPage: '导出当页',
-      preprocess: {
-        preprocess: '预处理',
-        mainContent: '主内容',
-        abstract: '摘要',
-        author: '作者',
-        sectionTitle: '章节标题',
-      },
       agentCategory: '智能体分类',
       created: '创建于',
       editTags: '编辑标签',
@@ -2515,6 +2511,10 @@ NER：使用 spaCy NER 和基于规则的关键词提取来抽取 Entities 和 R
       enableVisionEnhancement: '启用视觉增强',
       enableVisionEnhancementTip:
         '使用视觉模型解析图片和表格区块，关闭时按普通文本处理。',
+      descriptionLanguage: '描述语言',
+      descriptionLanguageTip:
+        '视觉模型生成图片和表格描述时使用的语言。留空则跟随知识库语言；分词和检索仍使用知识库语言。',
+      followKnowledgeBaseLanguage: '跟随知识库',
       enableChildrenDelimiters: '子块用于检索',
       merge: '合并',
       split: '拆分',

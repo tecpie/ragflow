@@ -487,6 +487,7 @@ func (m *MessageComponent) resolveDeferredTemplate(ctx context.Context, text str
 		}
 		if err != nil {
 			if targetNodeID != "" {
+				state.SetVar(targetNodeID, "content", "**ERROR**: "+runtime.MarkdownSafeErrorText(err))
 				runtime.CompleteDeferredNode(ctx, targetNodeID, err)
 			}
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
@@ -498,6 +499,7 @@ func (m *MessageComponent) resolveDeferredTemplate(ctx context.Context, text str
 		}
 		if resultErr, _ := result["_ERROR"].(string); strings.TrimSpace(resultErr) != "" {
 			if targetNodeID != "" {
+				state.SetVar(targetNodeID, "content", resultErr)
 				runtime.CompleteDeferredNode(ctx, targetNodeID, errors.New(resultErr))
 			}
 			return "", true, &runtime.DeferredStreamError{Text: resultErr}

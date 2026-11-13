@@ -19,6 +19,7 @@ package document
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -34,17 +35,12 @@ import (
 	"ragflow/internal/utility"
 )
 
-// Sentinel errors returned by File2DocumentService. Handlers map these to
-// Python-compatible response codes/messages. Returning sentinels (instead of
-// wrapped DAO/runtime errors) prevents internal DB details from leaking through
-// the API response path.
+// Sentinel errors returned by File2DocumentService for missing resources.
 var (
 	// ErrLinkFileNotFound mirrors Python "File not found!".
 	ErrLinkFileNotFound = errors.New("File not found!")
 	// ErrLinkDatasetNotFound is translated via error.dataset.not_found.
 	ErrLinkDatasetNotFound = errors.New(i18n.DatasetNotFound)
-	// ErrLinkInternal is a generic, safe-to-expose internal failure.
-	ErrLinkInternal = errors.New("Internal server error.")
 )
 
 // File2DocumentService handles linking files to datasets.
@@ -78,14 +74,13 @@ type LinkToDatasetsRequest struct {
 // LinkToDatasets validates inputs, expands folders, checks permissions, and
 // schedules convertFiles in a goroutine — mirroring Python convert().
 //
-// On validation failure it returns a sentinel error (see ErrLink* above) so the
-// handler can map it to a Python-compatible response without leaking internals.
+// Missing resources return sentinel errors; runtime failures retain their cause.
 func (s *File2DocumentService) LinkToDatasets(ctx context.Context, req *LinkToDatasetsRequest, mode string) error {
 	// ── 1. Validate files exist ───────────────────────────────────────────────
 	files, err := s.fileDAO.GetByIDs(ctx, dao.DB, req.FileIDs)
 	if err != nil {
 		common.Warn("LinkToDatasets: GetByIDs failed", zap.Error(err))
-		return ErrLinkInternal
+		return fmt.Errorf("load files: %w", err)
 	}
 	filesSet := make(map[string]*entity.File, len(files))
 	for _, f := range files {
@@ -133,7 +128,7 @@ func (s *File2DocumentService) LinkToDatasets(ctx context.Context, req *LinkToDa
 			inner, err := s.getAllInnermostFileIDs(ctx, id)
 			if err != nil {
 				common.Warn("LinkToDatasets: folder expansion failed", zap.String("fileID", id), zap.Error(err))
-				return ErrLinkInternal
+				return fmt.Errorf("expand folder: %w", err)
 			}
 			expanded = append(expanded, inner...)
 		} else {
