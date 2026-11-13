@@ -302,3 +302,6 @@ gomod_cache
 parity/
 # downloaded Go native deps (fetched by ragflow_deps/download_go_deps.py)
 ragflow_deps/
+
+# Local Docker build preseed (linux/amd64 native libs)
+.docker-native/

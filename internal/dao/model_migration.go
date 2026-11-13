@@ -1129,6 +1129,7 @@ var modelIDJSONColumns = map[string][]string{
 	"api_4_conversation":     {"dsl"},
 	"pipeline_operation_log": {"dsl"},
 	"connector":              {"config"},
+	"evaluation_runs":        {"config_snapshot"},
 }
 
 var modelIDFieldSet = map[string]bool{
