@@ -127,6 +127,20 @@ func TestReuseEmbeddingMatchesRequiresBothIDs(t *testing.T) {
 	}
 }
 
+func TestStaleChunkIDsKeepsInsertedBatch(t *testing.T) {
+	stale := staleChunkIDs([]map[string]interface{}{
+		{"id": "old-1"},
+		{"id": "new-1"},
+		{"id": "old-1"},
+		{"id": ""},
+		{"content_with_weight": "missing id"},
+		{"id": "old-2"},
+	}, []string{"new-1", "new-2", ""})
+	if len(stale) != 2 || stale[0] != "old-1" || stale[1] != "old-2" {
+		t.Fatalf("stale ids = %v", stale)
+	}
+}
+
 func TestReuseChunkSelectFieldsRequestsVectorsAndCompileMarkers(t *testing.T) {
 	fields := reuseChunkSelectFields()
 	required := []string{"*", "q_1024_vec", "compile_kwd", "content_sm_ltks", "raptor_kwd"}

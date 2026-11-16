@@ -12,14 +12,15 @@ import (
 	enginetypes "ragflow/internal/engine/types"
 	"ragflow/internal/entity"
 	"ragflow/internal/storage"
+
+	"gorm.io/gorm"
 )
 
 const (
 	reuseParsedPageSize  = 200
 	reuseParsedMaxChunks = 20000
-	// reusedChunksProgressMsg is the document progress text written after a
-	// successful copy. Callers that continue with post-parse work recognize it
-	// because this path does not create an ingestion task.
+	// reusedChunksProgressMsg is the document progress text and the ingestion
+	// event message written after a successful copy.
 	reusedChunksProgressMsg = "Reused parsed chunks from the source document"
 )
 
@@ -55,7 +56,9 @@ type ReuseParsedChunksResult struct {
 // ReuseParsedChunks copies the source document's file chunks into the target
 // document without running the parser. Vectors are kept as stored. Compiled
 // rows (graph, raptor, wiki, mind map, page index) are skipped. An active
-// ingestion task is rejected, and this path does not write a COMPLETED task.
+// ingestion task is rejected. A finished task is written or updated to
+// COMPLETED so the file list shows the document as parsed; a later reparse
+// with delete removes that terminal task before enqueueing.
 func (s *DocumentService) ReuseParsedChunks(ctx context.Context, targetDatasetID, targetDocumentID, sourceDatasetID, sourceDocumentID string) (result *ReuseParsedChunksResult, err error) {
 	if s.docEngine == nil {
 		return nil, errors.New("doc engine not initialized")
@@ -87,12 +90,8 @@ func (s *DocumentService) ReuseParsedChunks(ctx context.Context, targetDatasetID
 	}
 
 	targetIndex := chunkIndexName(targetKB.TenantID)
-	if _, err = s.docEngine.DeleteChunks(ctx, map[string]interface{}{"doc_id": targetDoc.ID}, targetIndex, targetKB.ID); err != nil && !errors.Is(err, enginetypes.ErrIndexNotFound) {
-		s.removeCopiedImages(ctx, copiedImages)
-		return nil, fmt.Errorf("clear target chunks: %w", err)
-	}
-
 	insertedIDs := reusedChunkIDs(prepared)
+	replaced := false
 	defer func() {
 		if err == nil {
 			return
@@ -102,8 +101,10 @@ func (s *DocumentService) ReuseParsedChunks(ctx context.Context, targetDatasetID
 				common.Warn(fmt.Sprintf("reuse parsed chunks: failed to roll back inserted chunks %s: %v", targetDoc.ID, delErr))
 			}
 		}
-		if countErr := s.ApplyDocCounts(ctx, targetDoc.ID, targetKB.ID, 0, 0, 0); countErr != nil {
-			common.Warn(fmt.Sprintf("reuse parsed chunks: failed to roll back counts %s: %v", targetDoc.ID, countErr))
+		if replaced {
+			if countErr := s.ApplyDocCounts(ctx, targetDoc.ID, targetKB.ID, 0, 0, 0); countErr != nil {
+				common.Warn(fmt.Sprintf("reuse parsed chunks: failed to roll back counts %s: %v", targetDoc.ID, countErr))
+			}
 		}
 		s.removeCopiedImages(ctx, copiedImages)
 	}()
@@ -112,15 +113,21 @@ func (s *DocumentService) ReuseParsedChunks(ctx context.Context, targetDatasetID
 	if targetKB.Language != nil {
 		language = *targetKB.Language
 	}
+	// Insert the new ids first. A failed insert leaves the target's existing
+	// chunks in place; only this batch is rolled back.
 	if _, err = s.docEngine.InsertChunks(ctx, prepared, targetIndex, targetKB.ID, language); err != nil {
 		return nil, fmt.Errorf("insert reused chunks: %w", err)
 	}
+	if err = s.deleteTargetChunksExcept(ctx, targetKB, targetDoc.ID, targetIndex, insertedIDs); err != nil {
+		return nil, err
+	}
+	replaced = true
 
 	tokenNum := reusedTokenCount(prepared)
 	if err = s.ApplyDocCounts(ctx, targetDoc.ID, targetKB.ID, len(prepared), int(tokenNum), 0); err != nil {
 		return nil, err
 	}
-	if err = s.markReusedDocumentParsed(ctx, targetDoc, targetKB.ID); err != nil {
+	if err = s.markReusedDocumentParsed(ctx, targetDoc, targetKB); err != nil {
 		return nil, err
 	}
 	return &ReuseParsedChunksResult{
@@ -217,7 +224,7 @@ func (s *DocumentService) listDocumentChunks(ctx context.Context, kb *entity.Kno
 			if errors.Is(err, enginetypes.ErrIndexNotFound) {
 				return nil, nil
 			}
-			return nil, fmt.Errorf("list source chunks: %w", err)
+			return nil, fmt.Errorf("list document chunks: %w", err)
 		}
 		if result == nil || len(result.Chunks) == 0 {
 			return chunks, nil
@@ -236,13 +243,13 @@ func (s *DocumentService) listDocumentChunks(ctx context.Context, kb *entity.Kno
 			added++
 		}
 		if added == 0 {
-			return nil, errors.New("source chunk page repeated; refusing to copy a partial set")
+			return nil, errors.New("chunk page repeated; refusing to continue with a partial set")
 		}
 		if int64(len(seen)) >= result.Total || len(result.Chunks) < reuseParsedPageSize {
 			return chunks, nil
 		}
 	}
-	return nil, fmt.Errorf("source document has more than %d chunks", reuseParsedMaxChunks)
+	return nil, fmt.Errorf("document has more than %d chunks", reuseParsedMaxChunks)
 }
 
 func reuseChunkSelectFields() []string {
@@ -259,15 +266,208 @@ func reuseChunkSelectFields() []string {
 	return fields
 }
 
-func (s *DocumentService) markReusedDocumentParsed(ctx context.Context, doc *entity.Document, datasetID string) error {
-	now := time.Now()
-	return dao.DB.WithContext(ctx).Model(&entity.Document{}).
-		Where("id = ? AND kb_id = ?", doc.ID, datasetID).
+func (s *DocumentService) deleteTargetChunksExcept(ctx context.Context, kb *entity.Knowledgebase, documentID, indexName string, keep []string) error {
+	existing, err := s.listDocumentChunks(ctx, kb, documentID)
+	if err != nil {
+		return err
+	}
+	stale := staleChunkIDs(existing, keep)
+	for start := 0; start < len(stale); start += reuseParsedPageSize {
+		end := start + reuseParsedPageSize
+		if end > len(stale) {
+			end = len(stale)
+		}
+		if _, err = s.docEngine.DeleteChunks(ctx, map[string]interface{}{"id": stale[start:end]}, indexName, kb.ID); err != nil && !errors.Is(err, enginetypes.ErrIndexNotFound) {
+			return fmt.Errorf("delete previous target chunks: %w", err)
+		}
+	}
+	return nil
+}
+
+func staleChunkIDs(chunks []map[string]interface{}, keep []string) []string {
+	kept := make(map[string]struct{}, len(keep))
+	for _, id := range keep {
+		if id != "" {
+			kept[id] = struct{}{}
+		}
+	}
+	stale := make([]string, 0)
+	seen := make(map[string]struct{})
+	for _, chunk := range chunks {
+		id := chunkID(chunk)
+		if id == "" {
+			continue
+		}
+		if _, ok := kept[id]; ok {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		stale = append(stale, id)
+	}
+	return stale
+}
+
+func (s *DocumentService) markReusedDocumentParsed(ctx context.Context, doc *entity.Document, kb *entity.Knowledgebase) error {
+	if doc == nil || kb == nil {
+		return errors.New("reuse parsed chunks: document is missing")
+	}
+	if dao.DB == nil {
+		return errors.New("reuse parsed chunks: database is not configured")
+	}
+	// Progress, the COMPLETED task, and the bubble event commit together. A
+	// failed event must not leave the file list showing a finished parse.
+	return dao.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		now := time.Now()
+		if err := tx.Model(&entity.Document{}).
+			Where("id = ? AND kb_id = ?", doc.ID, kb.ID).
+			Updates(map[string]interface{}{
+				"progress":         1,
+				"progress_msg":     reusedChunksProgressMsg,
+				"process_begin_at": now,
+			}).Error; err != nil {
+			return err
+		}
+		task, err := s.completeReusedIngestionTask(ctx, tx, doc, kb.ID)
+		if err != nil {
+			return err
+		}
+		return s.recordReusedIngestionEvent(ctx, tx, doc, kb, task)
+	})
+}
+
+func (s *DocumentService) completeReusedIngestionTask(ctx context.Context, tx *gorm.DB, doc *entity.Document, datasetID string) (*entity.IngestionTask, error) {
+	task, err := s.ingestionTaskDAO.GetByDocumentID(ctx, tx, doc.ID)
+	if err != nil {
+		return nil, err
+	}
+	if task == nil {
+		created, createErr := s.ingestionTaskDAO.Create(ctx, tx, &entity.IngestionTask{
+			UserID:     doc.UserID,
+			DocumentID: doc.ID,
+			DatasetID:  datasetID,
+			Schema:     entity.JSONMap{},
+			Status:     common.COMPLETED,
+		})
+		if createErr == nil {
+			return created, nil
+		}
+		task, err = s.ingestionTaskDAO.GetByDocumentID(ctx, tx, doc.ID)
+		if err != nil {
+			return nil, err
+		}
+		if task == nil {
+			return nil, createErr
+		}
+	}
+	if common.IsActiveTaskStatus(task.Status) {
+		return nil, reuseArgument(fmt.Errorf("target document has an active ingestion task (%s)", task.Status))
+	}
+	if !common.IsTerminalTaskStatus(task.Status) {
+		return nil, fmt.Errorf("target document ingestion task %s has status %s", task.ID, task.Status)
+	}
+	// An identical COMPLETED row is already what the file list reads. Skipping
+	// the write avoids treating a no-op update (zero rows changed) as failure.
+	if task.Status != common.COMPLETED || task.DatasetID != datasetID || task.UserID != doc.UserID {
+		updated := tx.WithContext(ctx).Model(&entity.IngestionTask{}).
+			Where("id = ? AND status IN ?", task.ID, []string{common.COMPLETED, common.FAILED, common.STOPPED}).
+			Updates(map[string]interface{}{
+				"status":     common.COMPLETED,
+				"dataset_id": datasetID,
+				"user_id":    doc.UserID,
+			})
+		if updated.Error != nil {
+			return nil, updated.Error
+		}
+		if updated.RowsAffected == 0 {
+			return nil, fmt.Errorf("target document ingestion task %s could not be completed", task.ID)
+		}
+	}
+	task.Status = common.COMPLETED
+	task.DatasetID = datasetID
+	task.UserID = doc.UserID
+	return task, nil
+}
+
+func (s *DocumentService) recordReusedIngestionEvent(ctx context.Context, tx *gorm.DB, doc *entity.Document, kb *entity.Knowledgebase, task *entity.IngestionTask) error {
+	if task == nil || task.ID == "" {
+		return errors.New("reuse parsed chunks: ingestion task is missing")
+	}
+	logID := ""
+	if task.PipelineLogID != nil {
+		logID = strings.TrimSpace(*task.PipelineLogID)
+	}
+	if logID == "" {
+		createdID, err := s.openReusedIngestionLog(ctx, tx, doc, kb)
+		if err != nil {
+			return err
+		}
+		logID = createdID
+		if err = tx.WithContext(ctx).Model(&entity.IngestionTask{}).
+			Where("id = ?", task.ID).
+			Update("pipeline_log_id", logID).Error; err != nil {
+			return err
+		}
+		task.PipelineLogID = &logID
+	}
+	if err := tx.WithContext(ctx).Model(&entity.PipelineOperationLog{}).
+		Where("id = ?", logID).
 		Updates(map[string]interface{}{
+			"operation_status": string(entity.TaskStatusDone),
 			"progress":         1,
 			"progress_msg":     reusedChunksProgressMsg,
-			"process_begin_at": now,
-		}).Error
+		}).Error; err != nil {
+		return err
+	}
+	// A new message event, not a terminal event: an existing FAILED run already
+	// has a terminal row, and the file-list bubble reads the latest event.
+	now := time.Now().Local()
+	return tx.WithContext(ctx).Model(&entity.IngestionTaskLog{}).Create(map[string]interface{}{
+		"task_id":         task.ID,
+		"pipeline_log_id": logID,
+		"checkpoint":      entity.JSONMap{},
+		"phase":           0,
+		"event_type":      dao.EventTypeMessage,
+		"component":       "",
+		"message":         reusedChunksProgressMsg,
+		"create_time":     now.UnixMilli(),
+		"create_date":     now.Truncate(time.Second),
+		"update_time":     now.UnixMilli(),
+		"update_date":     now.Truncate(time.Second),
+	}).Error
+}
+
+func (s *DocumentService) openReusedIngestionLog(ctx context.Context, tx *gorm.DB, doc *entity.Document, kb *entity.Knowledgebase) (string, error) {
+	runCount, err := dao.NewPipelineOperationLogDAO().NextRunCount(ctx, tx, doc.ID)
+	if err != nil {
+		return "", err
+	}
+	sourceFrom := doc.SourceType
+	if i := strings.Index(sourceFrom, "/"); i >= 0 {
+		sourceFrom = sourceFrom[:i]
+	}
+	if strings.TrimSpace(sourceFrom) == "" {
+		sourceFrom = "local"
+	}
+	log, err := dao.NewPipelineOperationLogDAO().CreateOpenLog(ctx, tx, dao.OpenLogInput{
+		DocumentID:      doc.ID,
+		KbID:            kb.ID,
+		TenantID:        kb.TenantID,
+		ParserID:        doc.ParserID,
+		DocumentName:    documentName(doc),
+		DocumentSuffix:  doc.Suffix,
+		DocumentType:    doc.Type,
+		SourceFrom:      sourceFrom,
+		Avatar:          doc.Thumbnail,
+		OperationStatus: string(entity.TaskStatusDone),
+		RunCount:        runCount,
+	})
+	if err != nil {
+		return "", err
+	}
+	return log.ID, nil
 }
 
 func (s *DocumentService) copyReusedChunkImages(ctx context.Context, sourceKBID string, chunks []map[string]interface{}) ([][2]string, error) {
