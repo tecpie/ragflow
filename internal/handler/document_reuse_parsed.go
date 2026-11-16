@@ -1,11 +1,13 @@
 package handler
 
 import (
+	"errors"
 	"strings"
 
 	"ragflow/internal/common"
 	"ragflow/internal/dao"
 	"ragflow/internal/permission"
+	"ragflow/internal/service/document"
 
 	"github.com/gin-gonic/gin"
 )
@@ -52,8 +54,16 @@ func (h *DocumentHandler) ReuseParsedChunks(c *gin.Context) {
 
 	result, err := h.documentService.ReuseParsedChunks(ctx, targetDatasetID, targetDocumentID, sourceDatasetID, sourceDocumentID)
 	if err != nil {
-		common.RespondError(c, common.CodeDataError, err.Error())
+		common.RespondError(c, reuseParsedErrorCode(err), err.Error())
 		return
 	}
 	common.RespondSuccess(c, result, "success")
+}
+
+func reuseParsedErrorCode(err error) common.ErrorCode {
+	var reuseErr *document.ReuseParsedError
+	if errors.As(err, &reuseErr) && reuseErr.Argument {
+		return common.CodeArgumentError
+	}
+	return common.CodeDataError
 }

@@ -1,6 +1,11 @@
 package document
 
-import "testing"
+import (
+	"errors"
+	"testing"
+
+	"ragflow/internal/entity"
+)
 
 func TestPrepareReusedChunksSkipsCompilationAndRemapsParent(t *testing.T) {
 	chunks := []map[string]interface{}{
@@ -29,6 +34,11 @@ func TestPrepareReusedChunksSkipsCompilationAndRemapsParent(t *testing.T) {
 		{
 			"id":         "raptor",
 			"raptor_kwd": "tree",
+		},
+		{
+			"id":          "wiki",
+			"compile_kwd": "wiki_page",
+			"token_num":   40,
 		},
 	}
 
@@ -60,12 +70,76 @@ func TestPrepareReusedChunksSkipsCompilationAndRemapsParent(t *testing.T) {
 	}
 }
 
-func TestSplitImageID(t *testing.T) {
-	bucket, key := splitImageID("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
-	if bucket != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" || key != "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" {
-		t.Fatalf("split = %q %q", bucket, key)
+func TestImageKeyFromSourceKBUsesDatasetPrefix(t *testing.T) {
+	bucket, key, ok := imageKeyFromSourceKB("dataset-abc-123", "dataset-abc-123-page-1-image")
+	if !ok || bucket != "dataset-abc-123" || key != "page-1-image" {
+		t.Fatalf("key = %q %q ok=%v", bucket, key, ok)
 	}
-	if b, k := splitImageID("nohyphen"); b != "" || k != "" {
-		t.Fatalf("expected empty split, got %q %q", b, k)
+	if _, _, ok := imageKeyFromSourceKB("kb-1", "other-kb-image"); ok {
+		t.Fatal("a foreign prefix must not be treated as this dataset's object")
+	}
+	if _, _, ok := imageKeyFromSourceKB("kb-1", "kb-1-"); ok {
+		t.Fatal("an empty object key must be rejected")
+	}
+}
+
+func TestIsCompiledChunkIncludesCompileMarker(t *testing.T) {
+	for _, kind := range []string{"wiki_page", "mind_map", "page_index"} {
+		if !isCompiledChunk(map[string]interface{}{"id": "row", "compile_kwd": kind}) {
+			t.Fatalf("compile_kwd %s was treated as a body chunk", kind)
+		}
+	}
+	if isCompiledChunk(map[string]interface{}{"id": "body", "compile_kwd": "  "}) {
+		t.Fatal("blank compile_kwd is not a compiled row")
+	}
+}
+
+func TestReusedTokenCountIgnoresSkippedRows(t *testing.T) {
+	prepared := prepareReusedChunks([]map[string]interface{}{
+		{"id": "body", "token_num": 12, "q_4_vec": []interface{}{0.1}},
+		{"id": "graph", "knowledge_graph_kwd": "entity", "token_num": 90},
+		{"id": "wiki", "compile_kwd": "wiki", "tk_nums": 30},
+	}, "dst", "doc", "moved.pdf")
+	if got := reusedTokenCount(prepared); got != 12 {
+		t.Fatalf("token count = %d, want 12", got)
+	}
+}
+
+func TestReuseEmbeddingMatchesRequiresBothIDs(t *testing.T) {
+	tenant := "tenant-embd"
+	other := "other-embd"
+	source := &entity.Knowledgebase{EmbdID: "text-embedding-v4", TenantEmbdID: &tenant}
+	same := &entity.Knowledgebase{EmbdID: "text-embedding-v4", TenantEmbdID: &tenant}
+	if err := reuseEmbeddingMatches(source, same); err != nil {
+		t.Fatal(err)
+	}
+	differentModel := &entity.Knowledgebase{EmbdID: "bge-m3", TenantEmbdID: &tenant}
+	if err := reuseEmbeddingMatches(source, differentModel); err == nil {
+		t.Fatal("different embd_id was accepted")
+	}
+	differentTenant := &entity.Knowledgebase{EmbdID: "text-embedding-v4", TenantEmbdID: &other}
+	if err := reuseEmbeddingMatches(source, differentTenant); err == nil {
+		t.Fatal("different tenant embd id was accepted")
+	}
+	var argument *ReuseParsedError
+	if !errors.As(reuseEmbeddingMatches(source, differentModel), &argument) || !argument.Argument {
+		t.Fatal("model mismatch must be an argument error")
+	}
+}
+
+func TestReuseChunkSelectFieldsRequestsVectorsAndCompileMarkers(t *testing.T) {
+	fields := reuseChunkSelectFields()
+	required := []string{"*", "q_1024_vec", "compile_kwd", "content_sm_ltks", "raptor_kwd"}
+	for _, name := range required {
+		found := false
+		for _, field := range fields {
+			if field == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("select fields %v missing %s", fields, name)
+		}
 	}
 }

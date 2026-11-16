@@ -3550,8 +3550,30 @@ func convertESResponse(esResp *SearchResponse, vectorFieldName string) []map[str
 		if len(hit.Highlight) > 0 {
 			chunks[i]["highlight"] = hit.Highlight
 		}
+		// ES 9 returns dense_vector values in fields, not _source. A reuse read
+		// asks for q_*_vec there; without this merge the copied chunk has no vector.
+		mergeESHitFields(chunks[i], hit.Fields)
 	}
 	return chunks
+}
+
+// mergeESHitFields copies field-api values that _source did not already carry.
+// A dense_vector comes back as a one-element list whose item is the vector.
+func mergeESHitFields(chunk map[string]interface{}, fields map[string]interface{}) {
+	for name, raw := range fields {
+		if current, exists := chunk[name]; exists && current != nil {
+			continue
+		}
+		chunk[name] = unwrapESFieldValue(raw)
+	}
+}
+
+func unwrapESFieldValue(raw interface{}) interface{} {
+	values, ok := raw.([]interface{})
+	if !ok || len(values) != 1 {
+		return raw
+	}
+	return values[0]
 }
 
 // parseOrderByExpr parses the OrderBy expression into ES sort format
@@ -3567,13 +3589,16 @@ func parseOrderByExpr(orderBy *types.OrderByExpr) []map[string]interface{} {
 			direction = "desc"
 		}
 
-		// Skip id field (cannot order by text field). The logical "id" column is
-		// shimmed from the ES _id in the response path, but ordering on _id
-		// requires indices.id_field_data, which is disabled by default on the
-		// bundled Elasticsearch 8.x deployment and would make every id-ordered
-		// query fail at runtime. Callers that need deep pagination must supply a
-		// real stored, sortable field instead of relying on the logical id.
+		// The stored "id" column is a keyword (dynamic template). Do not sort on
+		// metadata _id: that needs indices.id_field_data and fails on the bundled
+		// Elasticsearch. The keyword field is the stable chunk cursor.
 		if field.Field == "id" {
+			result = append(result, map[string]interface{}{
+				"id": map[string]interface{}{
+					"order":         direction,
+					"unmapped_type": "keyword",
+				},
+			})
 			continue
 		}
 
