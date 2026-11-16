@@ -354,6 +354,10 @@ func (f *fakeDocumentService) HasActiveIngestionTasks(ctx context.Context, datas
 	return f.hasActiveTasks, f.hasActiveTasksErr
 }
 
+func (f *fakeDocumentService) ReuseParsedChunks(ctx context.Context, targetDatasetID, targetDocumentID, sourceDatasetID, sourceDocumentID string) (*document.ReuseParsedChunksResult, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
 func (f *fakeDocumentService) GetDocumentMetadataByID(ctx context.Context, docID string) (map[string]interface{}, error) {
 	return nil, nil
 }

@@ -87,6 +87,7 @@ type documentServiceIface interface {
 	RemoveIngestionTasks(ctx context.Context, tasks []string) ([]map[string]string, error)
 	BatchUpdateDocumentStatus(ctx context.Context, datasetID, status string, DocumentIDs []string) (map[string]interface{}, common.ErrorCode, error)
 	HasActiveIngestionTasks(ctx context.Context, datasetID string) (bool, error)
+	ReuseParsedChunks(ctx context.Context, targetDatasetID, targetDocumentID, sourceDatasetID, sourceDocumentID string) (*document.ReuseParsedChunksResult, error)
 }
 
 type latestIngestionEventLookup interface {
