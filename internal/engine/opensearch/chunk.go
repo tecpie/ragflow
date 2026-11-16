@@ -3307,8 +3307,28 @@ func convertESResponse(esResp *SearchResponse, vectorFieldName string) []map[str
 		if len(hit.Highlight) > 0 {
 			chunks[i]["highlight"] = hit.Highlight
 		}
+		mergeESHitFields(chunks[i], hit.Fields)
 	}
 	return chunks
+}
+
+// mergeESHitFields copies field-api values that _source did not already carry.
+// A dense_vector comes back as a one-element list whose item is the vector.
+func mergeESHitFields(chunk map[string]interface{}, fields map[string]interface{}) {
+	for name, raw := range fields {
+		if current, exists := chunk[name]; exists && current != nil {
+			continue
+		}
+		chunk[name] = unwrapESFieldValue(raw)
+	}
+}
+
+func unwrapESFieldValue(raw interface{}) interface{} {
+	values, ok := raw.([]interface{})
+	if !ok || len(values) != 1 {
+		return raw
+	}
+	return values[0]
 }
 
 // parseOrderByExpr parses the OrderBy expression into ES sort format
@@ -3324,8 +3344,14 @@ func parseOrderByExpr(orderBy *types.OrderByExpr) []map[string]interface{} {
 			direction = "desc"
 		}
 
-		// Skip id field (cannot order by text field)
+		// The stored "id" column is a keyword. Do not sort on metadata _id.
 		if field.Field == "id" {
+			result = append(result, map[string]interface{}{
+				"id": map[string]interface{}{
+					"order":         direction,
+					"unmapped_type": "keyword",
+				},
+			})
 			continue
 		}
 
