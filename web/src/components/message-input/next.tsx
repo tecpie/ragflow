@@ -30,18 +30,19 @@ import {
 } from '@/components/file-upload';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { cn } from '@/lib/utils';
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { cn } from '@/lib/utils';
 import {
+  ArrowUp,
   Brain,
   CircleStop,
   Globe,
   Paperclip,
-  Send,
+  Plus,
   Upload,
   Waypoints,
   X,
@@ -58,6 +59,13 @@ import {
 import storage from '@/utils/authorization-util';
 import { SelectWithSearch } from '../originui/select-with-search';
 import { AudioButton } from '../ui/audio-button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '../ui/dropdown-menu';
+import { Separator } from '../ui/separator';
 
 export type NextMessageInputOnPressEnterParameter = {
   enableThinking?: string;
@@ -206,8 +214,12 @@ export function NextMessageInput({
     });
   }, []);
 
-  const handleInternetToggle = useCallback(() => {
-    setEnableInternet((prev) => !prev);
+  const handleInternetSelect = useCallback(() => {
+    setEnableInternet(true);
+  }, []);
+
+  const handleInternetRemove = useCallback(() => {
+    setEnableInternet(false);
   }, []);
 
   const pressEnter = useCallback(() => {
@@ -243,6 +255,7 @@ export function NextMessageInput({
     onPressEnter,
     enableThinking,
     enableModelThinking,
+    enableOntologyWalk,
     enableInternet,
     showInternet,
     pressEnter,
@@ -314,7 +327,7 @@ export function NextMessageInput({
       <form
         onSubmit={onSubmit}
         className="
-          relative flex w-full flex-col gap-2.5 rounded-md
+          relative flex w-full flex-col gap-2 rounded-[28px]
           border-0.5 border-border-default bg-bg-card p-2 outline-none
           has-[textarea:focus]:outline-accent-primary has-[textarea:focus]:outline-1 has-[textarea:focus]:outline-offset-2
         "
@@ -352,48 +365,107 @@ export function NextMessageInput({
             </FileUploadItem>
           ))}
         </FileUploadList>
-        <Textarea
-          ref={textareaRef}
-          data-testid="chat-textarea"
-          value={value}
-          onChange={onInputChange}
-          placeholder={t('chat.messagePlaceholder')}
-          className="
-            min-h-10 max-h-[400px] w-full p-0 overflow-auto
-            !outline-none !border-transparent !bg-transparent !shadow-none !ring-transparent !ring-offset-transparent
-          "
-          disabled={isUploading || disabled || sendLoading}
-          onKeyDown={handleKeyDown}
-          resize={resize === 'vertical' ? 'none' : resize}
-          autoSize={isManualMode ? undefined : { minRows: 2, maxRows: 8 }}
-        />
-
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            {showUploadIcon && (
-              <FileUploadTrigger asChild>
+        <div className="flex items-end gap-2">
+          {(showUploadIcon || showInternet) && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
                 <Button
                   type="button"
-                  size="icon-xs"
+                  size="icon-lg"
                   variant="transparent"
-                  className="rounded-sm border-0"
-                  disabled={isUploading || sendLoading}
-                  data-testid="chat-detail-attach"
+                  className="rounded-full border-0"
+                  disabled={(isUploading || sendLoading) && !showInternet}
+                  data-testid="chat-detail-add-menu"
                 >
-                  <Paperclip className="size-3.5" />
-                  <span className="sr-only">Attach file</span>
+                  <Plus className="size-5" />
+                  <span className="sr-only">{t('common.add')}</span>
                 </Button>
-              </FileUploadTrigger>
-            )}
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                side="top"
+                align="start"
+                sideOffset={8}
+                className="min-w-52 rounded-[20px]"
+              >
+                {showUploadIcon && (
+                  <FileUploadTrigger asChild>
+                    <DropdownMenuItem
+                      justifyBetween={false}
+                      disabled={isUploading || sendLoading}
+                      data-testid="chat-detail-attach"
+                      className="items-center justify-start gap-2 px-3 py-2"
+                    >
+                      <Paperclip />
+                      <span>{t('chat.addPhotosAndFiles')}</span>
+                    </DropdownMenuItem>
+                  </FileUploadTrigger>
+                )}
+                {showInternet && (
+                  <DropdownMenuItem
+                    justifyBetween={false}
+                    onClick={handleInternetSelect}
+                    data-testid="chat-detail-internet-toggle"
+                    className="items-center justify-start gap-2 px-3 py-2"
+                  >
+                    <Globe className="size-4" />
+                    <span>{t('chat.webSearch')}</span>
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
 
+          {showInternet && enableInternet && (
+            <div
+              data-testid="chat-detail-internet-active"
+              className="flex h-10 min-w-0 max-w-40 shrink items-center gap-1.5 self-start text-accent-primary"
+            >
+              <Globe className="size-4 shrink-0" />
+              <span className="truncate" title={t('chat.webSearch')}>
+                {t('chat.webSearch')}
+              </span>
+              <Button
+                type="button"
+                variant="transparent"
+                size="icon-xs"
+                className="size-5 shrink-0 rounded-full border-0 text-accent-primary hover:bg-accent-primary-5 hover:text-accent-primary focus-visible:bg-accent-primary-5 focus-visible:text-accent-primary"
+                onClick={handleInternetRemove}
+                data-testid="chat-detail-internet-remove"
+                aria-label={`${t('common.delete')} ${t('chat.webSearch')}`}
+              >
+                <X className="size-3" />
+              </Button>
+            </div>
+          )}
+
+          <Textarea
+            ref={textareaRef}
+            data-testid="chat-textarea"
+            value={value}
+            onChange={onInputChange}
+            placeholder={t('chat.messagePlaceholder')}
+            className="
+              min-h-10 max-h-[400px] w-full min-w-0 flex-1 px-0 py-2 overflow-auto
+              !outline-none !border-transparent !bg-transparent !shadow-none !ring-transparent !ring-offset-transparent
+            "
+            disabled={isUploading || disabled || sendLoading}
+            onKeyDown={handleKeyDown}
+            resize={resize === 'vertical' ? 'none' : resize}
+            autoSize={isManualMode ? undefined : { minRows: 1, maxRows: 8 }}
+          />
+
+          <div className="flex h-10 shrink-0 items-center gap-2">
             {showReasoning && (
-              <SelectWithSearch
-                value={enableThinking}
-                options={thinkingOptions}
-                onChange={handleThinkingChange}
-                triggerClassName="h-7 border-0 !bg-bg-card text-sm"
-                testId="chat-detail-thinking-toggle"
-              />
+              <>
+                <SelectWithSearch
+                  value={enableThinking}
+                  options={thinkingOptions}
+                  onChange={handleThinkingChange}
+                  triggerClassName="h-9 w-fit border-0 !bg-transparent px-2 text-sm shadow-none hover:!bg-transparent focus-visible:!bg-transparent"
+                  testId="chat-detail-thinking-toggle"
+                />
+                <Separator orientation="vertical" className="h-5" />
+              </>
             )}
 
             {showReasoning && (
@@ -403,14 +475,14 @@ export function NextMessageInput({
                     type="button"
                     size="sm"
                     variant="outline"
-                    className={cn('border-0 h-7 text-sm bg-bg-card', {
+                    className={cn('border-0 h-9 text-sm bg-transparent px-2', {
                       'bg-text-primary text-bg-base': enableOntologyWalk,
                     })}
                     onClick={handleOntologyWalkToggle}
                     data-testid="chat-detail-ontology-walk-toggle"
                   >
-                    <Waypoints />
-                    <span>{t('chat.ontologyWalk')}</span>
+                    <Waypoints className="size-4" />
+                    <span className="sr-only">{t('chat.ontologyWalk')}</span>
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -423,69 +495,50 @@ export function NextMessageInput({
               <Button
                 type="button"
                 size="sm"
-                variant={'outline'}
-                className={cn('border-0 h-7 text-sm bg-bg-card', {
+                variant="outline"
+                className={cn('border-0 h-9 text-sm bg-transparent px-2', {
                   'bg-text-primary text-bg-base': enableModelThinking,
                 })}
                 onClick={handleModelThinkingToggle}
                 data-testid="chat-detail-model-thinking-toggle"
               >
-                <Brain />
-                <span>{t('chat.modelThinking')}</span>
+                <Brain className="size-4" />
+                <span className="sr-only">{t('chat.modelThinking')}</span>
               </Button>
             )}
 
-            {showInternet && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant={enableInternet ? 'accent' : 'transparent'}
-                    size="icon-xs"
-                    className="border-0"
-                    onClick={handleInternetToggle}
-                    data-testid="chat-detail-internet-toggle"
-                  >
-                    <Globe />
-                    <span className="sr-only">{t('chat.webSearch')}</span>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>{t('chat.webSearch')}</p>
-                </TooltipContent>
-              </Tooltip>
+            {sendLoading ? (
+              <Button
+                type="button"
+                data-testid="chat-stream-status"
+                onClick={stopOutputMessage}
+                size="icon-lg"
+                className="rounded-full"
+              >
+                <CircleStop className="size-5" />
+              </Button>
+            ) : (
+              <>
+                <AudioButton
+                  onOk={setAudioInputValue}
+                  testId="chat-detail-audio-toggle"
+                />
+
+                <Button
+                  type="submit"
+                  size="icon-lg"
+                  className="rounded-full"
+                  disabled={
+                    sendDisabled || isUploading || sendLoading || !value.trim()
+                  }
+                  data-testid="chat-detail-send"
+                >
+                  <ArrowUp className="size-5" />
+                  <span className="sr-only">Send message</span>
+                </Button>
+              </>
             )}
           </div>
-
-          {sendLoading ? (
-            <Button
-              data-testid="chat-stream-status"
-              onClick={stopOutputMessage}
-              size="icon-xs"
-            >
-              <CircleStop />
-            </Button>
-          ) : (
-            <div className="flex items-center gap-3">
-              <AudioButton
-                onOk={(value) => {
-                  setAudioInputValue(value);
-                }}
-                testId="chat-detail-audio-toggle"
-              />
-
-              <Button
-                size="icon-xs"
-                disabled={
-                  sendDisabled || isUploading || sendLoading || !value.trim()
-                }
-                data-testid="chat-detail-send"
-              >
-                <Send />
-                <span className="sr-only">Send message</span>
-              </Button>
-            </div>
-          )}
         </div>
       </form>
     </FileUpload>

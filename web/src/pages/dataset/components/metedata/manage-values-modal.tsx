@@ -81,7 +81,7 @@ const ValueInputItem = memo(
               onChange={(value) => {
                 onValueChange(
                   index,
-                  formatDate(value, 'YYYY-MM-DDTHH:mm:ss'),
+                  dayjs(value).format('YYYY-MM-DDTHH:mm:ss'),
                   true,
                 );
               }}

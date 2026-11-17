@@ -1,4 +1,4 @@
-//
+﻿//
 //  Copyright 2026 The InfiniFlow Authors. All Rights Reserved.
 //
 //  Licensed under the Apache License, Version 2.0 (the "License");
@@ -25,6 +25,7 @@ import (
 	"testing"
 
 	"ragflow/internal/common"
+	"ragflow/internal/dao"
 	"ragflow/internal/engine"
 	"ragflow/internal/entity"
 	"ragflow/internal/ingestion/testutil"
@@ -383,5 +384,30 @@ func TestDeleteUserRollsBackDatabaseCleanup(t *testing.T) {
 		if err := db.Table(item[0]).Where("id = ?", item[1]).Count(&count).Error; err != nil || count != 1 {
 			t.Fatalf("transaction did not preserve %s/%s: count=%d, err=%v", item[0], item[1], count, err)
 		}
+	}
+}
+
+func TestDeleteUserPreservesAdminRestrictions(t *testing.T) {
+	for _, tt := range []struct {
+		name, active, want string
+		admin              bool
+	}{
+		{name: "active", active: "1", want: "deactivate"},
+		{name: "admin", active: "0", admin: true, want: "admin account"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			db := testutil.SetupTestDB(t, &entity.User{})
+			t.Cleanup(testutil.ReplaceDBForTest(t, db))
+			user := &entity.User{ID: "actor", Email: "actor@example.test", Nickname: "Actor", IsActive: tt.active, IsAuthenticated: "1", IsAnonymous: "0", IsSuperuser: new(tt.admin)}
+			if err := db.Create(user).Error; err != nil {
+				t.Fatal(err)
+			}
+			if _, err := NewService().DeleteUser(t.Context(), user.Email); err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error=%v", err)
+			}
+			if _, err := dao.NewUserDAO().GetByID(t.Context(), db, user.ID); err != nil {
+				t.Fatalf("user removed: %v", err)
+			}
+		})
 	}
 }

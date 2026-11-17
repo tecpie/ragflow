@@ -18,12 +18,15 @@ import { Button } from '@/components/ui/button';
 import { Form } from '@/components/ui/form';
 import { CompilationTemplateKind } from '@/constants/compilation';
 import { Plus } from 'lucide-react';
-import { FormEvent, MouseEvent, useCallback, useEffect, useState } from 'react';
+import { FormEvent, MouseEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { useFieldArray, useWatch } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 
 import { BlueprintSection } from './components/blueprint-section';
+import { CompilationTemplateEditorSidebar } from './components/editor-sidebar';
+import { JsonPreview } from './components/json-preview';
 import { TemplateConfiguration } from './components/template-configuration';
+import { CompilationTemplateEditorView } from './constant';
 import { CompilationTemplateGroupSaveResult } from './hooks/use-compilation-template-group-submit';
 import { useEditNextCompilationTemplateGroup } from './hooks/use-edit-next-compilation-template-group';
 import { buildConfigFromBuiltin } from './utils';
@@ -33,6 +36,8 @@ type CompilationTemplateGroupEditorProps = {
   onSuccess: (result: CompilationTemplateGroupSaveResult) => void;
   onCancel: () => void;
   cancelText: string;
+  sidebarCollapsed?: boolean;
+  onSidebarCollapse?: () => void;
 };
 
 function unusedTemplateName(label: string, names: string[]) {
@@ -46,14 +51,16 @@ function unusedTemplateName(label: string, names: string[]) {
   return `${label}(${suffix})`;
 }
 
-// Shared body of the edit-next route page and the create dialog: the form,
-// its scrollable configuration area, and the cancel/save footer. The parent
-// must give it a bounded-height flex column to fill.
+// Shared body of the edit-next route page and the create dialog: template tabs,
+// secondary navigation, configuration/JSON content, and the cancel/save footer.
+// The parent must give it a bounded-height flex column to fill.
 export function CompilationTemplateGroupEditor({
   id,
   onSuccess,
   onCancel,
   cancelText,
+  sidebarCollapsed = false,
+  onSidebarCollapse,
 }: CompilationTemplateGroupEditorProps) {
   const { t } = useTranslation();
   const { form, kindOptions, builtins, onSubmit, isLoading } =
@@ -66,6 +73,10 @@ export function CompilationTemplateGroupEditor({
   const templates = useWatch({ control: form.control, name: 'templates' });
   const templateList = templates ?? [];
   const [selectedTemplateIndex, setSelectedTemplateIndex] = useState(0);
+  const [activeView, setActiveView] = useState(
+    CompilationTemplateEditorView.Configuration,
+  );
+  const allFormValues = useWatch({ control: form.control });
 
   useEffect(() => {
     if (selectedTemplateIndex > templateList.length - 1) {
@@ -74,6 +85,7 @@ export function CompilationTemplateGroupEditor({
   }, [selectedTemplateIndex, templateList.length]);
 
   const selectedKind = templateList[selectedTemplateIndex]?.kind;
+  const templateName = templateList[selectedTemplateIndex]?.name;
   const isArtifacts = selectedKind === CompilationTemplateKind.Artifacts;
 
   const usedKinds = new Set(
@@ -98,7 +110,10 @@ export function CompilationTemplateGroupEditor({
         return true;
       });
 
-  const handleSave = form.handleSubmit(onSubmit);
+  const handleSave = useMemo(
+    () => form.handleSubmit(onSubmit),
+    [form, onSubmit],
+  );
 
   const handleSubmit = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
@@ -192,21 +207,39 @@ export function CompilationTemplateGroupEditor({
             {t('common.remove')}
           </Button>
         </div>
-        <TemplateConfiguration
-          key={selectedTemplateIndex}
-          form={form}
-          builtins={builtins}
-          kindOptions={kindOptions}
-          selectedTemplateIndex={selectedTemplateIndex}
-        >
-          {isArtifacts && (
-            <BlueprintSection
-              form={form}
-              selectedTemplateIndex={selectedTemplateIndex}
-              builtins={builtins}
+
+        <div className="flex min-h-0 flex-1">
+          {!sidebarCollapsed && (
+            <CompilationTemplateEditorSidebar
+              activeView={activeView}
+              templateName={templateName}
+              onViewChange={setActiveView}
+              onCollapse={onSidebarCollapse}
             />
           )}
-        </TemplateConfiguration>
+
+          <div className="flex min-w-0 flex-1 flex-col">
+            {activeView === CompilationTemplateEditorView.Json ? (
+              <JsonPreview value={allFormValues} />
+            ) : (
+              <TemplateConfiguration
+                key={selectedTemplateIndex}
+                form={form}
+                builtins={builtins}
+                kindOptions={kindOptions}
+                selectedTemplateIndex={selectedTemplateIndex}
+              >
+                {isArtifacts && (
+                  <BlueprintSection
+                    form={form}
+                    selectedTemplateIndex={selectedTemplateIndex}
+                    builtins={builtins}
+                  />
+                )}
+              </TemplateConfiguration>
+            )}
+          </div>
+        </div>
 
         <footer className="shrink-0 px-5 py-4 border-t border-border-button flex items-center justify-end gap-5">
           <Button type="button" variant="outline" onClick={onCancel}>

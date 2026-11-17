@@ -138,6 +138,11 @@ func (h *ConnectorHandler) GetConnector(c *gin.Context) {
 
 // UpdateConnector Update an accessible connector's polling configuration.
 func (h *ConnectorHandler) UpdateConnector(c *gin.Context) {
+	common.StartOperationLog(c, "update_connector")
+	defer common.FinishOperationLog(c)
+	if id := c.Param("connector_id"); id != "" {
+		common.SetOperationResource(c, "connector_id", id)
+	}
 
 	req, err := decodeUpdateConnectorRequest(c)
 	if err != nil {
@@ -256,6 +261,8 @@ func (h *ConnectorHandler) ListSyncLogs(c *gin.Context) {
 // @Success 200 {object} service.ListConnectorsResponse
 // @Router /connector/ [post]
 func (h *ConnectorHandler) CreateConnector(c *gin.Context) {
+	common.StartOperationLog(c, "create_connector")
+	defer common.FinishOperationLog(c)
 
 	var req service.CreateConnectorRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -287,6 +294,7 @@ func (h *ConnectorHandler) CreateConnector(c *gin.Context) {
 		return
 	}
 
+	common.SetOperationResource(c, "connector_id", connector.ID)
 	common.RespondSuccess(c, connector, "success")
 }
 
@@ -356,6 +364,12 @@ func (h *ConnectorHandler) QueryConnector(c *gin.Context) {
 // @Param connector_id path string true "connector ID"
 // @Router /api/v1/connectors/{connector_id}/test [post]
 func (h *ConnectorHandler) TestConnector(c *gin.Context) {
+	common.StartOperationLog(c, "test_connector")
+	defer common.FinishOperationLog(c)
+	if id := c.Param("connector_id"); id != "" {
+		common.SetOperationResource(c, "connector_id", id)
+	}
+
 	// check user and connector
 
 	connectorID := c.Param("connector_id")
@@ -420,6 +434,11 @@ func (h *ConnectorHandler) TestConnector(c *gin.Context) {
 // @Accept json
 // @Produce json
 func (h *ConnectorHandler) DeleteConnector(c *gin.Context) {
+	common.StartOperationLog(c, "delete_connector")
+	defer common.FinishOperationLog(c)
+	if id := c.Param("connector_id"); id != "" {
+		common.SetOperationResource(c, "connector_id", id)
+	}
 
 	ctx := c.Request.Context()
 
@@ -441,6 +460,11 @@ func (h *ConnectorHandler) DeleteConnector(c *gin.Context) {
 // @Success 200 {object} map[string]interface{}
 // @Router /connector/:connector_id/rebuild [post]
 func (h *ConnectorHandler) RebuildConnector(c *gin.Context) {
+	common.StartOperationLog(c, "request_connector_rebuild")
+	defer common.FinishOperationLog(c)
+	if id := c.Param("connector_id"); id != "" {
+		common.SetOperationResource(c, "connector_id", id)
+	}
 
 	// Parse request body to get kb_id
 	var req struct {
@@ -456,6 +480,7 @@ func (h *ConnectorHandler) RebuildConnector(c *gin.Context) {
 		return
 	}
 
+	common.SetOperationResource(c, "dataset_id", req.KbID)
 	ctx := c.Request.Context()
 	_, code, err := h.connectorService.RebuildConnector(ctx, c.Param("connector_id"), req.KbID)
 	if err != nil {
@@ -475,6 +500,11 @@ func (h *ConnectorHandler) RebuildConnector(c *gin.Context) {
 // @Success 200 {object} map[string]interface{}
 // @Router /connector/:connector_id/resume-failed-sync [post]
 func (h *ConnectorHandler) ResumeFailedSync(c *gin.Context) {
+	common.StartOperationLog(c, "request_connector_sync_resume")
+	defer common.FinishOperationLog(c)
+	if id := c.Param("connector_id"); id != "" {
+		common.SetOperationResource(c, "connector_id", id)
+	}
 
 	var req service.ResumeFailedSyncRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -482,6 +512,12 @@ func (h *ConnectorHandler) ResumeFailedSync(c *gin.Context) {
 		return
 	}
 
+	if req.KbID != "" {
+		common.SetOperationResource(c, "dataset_id", req.KbID)
+	}
+	if req.TaskID != "" {
+		common.SetOperationResource(c, "task_id", req.TaskID)
+	}
 	ctx := c.Request.Context()
 	_, code, err := h.connectorService.ResumeFailedSync(ctx, c.Param("connector_id"), &req)
 	if err != nil {
@@ -492,6 +528,8 @@ func (h *ConnectorHandler) ResumeFailedSync(c *gin.Context) {
 }
 
 func (h *ConnectorHandler) StartGoogleWebOAuth(c *gin.Context) {
+	common.StartOperationLog(c, "request_connector_oauth")
+	defer common.FinishOperationLog(c)
 
 	var req service.StartGoogleWebOAuthRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -555,6 +593,9 @@ func (h *ConnectorHandler) googleWebOAuthCallback(c *gin.Context, source string)
 }
 
 func (h *ConnectorHandler) StartBoxWebOAuth(c *gin.Context) {
+	common.StartOperationLog(c, "request_connector_oauth")
+	defer common.FinishOperationLog(c)
+
 	var req service.StartBoxWebOAuthRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.RespondError(c, common.CodeBadRequest, err.Error())

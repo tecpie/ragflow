@@ -45,6 +45,10 @@ func NewOpenAIChatHandler(svc *service.OpenAIChatService) *OpenAIChatHandler {
 // @Success 200 {object} map[string]interface{}
 // @Router /api/v1/openai/{chat_id}/chat/completions [post]
 func (h *OpenAIChatHandler) OpenAIChatCompletions(c *gin.Context) {
+	common.StartOperationLog(c, "request_chat_completion")
+	defer common.FinishOperationLog(c)
+	common.SetOperationResource(c, "chat_id", c.Param("chat_id"))
+
 	chatID := c.Param("chat_id")
 	if chatID == "" {
 		common.ResponseWithCodeData(c, common.CodeDataError, nil, i18n.T(c, i18n.ChatNotOwned, i18n.KV("id", chatID)))
