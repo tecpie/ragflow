@@ -1,6 +1,7 @@
 package document
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -77,7 +78,10 @@ func (s *DocumentService) ReuseParsedChunks(ctx context.Context, targetDatasetID
 	if err != nil {
 		return nil, err
 	}
-	prepared := prepareReusedChunks(rawChunks, targetKB.ID, targetDoc.ID, documentName(targetDoc))
+	prepared, err := prepareReusedChunks(rawChunks, targetKB.ID, targetDoc.ID, documentName(targetDoc))
+	if err != nil {
+		return nil, err
+	}
 	if reusedBodyCount(prepared) == 0 {
 		return nil, errors.New("source document has no reusable parsed chunks")
 	}
@@ -518,7 +522,7 @@ func (s *DocumentService) removeCopiedImages(ctx context.Context, images [][2]st
 	}
 }
 
-func prepareReusedChunks(chunks []map[string]interface{}, targetDatasetID, targetDocumentID, targetName string) []map[string]interface{} {
+func prepareReusedChunks(chunks []map[string]interface{}, targetDatasetID, targetDocumentID, targetName string) ([]map[string]interface{}, error) {
 	idMap := make(map[string]string, len(chunks))
 	prepared := make([]map[string]interface{}, 0, len(chunks))
 	for _, chunk := range chunks {
@@ -567,10 +571,12 @@ func prepareReusedChunks(chunks []map[string]interface{}, targetDatasetID, targe
 		if targetName != "" {
 			cloned["docnm_kwd"] = targetName
 		}
-		remapMindMapSources(cloned, idMap, targetDocumentID)
+		if err := remapMindMapSources(cloned, idMap, targetDocumentID); err != nil {
+			return nil, fmt.Errorf("remap mind map %s: %w", chunkID(chunk), err)
+		}
 		prepared = append(prepared, cloned)
 	}
-	return prepared
+	return prepared, nil
 }
 
 func isMindMapChunk(chunk map[string]interface{}) bool {
@@ -604,34 +610,52 @@ func compileKeyword(chunk map[string]interface{}) string {
 	return ""
 }
 
-func remapMindMapSources(chunk map[string]interface{}, idMap map[string]string, targetDocumentID string) {
+func remapMindMapSources(chunk map[string]interface{}, idMap map[string]string, targetDocumentID string) error {
 	if raw, ok := chunk["source_chunk_ids"]; ok {
-		chunk["source_chunk_ids"] = remapChunkIDList(raw, idMap)
+		if mapped, ok := remapChunkIDValue(raw, idMap); ok {
+			chunk["source_chunk_ids"] = mapped
+		}
 	}
 	if _, ok := chunk["source_doc_ids"]; ok {
 		chunk["source_doc_ids"] = []string{targetDocumentID}
 	}
 	payload, ok := mindMapPayload(chunk["content_with_weight"])
 	if !ok {
-		return
+		return nil
 	}
 	changed := false
 	if raw, ok := payload["source_chunk_ids"]; ok {
-		payload["source_chunk_ids"] = remapChunkIDList(raw, idMap)
-		changed = true
+		if mapped, ok := remapChunkIDValue(raw, idMap); ok {
+			payload["source_chunk_ids"] = mapped
+			changed = true
+		}
 	}
 	if _, ok := payload["source_doc_ids"]; ok {
 		payload["source_doc_ids"] = []string{targetDocumentID}
 		changed = true
 	}
 	if !changed {
-		return
+		return nil
 	}
-	encoded, err := json.Marshal(payload)
+	encoded, err := marshalMindMapPayload(payload)
 	if err != nil {
-		return
+		return fmt.Errorf("encode mind map payload: %w", err)
 	}
-	chunk["content_with_weight"] = string(encoded)
+	chunk["content_with_weight"] = encoded
+	// 旧分词里还有源切片 id。丢掉后由写入路径按新正文重算，避免关键词检索命中旧 id。
+	delete(chunk, "content_ltks")
+	delete(chunk, "content_sm_ltks")
+	return nil
+}
+
+func marshalMindMapPayload(payload map[string]interface{}) (string, error) {
+	var buf bytes.Buffer
+	encoder := json.NewEncoder(&buf)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(payload); err != nil {
+		return "", err
+	}
+	return strings.TrimRight(buf.String(), "\n"), nil
 }
 
 func mindMapPayload(value interface{}) (map[string]interface{}, bool) {
@@ -660,33 +684,51 @@ func mindMapPayload(value interface{}) (map[string]interface{}, bool) {
 	return payload, true
 }
 
-func remapChunkIDList(raw interface{}, idMap map[string]string) []string {
-	mapped := make([]string, 0)
+// remapChunkIDValue maps source chunk ids. A JSON-array string is parsed first.
+// The boolean is false when a string cannot be parsed and the caller must keep
+// the original value instead of writing an empty list.
+func remapChunkIDValue(raw interface{}, idMap map[string]string) (interface{}, bool) {
+	switch typed := raw.(type) {
+	case string:
+		text := strings.TrimSpace(typed)
+		if strings.HasPrefix(text, "[") {
+			var items []interface{}
+			if err := json.Unmarshal([]byte(text), &items); err != nil {
+				return raw, false
+			}
+			return mappedChunkIDs(items, idMap), true
+		}
+		return mappedChunkIDs([]interface{}{text}, idMap), true
+	case []string:
+		items := make([]interface{}, len(typed))
+		for i, id := range typed {
+			items[i] = id
+		}
+		return mappedChunkIDs(items, idMap), true
+	case []interface{}:
+		return mappedChunkIDs(typed, idMap), true
+	default:
+		return raw, false
+	}
+}
+
+func mappedChunkIDs(items []interface{}, idMap map[string]string) []string {
+	mapped := make([]string, 0, len(items))
 	seen := map[string]struct{}{}
-	add := func(id string) {
-		next := idMap[id]
+	for _, item := range items {
+		id, ok := item.(string)
+		if !ok {
+			continue
+		}
+		next := idMap[strings.TrimSpace(id)]
 		if next == "" {
-			return
+			continue
 		}
 		if _, ok := seen[next]; ok {
-			return
+			continue
 		}
 		seen[next] = struct{}{}
 		mapped = append(mapped, next)
-	}
-	switch typed := raw.(type) {
-	case string:
-		add(typed)
-	case []string:
-		for _, id := range typed {
-			add(id)
-		}
-	case []interface{}:
-		for _, item := range typed {
-			if id, ok := item.(string); ok {
-				add(id)
-			}
-		}
 	}
 	return mapped
 }
@@ -779,6 +821,10 @@ func chunkTokenCount(chunk map[string]interface{}) int64 {
 
 func chunksCarryVector(chunks []map[string]interface{}) bool {
 	for _, chunk := range chunks {
+		// 脑图在编译时单独嵌入。正文没有向量时不能靠脑图行通过校验。
+		if isCompiledChunk(chunk) {
+			continue
+		}
 		for key, value := range chunk {
 			if common.IsVectorColumn(key) && value != nil {
 				return true

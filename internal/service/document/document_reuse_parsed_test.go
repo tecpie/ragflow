@@ -52,9 +52,18 @@ func TestPrepareReusedChunksSkipsCompilationAndRemapsParent(t *testing.T) {
 		},
 	}
 
-	prepared := prepareReusedChunks(chunks, "dst-kb", "dst-doc", "moved.pdf")
+	prepared, err := prepareReusedChunks(chunks, "dst-kb", "dst-doc", "moved.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(prepared) != 3 {
 		t.Fatalf("prepared %d chunks, want 3", len(prepared))
+	}
+	if reusedBodyCount(prepared) != 2 {
+		t.Fatalf("body count = %d, want 2", reusedBodyCount(prepared))
+	}
+	if got := reusedTokenCount(prepared); got != 0 {
+		t.Fatalf("token count = %d, want 0 (mind map token_num excluded)", got)
 	}
 	byContent := map[string]map[string]interface{}{}
 	for _, chunk := range prepared {
@@ -130,13 +139,92 @@ func TestIsCompiledChunkIncludesCompileMarker(t *testing.T) {
 }
 
 func TestReusedTokenCountIgnoresSkippedRows(t *testing.T) {
-	prepared := prepareReusedChunks([]map[string]interface{}{
+	prepared, err := prepareReusedChunks([]map[string]interface{}{
 		{"id": "body", "token_num": 12, "q_4_vec": []interface{}{0.1}},
 		{"id": "graph", "knowledge_graph_kwd": "entity", "token_num": 90},
 		{"id": "wiki", "compile_kwd": "wiki", "tk_nums": 30},
+		{"id": "map", "compile_kwd": "mind_map", "token_num": 8},
 	}, "dst", "doc", "moved.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got := reusedTokenCount(prepared); got != 12 {
 		t.Fatalf("token count = %d, want 12", got)
+	}
+	if reusedBodyCount(prepared) != 1 {
+		t.Fatalf("body count = %d, want 1", reusedBodyCount(prepared))
+	}
+}
+
+func TestChunksCarryVectorIgnoresCompiledRows(t *testing.T) {
+	if chunksCarryVector([]map[string]interface{}{
+		{"id": "body"},
+		{"id": "map", "compile_kwd": "mind_map", "q_4_vec": []interface{}{0.1}},
+	}) {
+		t.Fatal("a mind map vector must not satisfy the body vector guard")
+	}
+	if !chunksCarryVector([]map[string]interface{}{
+		{"id": "body", "q_4_vec": []interface{}{0.2}},
+		{"id": "map", "compile_kwd": "mind_map"},
+	}) {
+		t.Fatal("a body vector was ignored")
+	}
+}
+
+func TestRemapMindMapJSONChunkIDsAndDropsStaleTokens(t *testing.T) {
+	prepared, err := prepareReusedChunks([]map[string]interface{}{
+		{"id": "parent", "content_with_weight": "body", "q_4_vec": []interface{}{0.1}},
+		{
+			"id":                  "map",
+			"compile_kwd":         "mind_map",
+			"content_with_weight": `{"name":"A&B","type":"mind_map","source_chunk_ids":["parent"]}`,
+			"source_chunk_ids":    `["parent"]`,
+			"content_ltks":        "parent",
+			"content_sm_ltks":     "parent",
+		},
+		{
+			"id":               "broken",
+			"compile_kwd":      "mind_map",
+			"source_chunk_ids": "[not-json",
+		},
+	}, "dst", "doc", "moved.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mind, broken map[string]interface{}
+	for _, chunk := range prepared {
+		switch chunkID(chunk) {
+		case "":
+		default:
+			if compileKeyword(chunk) != "mind_map" {
+				continue
+			}
+			if _, ok := chunk["content_with_weight"]; ok {
+				mind = chunk
+			} else {
+				broken = chunk
+			}
+		}
+	}
+	if mind == nil || broken == nil {
+		t.Fatal("mind map rows were dropped")
+	}
+	ids, _ := mind["source_chunk_ids"].([]string)
+	if len(ids) != 1 || ids[0] == "" || ids[0] == "parent" {
+		t.Fatalf("json chunk ids = %#v", mind["source_chunk_ids"])
+	}
+	payload, _ := mind["content_with_weight"].(string)
+	if !strings.Contains(payload, "A&B") || strings.Contains(payload, `\u0026`) || !strings.Contains(payload, ids[0]) {
+		t.Fatalf("payload = %s", payload)
+	}
+	if _, ok := mind["content_ltks"]; ok {
+		t.Fatal("stale content_ltks was kept")
+	}
+	if _, ok := mind["content_sm_ltks"]; ok {
+		t.Fatal("stale content_sm_ltks was kept")
+	}
+	if broken["source_chunk_ids"] != "[not-json" {
+		t.Fatalf("unparsed chunk ids = %#v", broken["source_chunk_ids"])
 	}
 }
 
