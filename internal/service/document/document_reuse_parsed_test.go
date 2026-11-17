@@ -2,6 +2,7 @@ package document
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"ragflow/internal/entity"
@@ -40,11 +41,20 @@ func TestPrepareReusedChunksSkipsCompilationAndRemapsParent(t *testing.T) {
 			"compile_kwd": "wiki_page",
 			"token_num":   40,
 		},
+		{
+			"id":                  "map",
+			"compile_kwd":         "mind_map",
+			"knowledge_graph_kwd": "entity",
+			"content_with_weight": `{"name":"主题","type":"mind_map","source_chunk_ids":["parent","missing"]}`,
+			"source_chunk_ids":    []interface{}{"parent", "missing"},
+			"source_doc_ids":      []interface{}{"src-doc"},
+			"token_num":           8,
+		},
 	}
 
 	prepared := prepareReusedChunks(chunks, "dst-kb", "dst-doc", "moved.pdf")
-	if len(prepared) != 2 {
-		t.Fatalf("prepared %d chunks, want 2", len(prepared))
+	if len(prepared) != 3 {
+		t.Fatalf("prepared %d chunks, want 3", len(prepared))
 	}
 	byContent := map[string]map[string]interface{}{}
 	for _, chunk := range prepared {
@@ -67,6 +77,31 @@ func TestPrepareReusedChunksSkipsCompilationAndRemapsParent(t *testing.T) {
 	}
 	if byContent["child text"]["img_id"] != "src-kb-child" {
 		t.Fatalf("image id should stay until the copy step, got %#v", byContent["child text"]["img_id"])
+	}
+	var mind map[string]interface{}
+	for _, chunk := range prepared {
+		if isMindMapChunk(chunk) {
+			mind = chunk
+			break
+		}
+	}
+	if mind == nil {
+		t.Fatal("mind map row was dropped")
+	}
+	if mind["id"] == "map" || mind["doc_id"] != "dst-doc" {
+		t.Fatalf("mind map identity not rewritten: %#v", mind)
+	}
+	ids, _ := mind["source_chunk_ids"].([]string)
+	if len(ids) != 1 || ids[0] != parentID {
+		t.Fatalf("mind map source chunks = %#v, want %s", mind["source_chunk_ids"], parentID)
+	}
+	docs, _ := mind["source_doc_ids"].([]string)
+	if len(docs) != 1 || docs[0] != "dst-doc" {
+		t.Fatalf("mind map source docs = %#v", mind["source_doc_ids"])
+	}
+	payload, _ := mind["content_with_weight"].(string)
+	if !strings.Contains(payload, parentID) || strings.Contains(payload, "missing") || strings.Contains(payload, `"parent"`) {
+		t.Fatalf("mind map payload ids not remapped: %s", payload)
 	}
 }
 

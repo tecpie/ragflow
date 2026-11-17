@@ -2,6 +2,7 @@ package document
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -54,8 +55,9 @@ type ReuseParsedChunksResult struct {
 }
 
 // ReuseParsedChunks copies the source document's file chunks into the target
-// document without running the parser. Vectors are kept as stored. Compiled
-// rows (graph, raptor, wiki, mind map, page index) are skipped. An active
+// document without running the parser. Vectors are kept as stored. The mind
+// map is copied with the body chunks and its source chunk ids are remapped.
+// Other compiled rows (graph, raptor, wiki, page index) are skipped. An active
 // ingestion task is rejected. A finished task is written or updated to
 // COMPLETED so the file list shows the document as parsed; a later reparse
 // with delete removes that terminal task before enqueueing.
@@ -76,7 +78,7 @@ func (s *DocumentService) ReuseParsedChunks(ctx context.Context, targetDatasetID
 		return nil, err
 	}
 	prepared := prepareReusedChunks(rawChunks, targetKB.ID, targetDoc.ID, documentName(targetDoc))
-	if len(prepared) == 0 {
+	if reusedBodyCount(prepared) == 0 {
 		return nil, errors.New("source document has no reusable parsed chunks")
 	}
 	if !chunksCarryVector(prepared) {
@@ -124,7 +126,7 @@ func (s *DocumentService) ReuseParsedChunks(ctx context.Context, targetDatasetID
 	replaced = true
 
 	tokenNum := reusedTokenCount(prepared)
-	if err = s.ApplyDocCounts(ctx, targetDoc.ID, targetKB.ID, len(prepared), int(tokenNum), 0); err != nil {
+	if err = s.ApplyDocCounts(ctx, targetDoc.ID, targetKB.ID, reusedBodyCount(prepared), int(tokenNum), 0); err != nil {
 		return nil, err
 	}
 	if err = s.markReusedDocumentParsed(ctx, targetDoc, targetKB); err != nil {
@@ -132,7 +134,7 @@ func (s *DocumentService) ReuseParsedChunks(ctx context.Context, targetDatasetID
 	}
 	return &ReuseParsedChunksResult{
 		DocumentID: targetDoc.ID,
-		ChunkCount: len(prepared),
+		ChunkCount: reusedBodyCount(prepared),
 		TokenCount: tokenNum,
 	}, nil
 }
@@ -554,7 +556,139 @@ func prepareReusedChunks(chunks []map[string]interface{}, targetDatasetID, targe
 		}
 		prepared = append(prepared, cloned)
 	}
+	for _, chunk := range chunks {
+		if !isMindMapChunk(chunk) || chunkID(chunk) == "" {
+			continue
+		}
+		cloned := cloneChunkFields(chunk)
+		cloned["id"] = common.GenerateToken()
+		cloned["kb_id"] = targetDatasetID
+		cloned["doc_id"] = targetDocumentID
+		if targetName != "" {
+			cloned["docnm_kwd"] = targetName
+		}
+		remapMindMapSources(cloned, idMap, targetDocumentID)
+		prepared = append(prepared, cloned)
+	}
 	return prepared
+}
+
+func isMindMapChunk(chunk map[string]interface{}) bool {
+	switch compileKeyword(chunk) {
+	case "mind_map", "mindmap":
+		return true
+	default:
+		return false
+	}
+}
+
+func compileKeyword(chunk map[string]interface{}) string {
+	switch typed := chunk["compile_kwd"].(type) {
+	case string:
+		return strings.ToLower(strings.TrimSpace(typed))
+	case []string:
+		for _, item := range typed {
+			if text := strings.ToLower(strings.TrimSpace(item)); text != "" {
+				return text
+			}
+		}
+	case []interface{}:
+		for _, item := range typed {
+			if text, ok := item.(string); ok {
+				if text = strings.ToLower(strings.TrimSpace(text)); text != "" {
+					return text
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func remapMindMapSources(chunk map[string]interface{}, idMap map[string]string, targetDocumentID string) {
+	if raw, ok := chunk["source_chunk_ids"]; ok {
+		chunk["source_chunk_ids"] = remapChunkIDList(raw, idMap)
+	}
+	if _, ok := chunk["source_doc_ids"]; ok {
+		chunk["source_doc_ids"] = []string{targetDocumentID}
+	}
+	payload, ok := mindMapPayload(chunk["content_with_weight"])
+	if !ok {
+		return
+	}
+	changed := false
+	if raw, ok := payload["source_chunk_ids"]; ok {
+		payload["source_chunk_ids"] = remapChunkIDList(raw, idMap)
+		changed = true
+	}
+	if _, ok := payload["source_doc_ids"]; ok {
+		payload["source_doc_ids"] = []string{targetDocumentID}
+		changed = true
+	}
+	if !changed {
+		return
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	chunk["content_with_weight"] = string(encoded)
+}
+
+func mindMapPayload(value interface{}) (map[string]interface{}, bool) {
+	var raw []byte
+	switch typed := value.(type) {
+	case string:
+		if !strings.Contains(typed, "source_chunk") && !strings.Contains(typed, "source_doc") {
+			return nil, false
+		}
+		raw = []byte(typed)
+	case []byte:
+		raw = typed
+	case map[string]interface{}:
+		encoded, err := json.Marshal(typed)
+		if err != nil {
+			return nil, false
+		}
+		raw = encoded
+	default:
+		return nil, false
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal(raw, &payload); err != nil || payload == nil {
+		return nil, false
+	}
+	return payload, true
+}
+
+func remapChunkIDList(raw interface{}, idMap map[string]string) []string {
+	mapped := make([]string, 0)
+	seen := map[string]struct{}{}
+	add := func(id string) {
+		next := idMap[id]
+		if next == "" {
+			return
+		}
+		if _, ok := seen[next]; ok {
+			return
+		}
+		seen[next] = struct{}{}
+		mapped = append(mapped, next)
+	}
+	switch typed := raw.(type) {
+	case string:
+		add(typed)
+	case []string:
+		for _, id := range typed {
+			add(id)
+		}
+	case []interface{}:
+		for _, item := range typed {
+			if id, ok := item.(string); ok {
+				add(id)
+			}
+		}
+	}
+	return mapped
 }
 
 func cloneChunkFields(src map[string]interface{}) map[string]interface{} {
@@ -608,9 +742,23 @@ func reusedChunkIDs(chunks []map[string]interface{}) []string {
 	return ids
 }
 
+func reusedBodyCount(chunks []map[string]interface{}) int {
+	count := 0
+	for _, chunk := range chunks {
+		if isCompiledChunk(chunk) || chunkID(chunk) == "" {
+			continue
+		}
+		count++
+	}
+	return count
+}
+
 func reusedTokenCount(chunks []map[string]interface{}) int64 {
 	var total int64
 	for _, chunk := range chunks {
+		if isCompiledChunk(chunk) {
+			continue
+		}
 		total += chunkTokenCount(chunk)
 	}
 	if total < 0 {
