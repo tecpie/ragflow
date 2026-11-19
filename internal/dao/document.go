@@ -658,6 +658,16 @@ func (dao *DocumentDAO) GetByNameAndKBID(ctx context.Context, db *gorm.DB, name,
 	return docs, err
 }
 
+// NameExistsInKB reports whether a document with the given name already
+// exists in the dataset, comparing names case-insensitively.
+func (dao *DocumentDAO) NameExistsInKB(ctx context.Context, db *gorm.DB, kbID, name string) (bool, error) {
+	var count int64
+	err := db.WithContext(ctx).Model(&entity.Document{}).
+		Where("LOWER(name) = LOWER(?) AND kb_id = ?", name, kbID).
+		Count(&count).Error
+	return count > 0, err
+}
+
 // ListNamesByKbID returns every document name in a dataset, used to compute a
 // non-colliding upload filename (mirrors Python duplicate_name).
 func (dao *DocumentDAO) ListNamesByKbID(ctx context.Context, db *gorm.DB, kbID string) ([]string, error) {
