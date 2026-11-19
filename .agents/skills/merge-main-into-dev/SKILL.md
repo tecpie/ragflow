@@ -53,7 +53,7 @@ Prefer `upstream/main` (or `origin/main` when it matches). Do **not** push unles
 
 Known local features that must survive main merges unless the user explicitly retires them:
 
-- Evaluation stack (`internal/entity/evaluation.go`, `internal/service/evaluation*.go`, `internal/handler/evaluation.go`, `/evaluations` routes, dao AutoMigrate / JSON-column registration, user-delete cleanup)
+- Evaluation stack (`internal/entity/evaluation.go`, `internal/service/evaluation*.go`, `internal/handler/evaluation.go`, `/evaluations` routes, dao AutoMigrate / JSON-column registration, real `deleteEvaluationsEE` in `internal/service/user_delete_stub.go` — not the official no-op)
 - Ontology / DocCompile paths
 - Table/signature vision enhance flags
 - Metadata value_source prefetch

@@ -4903,7 +4903,7 @@ func chatConfigThinkingValue(v interface{}) (bool, bool) {
 // Dialog values are read first; request config values win when present.
 // enable_thinking (chat "深度思考" toggle) overrides thinking when set.
 func BuildChatConfig(dialog *entity.Chat, config map[string]interface{}) *modelModule.ChatConfig {
-	cfg := &modelModule.ChatConfig{}
+	cfg := &modelModule.ChatConfig{Thinking: new(false)}
 
 	if dialog.LLMSetting != nil {
 		if v, ok := dialog.LLMSetting["stream"].(bool); ok {
@@ -4911,6 +4911,8 @@ func BuildChatConfig(dialog *entity.Chat, config map[string]interface{}) *modelM
 		}
 		if v, ok := chatConfigThinkingValue(dialog.LLMSetting["thinking"]); ok {
 			cfg.Thinking = &v
+		} else if v, ok := dialog.LLMSetting["thinking"].(string); ok {
+			cfg.Thinking = new(v == "enabled")
 		}
 		if v, ok := chatConfigPositiveInt(dialog.LLMSetting["max_tokens"]); ok {
 			i := v
@@ -4956,6 +4958,8 @@ func BuildChatConfig(dialog *entity.Chat, config map[string]interface{}) *modelM
 		// "深度思考" actually reaches applyEnableThinkingPolicy.
 		if v, ok := chatConfigThinkingValue(config["enable_thinking"]); ok {
 			cfg.Thinking = &v
+		} else if v, ok := config["thinking"].(string); ok {
+			cfg.Thinking = new(v == "enabled")
 		}
 		if v, ok := chatConfigPositiveInt(config["max_tokens"]); ok {
 			i := v

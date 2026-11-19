@@ -16,14 +16,18 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { VirtualMessageList } from '@/components/virtual-message-list';
-import { MessageType } from '@/constants/chat';
+import { ChatSessionSource, MessageType } from '@/constants/chat';
 import { useHandleMessageInputChange } from '@/hooks/logic-hooks';
 import {
   useFetchChat,
   useGetChatSearchParams,
   useUpdateChat,
 } from '@/hooks/use-chat-request';
-import { useFindLlmByUuid } from '@/hooks/use-llm-request';
+import {
+  ModelResourceAccessUserIdContext,
+  ModelResourceTenantIdContext,
+  useFindLlmByUuid,
+} from '@/hooks/use-llm-request';
 import { useFetchUserInfo } from '@/hooks/use-user-setting-request';
 import { IClientConversation } from '@/interfaces/database/chat';
 import {
@@ -78,6 +82,7 @@ type ChatCardProps = {
   id: string;
   idx: number;
   conversation: IClientConversation;
+  isAnyBoxLoading: boolean;
   setLoading(id: string, loading: boolean): void;
 } & Pick<
   MultipleChatBoxProps,
@@ -100,6 +105,7 @@ const ChatCard = forwardRef(function ChatCard(
     files,
     clearFiles,
     setLoading,
+    isAnyBoxLoading,
   }: ChatCardProps,
   ref,
 ) {
@@ -135,7 +141,10 @@ const ChatCard = forwardRef(function ChatCard(
 
   const { data: userInfo } = useFetchUserInfo();
   const { data: currentDialog } = useFetchChat();
-  const findLlmByUuid = useFindLlmByUuid();
+  const findLlmByUuid = useFindLlmByUuid(
+    currentDialog?.tenant_id,
+    currentDialog?.user_id,
+  );
 
   // Each card must keep its own independently selected config after the initial
   // sync. Without this guard, clicking "Apply" in one card updates the dialog
@@ -209,11 +218,19 @@ const ChatCard = forwardRef(function ChatCard(
             <span className="shrink-0 text-base">{idx + 1}</span>
             <div className="min-w-0 flex-1">
               <Form {...form}>
-                <LargeModelFormFieldWithoutFilter
-                  triggerTestId="chat-detail-multimodel-card-model-select"
-                  optionTestIdPrefix="chat-detail-llm-option-"
-                  ownerTenantId={currentDialog?.tenant_id}
-                ></LargeModelFormFieldWithoutFilter>
+                <ModelResourceTenantIdContext.Provider
+                  value={currentDialog?.tenant_id}
+                >
+                  <ModelResourceAccessUserIdContext.Provider
+                    value={currentDialog?.user_id}
+                  >
+                    <LargeModelFormFieldWithoutFilter
+                      triggerTestId="chat-detail-multimodel-card-model-select"
+                      optionTestIdPrefix="chat-detail-llm-option-"
+                      resourceTenantId={currentDialog?.tenant_id}
+                    ></LargeModelFormFieldWithoutFilter>
+                  </ModelResourceAccessUserIdContext.Provider>
+                </ModelResourceTenantIdContext.Provider>
               </Form>
             </div>
           </div>
@@ -223,7 +240,7 @@ const ChatCard = forwardRef(function ChatCard(
                 <Button
                   variant="ghost"
                   size="icon-sm"
-                  disabled={isEmpty(llmId)}
+                  disabled={isEmpty(llmId) || isAnyBoxLoading}
                   onClick={handleApplyConfig}
                   data-testid="chat-detail-multimodel-card-apply"
                   data-card-index={idx}
@@ -239,6 +256,7 @@ const ChatCard = forwardRef(function ChatCard(
               <Button
                 variant="ghost"
                 size="icon-sm"
+                disabled={isAnyBoxLoading}
                 onClick={handleRemoveChatBox}
                 data-testid="chat-detail-multimodel-card-remove"
                 data-card-index={idx}
@@ -250,6 +268,7 @@ const ChatCard = forwardRef(function ChatCard(
               <Button
                 variant="ghost"
                 size="icon-sm"
+                disabled={isAnyBoxLoading}
                 onClick={addChatBox}
                 data-testid="chat-detail-multimodel-add-card"
               >
@@ -306,6 +325,8 @@ export function MultipleChatBox({
     useCreateConversationBeforeSendMessage();
   const { conversationId } = useGetChatSearchParams();
   const disabled = useGetSendButtonDisabled();
+  const isChannelConversation =
+    conversation.source === ChatSessionSource.ChatChannel;
   const { visible, hideModal, documentId, selectedChunk, clickDocumentButton } =
     useClickDrawer();
 
@@ -322,6 +343,7 @@ export function MultipleChatBox({
   }, []);
 
   const allChatBoxLoading = [...chatBoxLoading.values()];
+  const isAnyBoxLoading = allChatBoxLoading.some((loading) => loading);
 
   const showInternet = useShowInternet();
 
@@ -387,14 +409,15 @@ export function MultipleChatBox({
             setValue={setValue}
             clearFiles={clearFiles}
             setLoading={setLoading}
+            isAnyBoxLoading={isAnyBoxLoading}
           ></ChatCard>
         ))}
       </div>
       <div className="px-[20%]">
         <NextMessageInput
-          disabled={disabled}
-          sendDisabled={sendDisabled}
-          sendLoading={allChatBoxLoading.some((loading) => loading)}
+          disabled={disabled || isChannelConversation}
+          sendDisabled={sendDisabled || isChannelConversation}
+          sendLoading={isAnyBoxLoading}
           value={value}
           resize="vertical"
           onInputChange={handleInputChange}

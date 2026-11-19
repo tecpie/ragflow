@@ -373,12 +373,13 @@ func (s *Service) DeleteUser(ctx context.Context, username string) (*servicepkg.
 
 // ChangePassword change user password
 // Parameters:
+//   - actorID: ID of the administrator making the change
 //   - username: email address of the user
 //   - newPassword: new encrypted password (base64 encoded RSA encrypted)
 //
 // Returns:
 //   - error: error message
-func (s *Service) ChangePassword(ctx context.Context, username, newPassword string) error {
+func (s *Service) ChangePassword(ctx context.Context, actorID, username, newPassword string) error {
 	userList, err := s.userDAO.ListByEmail(ctx, dao.DB, username)
 	if err != nil || len(userList) == 0 {
 		return fmt.Errorf("user '%s' not found", username)
@@ -389,6 +390,10 @@ func (s *Service) ChangePassword(ctx context.Context, username, newPassword stri
 	}
 
 	user := userList[0]
+
+	if err := checkAdminPasswordChangeTarget(actorID, user.ID); err != nil {
+		return err
+	}
 
 	decryptedPassword, err := common.DecryptPassword(newPassword)
 	if err != nil {
@@ -1045,6 +1050,11 @@ func (s *Service) SetVariable(ctx context.Context, varName, varValue string) err
 }
 
 func (s *Service) setVariable(ctx context.Context, db *gorm.DB, varName, varValue string) error {
+	if strings.EqualFold(varName, "api_key.max_count") {
+		if _, err := entity.ParseAPITokenLimit(varValue); err != nil {
+			return err
+		}
+	}
 	settings, err := s.systemSettingsDAO.GetByName(ctx, db, varName)
 	if err != nil {
 		return err
@@ -1052,6 +1062,11 @@ func (s *Service) setVariable(ctx context.Context, db *gorm.DB, varName, varValu
 
 	if len(settings) == 1 {
 		setting := &settings[0]
+		if strings.EqualFold(setting.Name, "api_key.max_count") {
+			if _, err := entity.ParseAPITokenLimit(varValue); err != nil {
+				return err
+			}
+		}
 		if err = entity.ValidateSystemSettingValue(*setting, varValue); err != nil {
 			return err
 		}
