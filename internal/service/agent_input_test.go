@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"testing"
 
+	"ragflow/internal/agent/canvas"
 	"ragflow/internal/common"
 	"ragflow/internal/entity"
 )
@@ -34,6 +35,60 @@ func TestNormalizeAgentInput(t *testing.T) {
 				t.Fatalf("normalized input = %#v, want %#v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestAgentPersistedInputsKeepsNamedFields(t *testing.T) {
+	got := agentPersistedInputs(map[string]any{"query": "hello", "name": "Alice"})
+	want := map[string]any{"query": "hello", "name": "Alice"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("agentPersistedInputs = %#v, want %#v", got, want)
+	}
+	if got := agentSessionUserContent(map[string]any{"query": "hello", "name": "Alice"}); got != "hello" {
+		t.Fatalf("agentSessionUserContent with query = %q, want hello", got)
+	}
+	if got := agentSessionUserContent(map[string]any{"name": "Alice", "age": 18}); got != "age: 18\nname: Alice" {
+		t.Fatalf("agentSessionUserContent without query = %q", got)
+	}
+}
+
+func TestCollectAgentComponentIO(t *testing.T) {
+	state := canvas.NewCanvasState("run-1", "session-1")
+	state.MergeNamespaces(map[string]any{
+		"_node_inputs_begin":   map[string]any{"query": "q1", "name": "Alice"},
+		"_node_inputs_agent_0": map[string]any{"user_prompt": "q1"},
+	}, nil, nil)
+	state.RecordOutput("agent_0", "content", "answer")
+	state.RecordOutput("agent_0", "structured", map[string]any{"ok": true})
+
+	dsl := map[string]any{
+		"components": map[string]any{
+			"begin": map[string]any{
+				"obj": map[string]any{"component_name": "Begin", "name": "Begin"},
+			},
+			"agent_0": map[string]any{
+				"obj": map[string]any{"component_name": "Agent", "name": "Reviewer"},
+			},
+			"message_0": map[string]any{
+				"obj": map[string]any{"component_name": "Message"},
+			},
+		},
+	}
+
+	got := collectAgentComponentIO(state, dsl)
+	if len(got) != 2 {
+		t.Fatalf("component_io len = %d, want 2: %#v", len(got), got)
+	}
+	if got[0]["component_id"] != "agent_0" || got[1]["component_id"] != "begin" {
+		t.Fatalf("unexpected order/ids: %#v", got)
+	}
+	agentInputs, _ := got[0]["inputs"].(map[string]any)
+	if agentInputs["user_prompt"] != "q1" {
+		t.Fatalf("agent inputs = %#v", agentInputs)
+	}
+	agentOutputs, _ := got[0]["outputs"].(map[string]any)
+	if agentOutputs["content"] != "answer" {
+		t.Fatalf("agent outputs = %#v", agentOutputs)
 	}
 }
 

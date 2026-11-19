@@ -245,6 +245,8 @@ func TestConvertOperator(t *testing.T) {
 		{"contains", "contains"},
 		{"==", "="},
 		{"start with", "start with"},
+		{" = ", "="},
+		{"  is  ", "="},
 	}
 	for _, tt := range tests {
 		got := convertOperator(tt.input)

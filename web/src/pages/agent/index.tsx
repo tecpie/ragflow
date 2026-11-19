@@ -15,6 +15,7 @@ import {
 import message from '@/components/ui/message';
 import { SharedFrom } from '@/constants/chat';
 import { useSetModalState } from '@/hooks/common-hooks';
+import { useNavigatePage } from '@/hooks/logic-hooks/navigate-hooks';
 import { useFetchAgent, useSaveAgent } from '@/hooks/use-agent-request';
 import {
   ModelResourceAccessUserIdContext,
@@ -28,6 +29,7 @@ import {
   CirclePlay,
   History,
   LaptopMinimalCheck,
+  Logs,
   MessageSquareCode,
   ScreenShare,
   Upload,
@@ -133,6 +135,7 @@ export default function Agent() {
 
   const { showEmbedModal, hideEmbedModal, embedVisible, beta } =
     useShowEmbedModal();
+  const { navigateToAgentLogs } = useNavigatePage();
   const time = useWatchAgentChange(chatDrawerVisible);
   const isWebhookMode = useIsWebhookMode();
 
@@ -331,6 +334,15 @@ export default function Agent() {
                 <History />
                 {t('flow.historyVersion')}
               </AgentDropdownMenuItem>
+              <DropdownMenuSeparator />
+              {isPipeline || (
+                <AgentDropdownMenuItem
+                  onClick={() => navigateToAgentLogs(id as string)()}
+                >
+                  <Logs />
+                  {t('flow.log')}
+                </AgentDropdownMenuItem>
+              )}
               <DropdownMenuSeparator />
               <AgentDropdownMenuItem onClick={handleExportJson}>
                 <Upload />

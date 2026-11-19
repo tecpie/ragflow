@@ -116,6 +116,7 @@ type AgentParam struct {
 	// when set, Invoke populates outputs["structured"] so downstream Message
 	// templates like {Agent:X@structured} resolve. matchAgentOutputStructure
 	// validates against the raw schema (required/types/additionalProperties).
+	// On mismatch, Invoke retries once via a plain chat re-prompt (same as LLM).
 	OutputStructure map[string]any
 	// OutputSchema is the canvas outputs.structured JSON Schema.
 	// Invoke appends each description to the system prompt.
@@ -1416,12 +1417,19 @@ func (c *AgentComponent) invokeNow(ctx context.Context, db *gorm.DB, inputs map[
 		if !ok {
 			parsed, ok = matchAgentOutputStructure(content, p.OutputStructure)
 		}
+		if !ok {
+			if retryContent, retryParsed, retryOK := retryAgentStructuredOutput(ctx, db, p, content); retryOK {
+				parsed, ok = retryParsed, true
+				cleaned = strings.TrimSpace(cleanFormattedAnswer(retryContent))
+				content = cleaned
+			}
+		}
 		if ok {
 			out["structured"] = parsed
 			out["content"] = cleaned + artifactMD
 			content = cleaned
 		} else {
-			common.Warn("component: Agent: outputs.structured set but no parseable JSON matching schema",
+			common.Warn("component: Agent: outputs.structured set but no parseable JSON matching schema after retry",
 				zap.Strings("expected_keys", sortedMapKeys(structuredExpectedKeySet(p.OutputStructure))))
 		}
 	}
@@ -2052,6 +2060,40 @@ func agentOutputStructureFrom(inputs map[string]any) map[string]any {
 		return nil
 	}
 	return structured
+}
+
+// retryAgentStructuredOutput asks the model once more for schema-matching JSON
+// when the ReAct final answer failed matchAgentOutputStructure. Uses a plain
+// chat call (no tools), mirroring LLMComponent's one-shot structured retry.
+func retryAgentStructuredOutput(ctx context.Context, db *gorm.DB, p AgentParam, prevContent string) (string, map[string]any, bool) {
+	expected := structuredExpectedKeySet(p.OutputStructure)
+	inv := getDefaultChatInvoker()
+	retryResp, err := inv.Invoke(ctx, db, ChatInvokeRequest{
+		Driver:      p.Driver,
+		ModelName:   p.ModelID,
+		APIKey:      p.APIKey,
+		BaseURL:     p.BaseURL,
+		Messages:    buildStructuredRetryMessages(p.SystemPrompt, p.UserPrompt, p.visualFiles, p.Cite, expected, prevContent),
+		Temperature: p.Temperature,
+		TopP:        p.TopP,
+		MaxTokens:   p.MaxTokens,
+		Thinking:    p.Thinking,
+	})
+	if err != nil || retryResp == nil {
+		return "", nil, false
+	}
+	cleaned := strings.TrimSpace(cleanFormattedAnswer(retryResp.Content))
+	parsed, ok := matchAgentOutputStructure(cleaned, p.OutputStructure)
+	if !ok {
+		parsed, ok = matchAgentOutputStructure(retryResp.Content, p.OutputStructure)
+	}
+	if !ok {
+		return "", nil, false
+	}
+	if cleaned == "" {
+		cleaned = retryResp.Content
+	}
+	return cleaned, parsed, true
 }
 
 // matchAgentOutputStructure parses content against a flat key hint or a JSON

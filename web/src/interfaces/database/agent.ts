@@ -342,11 +342,25 @@ export interface IAgentLogsRequest {
   exp_user_id?: string; // tenant id
 }
 
+export interface IAgentComponentIO {
+  component_id: string;
+  component_name?: string;
+  component_type?: string;
+  inputs?: Record<string, unknown>;
+  outputs?: Record<string, unknown>;
+}
+
 export interface IAgentLogMessage {
   content: string;
   role: 'user' | 'assistant';
   reference?: IReference;
   id: string;
+  /** Full Begin/named runtime inputs (not only query text). */
+  inputs?: Record<string, unknown>;
+  /** Assistant turn outputs persisted with the session message. */
+  outputs?: Record<string, unknown>;
+  /** Begin/Agent node inputs and outputs captured from the finished canvas. */
+  component_io?: IAgentComponentIO[];
 }
 
 export interface IPipeLineListRequest {

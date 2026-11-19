@@ -87,6 +87,9 @@ func TestAgent_PopulatesStructuredFromOutputsSchema(t *testing.T) {
 			Content: "```json\n{\"records\":[{\"ruleId\":\"r1\",\"verdict\":\"PASS\"}],\"opinion\":{\"conclusion\":\"PASS\"}}\n```",
 		}, nil
 	})
+	// Valid first answer must not trigger the structured-output chat retry.
+	stub := &stubInvoker{resp: &ChatInvokeResponse{Content: `{"should":"not be used"}`, Model: "stub"}}
+	withStubInvoker(t, stub)
 
 	c := NewAgentComponent(agentParamFromMap(map[string]any{
 		"model_id": "stub",
@@ -117,6 +120,116 @@ func TestAgent_PopulatesStructuredFromOutputsSchema(t *testing.T) {
 	if got, want := out["content"], `{"records":[{"ruleId":"r1","verdict":"PASS"}],"opinion":{"conclusion":"PASS"}}`; got != want {
 		t.Errorf("content=%q, want cleaned JSON %q", got, want)
 	}
+	if stub.calls != 0 {
+		t.Errorf("structured retry invoker calls=%d, want 0", stub.calls)
+	}
+}
+
+func TestAgent_StructuredOutput_RetryOnInvalid(t *testing.T) {
+	withAgentRunner(t, func(_ context.Context, _ AgentParam) (*schema.Message, error) {
+		return &schema.Message{Role: schema.Assistant, Content: "not json at all"}, nil
+	})
+	var retryUser string
+	inv := &capturingSequenceInvoker{
+		responses: []*ChatInvokeResponse{
+			{Content: `{"answers":[{"ruleId":"r1","question":"q","answer":"a","evidence":[]}]}`, Model: "stub"},
+		},
+		onCall: func(req ChatInvokeRequest) {
+			if len(req.Messages) > 0 {
+				retryUser = req.Messages[len(req.Messages)-1].Content
+			}
+		},
+	}
+	withStubInvoker(t, inv)
+
+	c := NewAgentComponent(agentParamFromMap(map[string]any{
+		"model_id": "stub",
+		"outputs": map[string]any{
+			"structured": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"answers": map[string]any{"type": "array"},
+				},
+				"required": []any{"answers"},
+			},
+		},
+	}))
+	out, err := c.Invoke(t.Context(), nil, map[string]any{"user_prompt": "answer"})
+	if err != nil {
+		t.Fatalf("Invoke: %v", err)
+	}
+	if inv.calls != 1 {
+		t.Errorf("expected 1 structured retry call, got %d", inv.calls)
+	}
+	structured, ok := out["structured"].(map[string]any)
+	if !ok {
+		t.Fatalf("structured not populated after retry; out=%+v", out)
+	}
+	if _, ok := structured["answers"]; !ok {
+		t.Fatalf("structured.answers missing: %#v", structured)
+	}
+	if got, want := out["content"], `{"answers":[{"ruleId":"r1","question":"q","answer":"a","evidence":[]}]}`; got != want {
+		t.Errorf("content=%q, want %q", got, want)
+	}
+	if !strings.Contains(retryUser, "not json at all") || !strings.Contains(retryUser, "answers") {
+		t.Errorf("retry prompt should include previous response and keys; got %q", retryUser)
+	}
+}
+
+func TestAgent_StructuredOutput_RetryStillFails(t *testing.T) {
+	withAgentRunner(t, func(_ context.Context, _ AgentParam) (*schema.Message, error) {
+		return &schema.Message{Role: schema.Assistant, Content: "still prose"}, nil
+	})
+	inv := &callCountingInvoker{
+		responses: []*ChatInvokeResponse{
+			{Content: "still not json", Model: "stub"},
+		},
+	}
+	withStubInvoker(t, inv)
+
+	c := NewAgentComponent(agentParamFromMap(map[string]any{
+		"model_id": "stub",
+		"outputs": map[string]any{
+			"structured": map[string]any{
+				"type":     "object",
+				"required": []any{"answers"},
+				"properties": map[string]any{
+					"answers": map[string]any{"type": "array"},
+				},
+			},
+		},
+	}))
+	out, err := c.Invoke(t.Context(), nil, map[string]any{"user_prompt": "answer"})
+	if err != nil {
+		t.Fatalf("Invoke should not error on parse failure: %v", err)
+	}
+	if inv.calls != 1 {
+		t.Errorf("expected 1 structured retry call, got %d", inv.calls)
+	}
+	if _, has := out["structured"]; has {
+		t.Errorf("structured should be absent after failed retry; out=%+v", out)
+	}
+	if out["content"] != "still prose" {
+		t.Errorf("content should remain first answer; got %q", out["content"])
+	}
+}
+
+// capturingSequenceInvoker returns scripted chat responses and records each request.
+type capturingSequenceInvoker struct {
+	responses []*ChatInvokeResponse
+	onCall    func(ChatInvokeRequest)
+	calls     int
+}
+
+func (c *capturingSequenceInvoker) Invoke(_ context.Context, _ *gorm.DB, req ChatInvokeRequest) (*ChatInvokeResponse, error) {
+	c.calls++
+	if c.onCall != nil {
+		c.onCall(req)
+	}
+	if c.calls-1 < len(c.responses) {
+		return c.responses[c.calls-1], nil
+	}
+	return &ChatInvokeResponse{Content: "exhausted"}, nil
 }
 
 func TestAgent_AppendsStructuredDescriptionsToPrompt(t *testing.T) {

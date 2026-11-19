@@ -109,6 +109,7 @@ func ParseAndConvert(metadataCondition map[string]interface{}) *MetaFilterInput 
 // convertOperator translates operator aliases to their canonical form.
 
 func convertOperator(op string) string {
+	op = strings.TrimSpace(op)
 	if mapped, exists := operatorMapping[op]; exists {
 		return mapped
 	}
@@ -393,12 +394,12 @@ type MetadataEnumOption struct {
 // parser_config.metadata / built_in_metadata and the Python metadata_utils.py
 // field contract.
 type MetadataFieldDef struct {
-	Key         string                `json:"key"`
-	Type        string                `json:"type,omitempty"`
-	Description string                `json:"description,omitempty"`
-	Enum        []string              `json:"enum,omitempty"`
-	ValueSource *MetadataValueSource  `json:"value_source,omitempty"`
-	EnumOptions []MetadataEnumOption  `json:"enum_options,omitempty"`
+	Key         string               `json:"key"`
+	Type        string               `json:"type,omitempty"`
+	Description string               `json:"description,omitempty"`
+	Enum        []string             `json:"enum,omitempty"`
+	ValueSource *MetadataValueSource `json:"value_source,omitempty"`
+	EnumOptions []MetadataEnumOption `json:"enum_options,omitempty"`
 }
 
 // Turn2JSONSchema converts a metadata field list into a JSON-Schema object,

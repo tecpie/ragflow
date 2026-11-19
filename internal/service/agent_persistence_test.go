@@ -247,6 +247,78 @@ func TestAgentSessionMessageContent(t *testing.T) {
 	}
 }
 
+// TestPersistAgentRunQuestionKeepsNamedInputs ensures the session user
+// message stores the full Begin/named input map (not only query text) so
+// the agent log page can inspect real runtime inputs.
+func TestPersistAgentRunQuestionKeepsNamedInputs(t *testing.T) {
+	testDB := setupServiceTestDB(t)
+	if err := testDB.AutoMigrate(&entity.API4Conversation{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	originalDB := dao.DB
+	dao.DB = testDB
+	t.Cleanup(func() { dao.DB = originalDB })
+
+	if err := dao.NewAPI4ConversationDAO().Create(t.Context(), testDB, &entity.API4Conversation{
+		ID:       "session-inputs",
+		DialogID: "canvas-inputs",
+		UserID:   "user-1",
+		Message:  json.RawMessage(`[]`),
+	}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	svc := NewAgentService()
+	ctx := permission.WithIdentity(t.Context(), "user-1", "")
+	userInput := map[string]any{"query": "hello", "name": "Alice", "enabled": true}
+	if err := svc.persistAgentRunQuestion(ctx, "canvas-inputs", "session-inputs", "msg-1", userInput, 1); err != nil {
+		t.Fatalf("persist question: %v", err)
+	}
+
+	state := canvas.NewCanvasState("run-1", "session-inputs")
+	state.MergeNamespaces(map[string]any{
+		"_node_inputs_agent_0": map[string]any{"user_prompt": "hello", "name": "Alice"},
+	}, nil, nil)
+	state.RecordOutput("agent_0", "content", "hi Alice")
+	dsl := map[string]any{
+		"components": map[string]any{
+			"agent_0": map[string]any{
+				"obj": map[string]any{"component_name": "Agent", "name": "Reviewer"},
+			},
+		},
+	}
+	if err := svc.persistAgentRunSession(ctx, "canvas-inputs", "session-inputs", "msg-1", userInput, "hi Alice", "", map[string]interface{}{}, dsl, state, true, false); err != nil {
+		t.Fatalf("persist session: %v", err)
+	}
+
+	conv, err := dao.NewAPI4ConversationDAO().GetByID(t.Context(), testDB, "session-inputs", dao.ConversationHistoryOptions{IncludeReference: true})
+	if err != nil {
+		t.Fatalf("reload session: %v", err)
+	}
+	var messages []map[string]any
+	if err := json.Unmarshal(conv.Message, &messages); err != nil {
+		t.Fatalf("decode messages: %v", err)
+	}
+	if len(messages) != 2 {
+		t.Fatalf("messages = %d, want 2", len(messages))
+	}
+	inputs, _ := messages[0]["inputs"].(map[string]any)
+	if inputs["query"] != "hello" || inputs["name"] != "Alice" || inputs["enabled"] != true {
+		t.Fatalf("user inputs = %#v", inputs)
+	}
+	if messages[0]["content"] != "hello" {
+		t.Fatalf("user content = %#v, want hello", messages[0]["content"])
+	}
+	outputs, _ := messages[1]["outputs"].(map[string]any)
+	if outputs["content"] != "hi Alice" {
+		t.Fatalf("assistant outputs = %#v", outputs)
+	}
+	componentIO, _ := messages[1]["component_io"].([]any)
+	if len(componentIO) != 1 {
+		t.Fatalf("component_io = %#v", messages[1]["component_io"])
+	}
+}
+
 // TestPersistAgentRunSessionPreservesThinking guards the chat.thought
 // ("思考完成") indicator: the assistant message stored on the agent session
 // must keep the reasoning segment wrapped in <think> tags, mirroring Python

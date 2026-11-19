@@ -2821,11 +2821,15 @@ func (s *AgentService) persistAgentRunQuestion(ctx context.Context, agentID, ses
 		return nil
 	}
 	userID := permission.UserIDFromContext(ctx)
-	text := stringifyAgentUserInput(agentRunQuery(userInput))
-	if text == "" {
+	inputs := agentPersistedInputs(userInput)
+	text := agentSessionUserContent(userInput)
+	if text == "" && len(inputs) == 0 {
 		return nil
 	}
 	message := map[string]interface{}{"role": "user", "content": text, "id": messageID, "created_at": receivedAt}
+	if len(inputs) > 0 {
+		message["inputs"] = inputs
+	}
 	return s.api4ConversationDAO.UpdateHistory(ctx, dao.DB, sessionID, agentID, userID, nil, dao.ConversationHistoryUpdate{Message: message})
 }
 
@@ -2847,11 +2851,24 @@ func (s *AgentService) persistAgentRunSession(
 	}
 	userID := permission.UserIDFromContext(ctx)
 	history := dao.ConversationHistoryUpdate{}
-	if stringifyAgentUserInput(agentRunQuery(userInput)) != "" {
+	if agentSessionUserContent(userInput) != "" || len(agentPersistedInputs(userInput)) > 0 {
 		history.QuestionID = messageID
 	}
 	if appendAssistantMessage {
-		history.Message = map[string]interface{}{"role": "assistant", "content": agentSessionMessageContent(answer, thinking), "id": messageID, "created_at": now, "reference": normalizeAgentReferenceEntry(reference)}
+		message := map[string]interface{}{
+			"role":       "assistant",
+			"content":    agentSessionMessageContent(answer, thinking),
+			"id":         messageID,
+			"created_at": now,
+			"reference":  normalizeAgentReferenceEntry(reference),
+		}
+		if outputs := agentPersistedOutputs(answer, thinking); len(outputs) > 0 {
+			message["outputs"] = outputs
+		}
+		if componentIO := collectAgentComponentIO(state, runDSL); len(componentIO) > 0 {
+			message["component_io"] = componentIO
+		}
+		history.Message = message
 	}
 	updates := map[string]interface{}{
 		"round":  gorm.Expr("COALESCE(round, 0) + 1"),
@@ -3065,6 +3082,128 @@ func agentWorkflowInput(userInput any) map[string]any {
 		return maps.Clone(values)
 	}
 	return map[string]any{"query": userInput}
+}
+
+// agentPersistedInputs keeps the full Begin/named input map on the session
+// user message so the log page can show more than sys.query.
+func agentPersistedInputs(userInput any) map[string]any {
+	if userInput == nil {
+		return nil
+	}
+	if values, ok := userInput.(map[string]any); ok {
+		if len(values) == 0 {
+			return nil
+		}
+		return maps.Clone(values)
+	}
+	text := stringifyAgentUserInput(userInput)
+	if text == "" {
+		return nil
+	}
+	return map[string]any{"query": userInput}
+}
+
+// agentSessionUserContent is the chat-bubble preview text. Prefer the
+// conversational query; when only named Begin fields were submitted, fall
+// back to a readable key/value summary instead of dropping the turn.
+func agentSessionUserContent(userInput any) string {
+	if text := stringifyAgentUserInput(agentRunQuery(userInput)); text != "" {
+		return text
+	}
+	values, ok := userInput.(map[string]any)
+	if !ok || len(values) == 0 {
+		return stringifyAgentUserInput(userInput)
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, fmt.Sprintf("%s: %v", key, values[key]))
+	}
+	return strings.Join(parts, "\n")
+}
+
+func agentPersistedOutputs(answer, thinking string) map[string]any {
+	outputs := map[string]any{}
+	if answer != "" {
+		outputs["content"] = answer
+	}
+	if thinking != "" {
+		outputs["thinking"] = thinking
+	}
+	if len(outputs) == 0 {
+		return nil
+	}
+	return outputs
+}
+
+// collectAgentComponentIO snapshots Begin/Agent node inputs and outputs from
+// the finished canvas state so historical log pages can inspect the actual
+// runtime payload, not only the conversational query string.
+func collectAgentComponentIO(state *canvas.CanvasState, runDSL map[string]any) []map[string]any {
+	if state == nil {
+		return nil
+	}
+	typeByID := map[string]string{}
+	nameByID := map[string]string{}
+	if components, ok := runDSL["components"].(map[string]any); ok {
+		for cpnID, raw := range components {
+			comp, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			obj, _ := comp["obj"].(map[string]any)
+			if obj == nil {
+				continue
+			}
+			typ, _ := obj["component_name"].(string)
+			if !strings.EqualFold(typ, "Agent") && !strings.EqualFold(typ, "Begin") {
+				continue
+			}
+			typeByID[cpnID] = typ
+			if name, ok := obj["name"].(string); ok && name != "" {
+				nameByID[cpnID] = name
+			} else {
+				nameByID[cpnID] = cpnID
+			}
+		}
+	}
+	if len(typeByID) == 0 {
+		return nil
+	}
+
+	sysNS, _, _ := state.SnapshotNamespaces()
+	outputsByID := state.Snapshot()
+	ids := make([]string, 0, len(typeByID))
+	for cpnID := range typeByID {
+		ids = append(ids, cpnID)
+	}
+	sort.Strings(ids)
+
+	result := make([]map[string]any, 0, len(ids))
+	for _, cpnID := range ids {
+		inputs, _ := sysNS["_node_inputs_"+cpnID].(map[string]any)
+		outputs := outputsByID[cpnID]
+		if len(inputs) == 0 && len(outputs) == 0 {
+			continue
+		}
+		entry := map[string]any{
+			"component_id":   cpnID,
+			"component_name": nameByID[cpnID],
+			"component_type": typeByID[cpnID],
+		}
+		if len(inputs) > 0 {
+			entry["inputs"] = maps.Clone(inputs)
+		}
+		if len(outputs) > 0 {
+			entry["outputs"] = maps.Clone(outputs)
+		}
+		result = append(result, entry)
+	}
+	return result
 }
 
 func appendAssistantHistory(state *canvas.CanvasState, payload map[string]any) {
