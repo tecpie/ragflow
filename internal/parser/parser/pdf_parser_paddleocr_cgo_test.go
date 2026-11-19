@@ -178,7 +178,11 @@ func TestPaddleOCRPDFResultKeepsMediaItems(t *testing.T) {
 	for i, wantText := range []string{"", "Figure 1: pipeline", "", "", ""} {
 		item := result.JSON[i].ToMap()
 		gotText, _ := item["text"].(string)
-		if item["doc_type_kwd"] != "image" || item["layout"] != "figure" || gotText != wantText {
+		wantType, wantLayout := "image", "figure"
+		if i == 3 {
+			wantType, wantLayout = "seal", "seal"
+		}
+		if item["doc_type_kwd"] != wantType || item["layout"] != wantLayout || gotText != wantText {
 			t.Fatalf("item %d = %v", i, item)
 		}
 		if item["page_number"] != 1 {

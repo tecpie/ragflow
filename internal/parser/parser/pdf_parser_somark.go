@@ -416,7 +416,14 @@ func soMarkBlockToItems(ctx context.Context, block map[string]any, keepHeaderFoo
 	}
 	content := strings.TrimSpace(stringValue(block["content"]))
 	switch blockType {
-	case "figure", "cs", "qrcode", "stamp":
+	case "stamp":
+		// SoMark calls a stamp "stamp"; the indexed chunk type is seal.
+		item := map[string]any{"doc_type_kwd": DocTypeSeal, "layout": DocTypeSeal}
+		if content != "" {
+			item["text"] = content
+		}
+		return []map[string]any{item}, nil
+	case "figure", "cs", "qrcode":
 		if content == "" {
 			content = "[Image]"
 		}

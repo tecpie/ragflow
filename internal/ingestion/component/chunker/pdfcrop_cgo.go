@@ -305,7 +305,7 @@ func cropChunkPreview(cache *lruPageCache, render func(int) (image.Image, bool),
 // the historical behavior.
 func needsCrop(ck schema.ChunkDoc) bool {
 	switch cropChunkType(ck) {
-	case "image", "table", "text":
+	case "image", "seal", "table", "text":
 		return hasCropRegion(ck)
 	default:
 		return false

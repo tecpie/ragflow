@@ -606,7 +606,7 @@ func attachGeneralMediaContext(units []schema.ChunkDoc, tableTokens, imageTokens
 	}
 	for i := range units {
 		docType := itemDocType(units[i])
-		if docType != "table" && docType != "image" {
+		if docType != "table" && !isImageDocType(docType) {
 			continue
 		}
 		budget := imageTokens
@@ -798,7 +798,7 @@ func splitMarkdownUnits(units []schema.ChunkDoc, pattern *regexp.Regexp, keepDel
 		// Media units are content attachments, not block-kind boundaries.
 		// Base normalized the media type here, so an image-only heading
 		// folded into the preceding chunk; preserve that behavior.
-		if unit.DocType == "table" || unit.DocType == "image" {
+		if unit.DocType == "table" || isImageDocType(unit.DocType) {
 			clearStructuralLayout(&unit)
 		}
 		shortHeading := isShortMarkdownHeading(unit)
@@ -909,6 +909,18 @@ func mergeMarkdownUnits(parts markdownSplit, target int, overlapPct float64) []s
 			merged = append(merged, cloneChunkDoc(unit))
 			current = -1
 			currentTokens = 0
+			continue
+		}
+
+		if itemDocType(unit) == "seal" {
+			if current >= 0 {
+				current = -1
+				currentTokens = 0
+			}
+			standalone := cloneChunkDoc(unit)
+			standalone.DocType = "seal"
+			standalone.TKNums = intPtr(generalUnitTokens(standalone))
+			merged = append(merged, standalone)
 			continue
 		}
 

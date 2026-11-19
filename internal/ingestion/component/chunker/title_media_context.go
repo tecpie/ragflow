@@ -54,7 +54,7 @@ func attachTitleMediaContext(records []lineRecord, tableTokens, imageTokens int)
 	}
 	attachGeneralMediaContext(units, tableTokens, imageTokens, nil)
 	for i, unit := range units {
-		if (unit.DocType == "table" && tableTokens > 0) || (unit.DocType == "image" && imageTokens > 0) {
+		if (unit.DocType == "table" && tableTokens > 0) || (isImageDocType(unit.DocType) && imageTokens > 0) {
 			if unit.ContextAbove != "" || unit.ContextBelow != "" {
 				attached++
 			} else {

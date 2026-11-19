@@ -217,8 +217,20 @@ func itemDocType(it schema.ChunkDoc) string {
 		return "table"
 	case "image":
 		return "image"
+	case "seal":
+		return "seal"
 	}
 	return "text"
+}
+
+// isImageDocType reports an image-like chunk. A seal keeps doc_type_kwd
+// "seal" and still uses the image crop, context, and standalone-chunk path.
+func isImageDocType(docType string) bool {
+	switch strings.ToLower(strings.TrimSpace(docType)) {
+	case "image", "seal":
+		return true
+	}
+	return false
 }
 
 // isMediaChunk reports whether a chunk is an image or table region. The
@@ -230,7 +242,7 @@ func isMediaChunk(ck schema.ChunkDoc) bool {
 // isMediaDocType reports whether a doc_type_kwd value denotes a media region.
 func isMediaDocType(docType string) bool {
 	switch strings.ToLower(strings.TrimSpace(docType)) {
-	case "image", "table":
+	case "image", "seal", "table":
 		return true
 	}
 	return false

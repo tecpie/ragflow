@@ -1675,3 +1675,17 @@ func TestGeneralChunkerMarkdownPreservesUnresolvedImageReferences(t *testing.T) 
 		}
 	}
 }
+
+func TestMergeGeneralUnitsKeepsSealChunk(t *testing.T) {
+	got := mergeGeneralUnits([]schema.ChunkDoc{
+		{Text: "前文", DocType: "text"},
+		{Text: "某某公司", DocType: "seal"},
+		{Text: "落款单位", DocType: "text"},
+	}, 1000, 0, "")
+	if len(got) != 3 || itemDocType(got[1]) != "seal" || got[1].Text != "某某公司" {
+		t.Fatalf("seal merged away: %#v", got)
+	}
+	if itemDocType(got[0]) != "text" || itemDocType(got[2]) != "text" {
+		t.Fatalf("neighbors = %q %q", itemDocType(got[0]), itemDocType(got[2]))
+	}
+}

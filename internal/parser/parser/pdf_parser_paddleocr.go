@@ -70,7 +70,7 @@ func OCRPDFResult(ctx context.Context, provider, filename string, data []byte, r
 				if text == "" && len(position) == 0 {
 					continue
 				}
-				result.JSON = append(result.JSON, paddleOCRMediaItem(page, text, position))
+				result.JSON = append(result.JSON, paddleOCRMediaItem(page, label, text, position))
 				continue
 			}
 			content := strings.TrimSpace(utility.StripMarkdownImages(block.Text))
@@ -150,10 +150,14 @@ func OCRPDFResult(ctx context.Context, provider, filename string, data []byte, r
 // vision pass and the on-demand crop, while a synthetic placeholder would
 // index as retrievable body text (#21218). The chunker drops a text-less media
 // item that never became retrievable, matching the DeepDoc figure path.
-func paddleOCRMediaItem(page models.OCRPage, text string, position []any) DocItem {
+func paddleOCRMediaItem(page models.OCRPage, label, text string, position []any) DocItem {
+	docType, layout := DocTypeImage, "figure"
+	if label == DocTypeSeal {
+		docType, layout = DocTypeSeal, DocTypeSeal
+	}
 	fields := map[string]any{
-		"doc_type_kwd":    "image",
-		"layout":          "figure",
+		"doc_type_kwd":    docType,
+		"layout":          layout,
 		"page_number":     page.Index + 1,
 		"_preserve_order": true,
 	}

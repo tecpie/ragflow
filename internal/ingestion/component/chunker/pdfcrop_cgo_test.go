@@ -96,6 +96,7 @@ func TestNeedsCrop(t *testing.T) {
 		// Group/Hierarchy forward parser output whose content type is already
 		// on doc_type_kwd; no block-kind derivation is involved.
 		{"doc image fallback", schema.ChunkDoc{DocType: "image", PDFPositions: jsonPositions(t, []float64{1, 10, 100, 10, 100})}, true},
+		{"doc seal crops like image", schema.ChunkDoc{DocType: "seal", PDFPositions: jsonPositions(t, []float64{1, 10, 100, 10, 100})}, true},
 		{"doc table fallback", schema.ChunkDoc{DocType: "table", Positions: jsonPositions(t, []float64{1, 10, 100, 10, 100})}, true},
 		{"doc text fallback", schema.ChunkDoc{DocType: "text", PDFPositions: jsonPositions(t, []float64{1, 10, 100, 10, 100})}, true},
 		// Headings are text chunks and are previewed too, matching Python's

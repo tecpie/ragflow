@@ -921,7 +921,7 @@ func attachMediaContext(chunks []schema.ChunkDoc, tableCtx, imageCtx int) []sche
 	}
 	for i, ck := range chunks {
 		docType := itemDocType(ck)
-		if docType != "table" && docType != "image" {
+		if docType != "table" && !isImageDocType(docType) {
 			continue
 		}
 		ctx := imageCtx

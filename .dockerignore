@@ -51,6 +51,10 @@ deps/*
 .trae/
 .DS_Store
 
+# ── Local-only artifacts that bloat the build context ───────────────────────
+.git/
+.tmp-deploy/
+
 # ── Test and coverage artifacts ─────────────────────────────────────────────
 coverage/
 htmlcov/

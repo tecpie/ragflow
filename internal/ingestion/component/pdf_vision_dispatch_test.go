@@ -316,6 +316,10 @@ func TestMinerUContentItemToJSONExplicitLayoutMapping(t *testing.T) {
 		{"equation", map[string]any{"type": "equation", "text": "x=1"}, "equation", "text"},
 		{"unknown", map[string]any{"type": "footnote", "text": "x"}, "text", "text"},
 		{"image", map[string]any{"type": "image", "image_caption": []any{"cap"}}, "figure", "image"},
+		{"image seal subtype", map[string]any{"type": "image", "sub_type": "seal", "content": "国网重庆电力经济技术研究院"}, "figure", "image"},
+		{"image stamp subtype", map[string]any{"type": "image", "sub_type": "stamp", "text": "某某公司"}, "figure", "image"},
+		{"seal", map[string]any{"type": "seal", "text": "某某公司"}, "seal", "seal"},
+		{"stamp", map[string]any{"type": "stamp", "text": "某某公司"}, "seal", "seal"},
 		{"table", map[string]any{"type": "table", "table_body": "<table></table>"}, "table", "table"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -328,6 +332,18 @@ func TestMinerUContentItemToJSONExplicitLayoutMapping(t *testing.T) {
 			}
 			if got["doc_type_kwd"] != tc.wantDocType {
 				t.Errorf("doc_type_kwd = %v, want %q", got["doc_type_kwd"], tc.wantDocType)
+			}
+			if tc.wantDocType == "seal" {
+				text, _ := got["text"].(string)
+				if !strings.Contains(text, "某某公司") && !strings.Contains(text, "国网重庆电力经济技术研究院") {
+					t.Errorf("seal text = %q", text)
+				}
+			}
+			if strings.Contains(tc.name, "subtype") {
+				text, _ := got["text"].(string)
+				if !strings.HasPrefix(text, "印章\n") {
+					t.Errorf("text = %q, want 印章 prefix", text)
+				}
 			}
 		})
 	}
@@ -748,6 +764,45 @@ func TestMineruExtractJSONItemsStructuredContent(t *testing.T) {
 	}
 	if _, ok := items[3]["image"]; ok {
 		t.Fatalf("structured zip image must not be inlined: %#v", items[3])
+	}
+}
+
+func TestMineruExtractJSONItemsStructuredSealSubtype(t *testing.T) {
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	entry, err := zw.Create("structured_content.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = entry.Write([]byte(`{"pages":[{"page_idx":2,"blocks":[
+		{"type":"text","content":"盖章单位:","bbox":[0.54,0.53,0.88,0.60]},
+		{"type":"image","sub_type":"seal","content":"国网重庆电力经济技术研究院","bbox":[0.66,0.61,0.82,0.73],"image_source":"images/page_2_image_5.jpg"}
+	]}]}`))
+	img, err := zw.Create("images/page_2_image_5.jpg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = img.Write([]byte{0xff, 0xd8, 0xff, 0xd9})
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	items, _, err := mineruExtractJSONItems(buf.Bytes(), map[int][2]float64{2: {595, 842}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("items = %d, want 2", len(items))
+	}
+	if items[1]["doc_type_kwd"] != "image" || items[1]["layout"] != "figure" {
+		t.Fatalf("seal item = %#v", items[1])
+	}
+	text, _ := items[1]["text"].(string)
+	if text != "印章\n国网重庆电力经济技术研究院" {
+		t.Fatalf("seal text = %q", text)
+	}
+	if _, described := items[1][backendDescribedKey]; !described {
+		t.Fatalf("seal description should skip a second vision pass: %#v", items[1])
 	}
 }
 

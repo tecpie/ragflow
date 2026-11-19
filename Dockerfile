@@ -94,8 +94,7 @@ RUN --mount=type=bind,from=infiniflow/ragflow_deps:latest,source=/NotoSansCJKsc-
     cp /tmp/NotoSansCJKsc-VF.ttf /usr/local/share/fonts/truetype/noto/NotoSansCJKsc-VF.ttf
 
 # Setup apt
-RUN --mount=type=cache,id=ragflow_apt,target=/var/cache/apt,sharing=locked \
-    if [ "$NEED_MIRROR" == "1" ]; then \
+RUN if [ "$NEED_MIRROR" == "1" ]; then \
         # CI runners may inject a proxy whose TLS certificate is not trusted inside
         # the fresh Ubuntu base image yet. Keep the Ubuntu mirror on HTTP here so
         # the mirror switch remains usable before the full CA store is available.
@@ -115,8 +114,7 @@ RUN --mount=type=cache,id=ragflow_apt,target=/var/cache/apt,sharing=locked \
 #   rag     - base analyzer dictionaries (mandatory)
 #   opencc  - Traditional/Simplified Chinese conversion
 #   wordnet - WordNet resources
-RUN --mount=type=cache,id=ragflow_apt,target=/var/cache/apt,sharing=locked \
-    apt-get update && \
+RUN apt-get update && \
     apt-get install -y --no-install-recommends git && \
     mkdir -p /usr/share/infinity/resource && \
     if [ "$NEED_MIRROR" == "1" ]; then \
@@ -138,8 +136,7 @@ RUN --mount=type=cache,id=ragflow_apt,target=/var/cache/apt,sharing=locked \
     rm -rf /var/lib/apt/lists/* && apt-get clean
 
 ARG NGINX_VERSION=1.31.3-1~noble
-RUN --mount=type=cache,id=ragflow_apt,target=/var/cache/apt,sharing=locked \
-    apt -o Acquire::Retries=5 update && \
+RUN apt -o Acquire::Retries=5 update && \
     apt -o Acquire::Retries=5 install -y --no-install-recommends gnupg && \
     mkdir -p /etc/apt/keyrings && \
     curl --retry 5 --retry-delay 2 --retry-all-errors -fsSL https://nginx.org/keys/nginx_signing.key | gpg --dearmor -o /etc/apt/keyrings/nginx-archive-keyring.gpg && \
@@ -172,12 +169,16 @@ COPY docs docs
 RUN --mount=type=cache,id=ragflow_npm,target=/root/.npm,sharing=locked \
     cd web && NODE_OPTIONS="--max-old-space-size=8192" VITE_BUILD_SOURCEMAP=false VITE_MINIFY=esbuild npm run build
 
-# Stamp the build version into /ragflow/VERSION. Requires git, which must be
-# preinstalled in the github_action_runner base image (the former apt-get install
-# git step was removed), and the host .git tree bound in at build time.
-RUN --mount=type=bind,source=.git,target=/ragflow/.git \
-    version_info=$(git describe --tags --match=v* --first-parent --always) && \
-    echo "$version_info" > /ragflow/VERSION
+# Stamp the build version into /ragflow/VERSION.
+# Prefer RAGFLOW_VERSION build-arg (avoids shipping a multi-GB .git build context).
+# Fall back to binding host .git when the arg is empty.
+ARG RAGFLOW_VERSION=
+RUN if [ -n "$RAGFLOW_VERSION" ]; then \
+      echo "$RAGFLOW_VERSION" > /ragflow/VERSION; \
+    else \
+      echo "RAGFLOW_VERSION build-arg is required when .git is excluded from context" >&2; \
+      exit 1; \
+    fi
 
 
 

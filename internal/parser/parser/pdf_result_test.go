@@ -14,6 +14,21 @@ import (
 	"ragflow/internal/entity"
 )
 
+func TestNormalizeResultKeepsSealDocType(t *testing.T) {
+	input := map[string]any{
+		"text": "某某公司", "doc_type_kwd": DocTypeSeal, "layout": DocTypeSeal,
+		"positions": []any{[]any{1.0, 10.0, 40.0, 20.0, 50.0}},
+	}
+	result := NewPDFParser().NormalizeResult(t.Context(), "sample.pdf", ParseResult{JSON: MapsToItems([]map[string]any{input})})
+	if result.Err != nil {
+		t.Fatal(result.Err)
+	}
+	item := result.JSON[0].ToMap()
+	if item["doc_type_kwd"] != DocTypeSeal || item["layout"] != DocTypeSeal || item["text"] != "某某公司" {
+		t.Fatalf("seal rewritten: %#v", item)
+	}
+}
+
 func TestPDFNormalizeResultPositionsAndMetadata(t *testing.T) {
 	file := map[string]any{"outline": []string{"Chapter"}, "page_count": 20, "parse_method": "selected-model"}
 	input := map[string]any{"text": "caption", "layout": "caption", "doc_type_kwd": "text", "page_number": 2,

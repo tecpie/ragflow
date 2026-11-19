@@ -390,7 +390,7 @@ func buildChunksFromRecordGroups(groups [][]lineRecord, prefixes []string, p *ti
 			chunk["positions"] = m
 		}
 		first := g[0]
-		if !plain && (first.docType == "image" || first.docType == "table") &&
+		if !plain && (isImageDocType(first.docType) || first.docType == "table") &&
 			chunkText == "" && first.image == "" && first.imgID == nil {
 			if positions := mergePositionMatrix(first.pdfPositions, first.positions); positions != nil {
 				// Seed position-only media identity with coordinates so figures

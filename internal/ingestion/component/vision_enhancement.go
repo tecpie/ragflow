@@ -520,7 +520,7 @@ func collectVisionEnhanceTargets(items []parser.DocItem, tableVisionOn, signatur
 			continue
 		}
 		switch kd {
-		case "image":
+		case "image", "seal":
 			if parser.HasPDFCropRegion(item) {
 				add(i, visionKindFigure)
 			}

@@ -367,7 +367,7 @@ func normalizePDFDocType(item map[string]any) {
 	// downstream VLM/chunker crop it on demand. Classify it as image whenever
 	// it has positions (the inlined image was only a side effect of cropping).
 	_, hasMedia := ExtractPDFPositions(item)
-	if docType, _ := item["doc_type_kwd"].(string); docType == "text" || docType == "image" || docType == "table" {
+	if docType, _ := item["doc_type_kwd"].(string); docType == "text" || docType == "image" || docType == "table" || docType == DocTypeSeal {
 		// A figure caption keeps its media classification so the downstream
 		// VLM enhancement and on-demand chunker crop it.
 		if docType == "text" && layoutType == deepdoctype.DLALabelFigureCaption && hasMedia {
@@ -384,6 +384,8 @@ func normalizePDFDocType(item map[string]any) {
 		item["doc_type_kwd"] = "table"
 	case "figure", "image":
 		item["doc_type_kwd"] = "image"
+	case DocTypeSeal:
+		item["doc_type_kwd"] = DocTypeSeal
 	case deepdoctype.DLALabelFigureCaption:
 		if hasMedia {
 			item["doc_type_kwd"] = "image"

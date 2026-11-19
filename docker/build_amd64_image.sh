@@ -59,6 +59,7 @@ fi
 
 BRANCH="$(git -C "$PROJECT_ROOT" branch --show-current)"
 COMMIT="$(git -C "$PROJECT_ROOT" rev-parse --short HEAD)"
+VERSION="$(git -C "$PROJECT_ROOT" describe --tags --match=v* --first-parent --always)"
 BRANCH_TAG="$(echo "$BRANCH" | sed 's/[^a-zA-Z0-9._-]/-/g')"
 IMAGE_TAG="amd64-${BRANCH_TAG}"
 IMAGE="${IMAGE_REPO}:${IMAGE_TAG}"
@@ -69,6 +70,7 @@ echo " RAGFlow AMD64 Image Build"
 echo "========================================"
 echo "Branch : ${BRANCH}"
 echo "Commit : ${COMMIT}"
+echo "Version: ${VERSION}"
 echo "Image  : ${IMAGE}"
 echo "Also   : ${IMAGE_COMMIT}"
 echo "Mirror : NEED_MIRROR=${NEED_MIRROR}"
@@ -79,6 +81,7 @@ echo ">>> Building image (platform=linux/amd64)..."
 DOCKER_BUILDKIT=1 docker build \
     --platform linux/amd64 \
     --build-arg "NEED_MIRROR=${NEED_MIRROR}" \
+    --build-arg "RAGFLOW_VERSION=${VERSION}" \
     ${NO_CACHE} \
     -f "${PROJECT_ROOT}/Dockerfile" \
     -t "${IMAGE}" \

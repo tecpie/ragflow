@@ -103,6 +103,17 @@ func TestPDFParser_ParseWithResult_SoMarkRequiresBaseURL(t *testing.T) {
 	}
 }
 
+func TestSoMarkStampBecomesSeal(t *testing.T) {
+	items, _ := soMarkBlockToItems(t.Context(), map[string]any{"type": "stamp", "content": "某某公司"}, false, &htmlWalkState{budget: newMediaBudgetForTest()})
+	if len(items) != 1 || items[0]["doc_type_kwd"] != DocTypeSeal || items[0]["layout"] != DocTypeSeal || items[0]["text"] != "某某公司" {
+		t.Fatalf("stamp item = %#v", items)
+	}
+	figures, _ := soMarkBlockToItems(t.Context(), map[string]any{"type": "figure", "content": "图"}, false, &htmlWalkState{budget: newMediaBudgetForTest()})
+	if len(figures) != 1 || figures[0]["doc_type_kwd"] != DocTypeImage {
+		t.Fatalf("figure item = %#v", figures)
+	}
+}
+
 func TestSoMarkBlockToItem_DropsHeaderByDefault(t *testing.T) {
 	if item, _ := soMarkBlockToItems(t.Context(), map[string]any{"type": "header", "content": "x"}, false, &htmlWalkState{budget: newMediaBudgetForTest()}); item != nil {
 		t.Fatalf("item = %#v, want nil", item)

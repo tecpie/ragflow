@@ -92,6 +92,9 @@ const (
 	DocTypeText  = "text"
 	DocTypeTable = "table"
 	DocTypeImage = "image"
+	// DocTypeSeal is a stamp. It stays its own indexed type so review can
+	// list seal chunks, and the chunker treats it as an image for cropping.
+	DocTypeSeal = "seal"
 )
 
 // NewTextJSONItem constructs a canonical text DocItem for parser output.

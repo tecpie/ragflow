@@ -2300,6 +2300,11 @@ func mineruStructuredBlockToContentItem(pageIdx int, block map[string]any) map[s
 		item["table_footnote"] = footnotes
 	case "image":
 		item["type"] = "image"
+		// MinerU 4 keeps a stamp as an image and puts the seal identity in
+		// sub_type. Keep the image type and let the text prefix carry it.
+		if sub, ok := block["sub_type"].(string); ok && mineruIsSealSubtype(sub) {
+			item["sub_type"] = strings.ToLower(strings.TrimSpace(sub))
+		}
 		item["image_caption"] = captions
 		item["image_footnote"] = footnotes
 		if strings.TrimSpace(content) != "" {
@@ -2349,6 +2354,27 @@ func mineruAnnotationTexts(raw any) []any {
 		}
 	}
 	return out
+}
+
+func mineruIsSealSubtype(raw any) bool {
+	sub, _ := raw.(string)
+	switch strings.ToLower(strings.TrimSpace(sub)) {
+	case "seal", "stamp":
+		return true
+	default:
+		return false
+	}
+}
+
+func prefixMineruSealText(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" || strings.HasPrefix(text, "印章") {
+		if text == "" {
+			return "印章"
+		}
+		return text
+	}
+	return "印章\n" + text
 }
 
 func mineruApplyImageSource(item map[string]any, raw any) {
@@ -2463,6 +2489,21 @@ func mineruContentItemToJSONBudget(item map[string]any, images map[string]*zip.F
 	}
 
 	text := mineruItemText(item, typ)
+	// A seal stays an image chunk. Prefixing the word makes "印章" searchable
+	// without a separate doc type. content_list may put the seal wording in
+	// text or content instead of the image description field.
+	if typ == "image" && mineruIsSealSubtype(item["sub_type"]) {
+		if strings.TrimSpace(text) == "" {
+			for _, key := range []string{"text", "content"} {
+				raw, ok := item[key].(string)
+				if ok && strings.TrimSpace(raw) != "" {
+					text = raw
+					break
+				}
+			}
+		}
+		text = prefixMineruSealText(text)
+	}
 	docType := "text"
 	// External MinerU labels are mapped explicitly. Unknown labels must not
 	// acquire parser block-kind semantics implicitly; list/code are real
@@ -2477,9 +2518,16 @@ func mineruContentItemToJSONBudget(item map[string]any, images map[string]*zip.F
 		layout = "code"
 	case "equation":
 		layout = "equation"
-	case "image", "chart":
-		docType = "image"
-		layout = "figure"
+	case "image", "chart", "seal", "stamp":
+		// MinerU names a stamp "seal". SoMark's "stamp" is accepted here so a
+		// content list that uses that word still indexes as seal.
+		if typ == "seal" || typ == "stamp" {
+			docType = "seal"
+			layout = "seal"
+		} else {
+			docType = "image"
+			layout = "figure"
+		}
 		if dataURI, _ := item["image_data_uri"].(string); strings.HasPrefix(dataURI, "data:") {
 			if budget != nil {
 				mineruAccountStructuredDataURI(budget, dataURI)
@@ -2527,7 +2575,7 @@ func mineruContentItemToJSONBudget(item map[string]any, images map[string]*zip.F
 	// MinerU folds its own VLM description into text for image/chart items.
 	// Mark them so the shared vision enhancement skips them instead of
 	// appending a second model description.
-	if typ == "image" || typ == "chart" {
+	if typ == "image" || typ == "chart" || typ == "seal" || typ == "stamp" {
 		if desc, _ := item["vlm_description"].(string); strings.TrimSpace(desc) != "" {
 			jsonItem[backendDescribedKey] = true
 		}
@@ -2564,7 +2612,7 @@ func mineruContentItemToJSONBudget(item map[string]any, images map[string]*zip.F
 func mineruZipOnlyFigureSkipped(item map[string]any, images map[string]*zip.File, pageSizes map[int][2]float64) bool {
 	typ, _ := item["type"].(string)
 	typ = strings.ToLower(strings.TrimSpace(typ))
-	if typ != "image" && typ != "chart" {
+	if typ != "image" && typ != "chart" && typ != "seal" && typ != "stamp" {
 		return false
 	}
 	if mineruItemText(item, typ) != "" {
@@ -2593,6 +2641,31 @@ func mineruItemText(item map[string]any, typ string) string {
 		parts = append(parts, stringSlice(item["image_footnote"])...)
 		if desc, ok := item["vlm_description"].(string); ok && strings.TrimSpace(desc) != "" {
 			parts = append(parts, desc)
+		}
+	case "seal", "stamp":
+		seen := map[string]struct{}{}
+		add := func(value string) {
+			value = strings.TrimSpace(value)
+			if value == "" {
+				return
+			}
+			if _, ok := seen[value]; ok {
+				return
+			}
+			seen[value] = struct{}{}
+			parts = append(parts, value)
+		}
+		if text, ok := item["text"].(string); ok {
+			add(text)
+		}
+		if content, ok := item["content"].(string); ok {
+			add(content)
+		}
+		for _, caption := range stringSlice(item["image_caption"]) {
+			add(caption)
+		}
+		if desc, ok := item["vlm_description"].(string); ok {
+			add(desc)
 		}
 	case "chart":
 		parts = append(parts, stringSlice(item["chart_caption"])...)
