@@ -215,7 +215,7 @@ func TestDisabledCompilationStillPromotesOrdinaryParent(t *testing.T) {
 		t.Fatalf("initial hits = %#v, want only the ordinary child", hits.Chunks)
 	}
 	hits.Chunks[0]["chunk_id"] = hits.Chunks[0]["id"]
-	chunks := nlp.RetrievalByChildren(hits.Chunks, []string{"tenant-1"}, eng, t.Context())
+	chunks := nlp.RetrievalByChildren(hits.Chunks, []string{"tenant-1"}, "aggregate", eng, t.Context())
 	formatDatasetSearchChunks(chunks, &disabled)
 	if len(chunks) != 1 || chunks[0]["id"] != "parent-1" || chunks[0]["content"] != "parent content" {
 		t.Fatalf("parent promotion changed: %#v", chunks)

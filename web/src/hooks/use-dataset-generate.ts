@@ -14,6 +14,8 @@
  *  limitations under the License.
  */
 
+import { TraceTypeMap as PrivateTraceTypeMap } from '@/ee/constants/knowledge';
+
 import message from '@/components/ui/message';
 import {
   GenerateStatus,
@@ -137,7 +139,7 @@ const TraceTypeMap: Record<GenerateType, TraceType> = {
   [GenerateType.MindMap]: TraceType.MindMap,
   [GenerateType.StructureGraph]: TraceType.StructureGraph,
   [GenerateType.StructureMindMap]: TraceType.StructureMindMap,
-  [GenerateType.Timeline]: TraceType.Timeline,
+  ...PrivateTraceTypeMap,
   [GenerateType.SessionEssence]: TraceType.SessionEssence,
   [GenerateType.SessionGraph]: TraceType.SessionGraph,
 };

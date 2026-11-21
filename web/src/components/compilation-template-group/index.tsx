@@ -14,6 +14,7 @@
  *  limitations under the License.
  */
 
+import { PageFrame } from '@/components/page-frame';
 import { Button } from '@/components/ui/button';
 import { Form } from '@/components/ui/form';
 import { CompilationTemplateKind } from '@/constants/compilation';
@@ -218,37 +219,41 @@ export function CompilationTemplateGroupEditor({
             />
           )}
 
-          <div className="flex min-w-0 flex-1 flex-col">
-            {activeView === CompilationTemplateEditorView.Json ? (
-              <JsonPreview value={allFormValues} />
-            ) : (
-              <TemplateConfiguration
-                key={selectedTemplateIndex}
-                form={form}
-                builtins={builtins}
-                kindOptions={kindOptions}
-                selectedTemplateIndex={selectedTemplateIndex}
-              >
-                {isArtifacts && (
-                  <BlueprintSection
+          <section className="min-h-0 min-w-0 flex-1 pt-3">
+            <PageFrame>
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                {activeView === CompilationTemplateEditorView.Json ? (
+                  <JsonPreview value={allFormValues} />
+                ) : (
+                  <TemplateConfiguration
+                    key={selectedTemplateIndex}
                     form={form}
-                    selectedTemplateIndex={selectedTemplateIndex}
                     builtins={builtins}
-                  />
+                    kindOptions={kindOptions}
+                    selectedTemplateIndex={selectedTemplateIndex}
+                  >
+                    {isArtifacts && (
+                      <BlueprintSection
+                        form={form}
+                        selectedTemplateIndex={selectedTemplateIndex}
+                        builtins={builtins}
+                      />
+                    )}
+                  </TemplateConfiguration>
                 )}
-              </TemplateConfiguration>
-            )}
-          </div>
-        </div>
+              </div>
 
-        <footer className="shrink-0 px-5 py-4 border-t border-border-button flex items-center justify-end gap-5">
-          <Button type="button" variant="outline" onClick={onCancel}>
-            {cancelText}
-          </Button>
-          <Button type="submit" loading={isLoading}>
-            {t('common.save')}
-          </Button>
-        </footer>
+              <footer className="shrink-0 px-5 py-4 flex items-center justify-end gap-5">
+                <Button type="button" variant="outline" onClick={onCancel}>
+                  {cancelText}
+                </Button>
+                <Button type="submit" loading={isLoading}>
+                  {t('common.save')}
+                </Button>
+              </footer>
+            </PageFrame>
+          </section>
+        </div>
       </form>
     </Form>
   );

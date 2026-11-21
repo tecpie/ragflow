@@ -116,12 +116,18 @@ func parseArgsFrom(argv []string) (*bootstrap.ServerArgs, error) {
 	fs.StringVar(&logLevel, "log-level", "", "")
 	fs.StringVar(&configPath, "config", "", "")
 	fs.StringVar(&configPath, "f", "", "")
+	var deepdocDevice string
+	fs.StringVar(&deepdocDevice, "deepdoc-device", "", "")
 	fs.BoolVar(&args.EnablePProf, "profile", false, "")
 	fs.BoolVar(&args.HelpFlag, "help", false, "")
 	fs.BoolVar(&args.HelpFlag, "h", false, "")
 	fs.BoolVar(&args.VersionFlag, "version", false, "")
 	fs.BoolVar(&args.VersionFlag, "v", false, "")
-	finish := registerFlags(fs, args)
+	modes := []string{"admin", "api", "ingestor", "syncer", "chatter", "migrate"}
+	modeFlags := make([]*bool, len(modes))
+	for i, mode := range modes {
+		modeFlags[i] = fs.Bool(mode, false, "")
+	}
 
 	if len(argv) > 0 {
 		if err := fs.Parse(argv[1:]); err != nil {
@@ -143,11 +149,20 @@ func parseArgsFrom(argv []string) (*bootstrap.ServerArgs, error) {
 			args.LogLevel = &logLevel
 		case "config", "f":
 			args.ConfigPath = &configPath
+		case "deepdoc-device":
+			args.DeepdocDevice = &deepdocDevice
 		}
 	})
-	if err := finish(); err != nil {
-		return nil, err
+	for i, enabled := range modeFlags {
+		if !*enabled {
+			continue
+		}
+		if args.Mode != nil {
+			return nil, fmt.Errorf("only one mode flag may be specified: --%s and --%s", *args.Mode, modes[i])
+		}
+		args.Mode = &modes[i]
 	}
+	args.InitSuperUser = args.Mode != nil && *args.Mode == "admin"
 
 	if args.LogLevel != nil {
 		if err := validateLogLevel(*args.LogLevel); err != nil {
@@ -156,10 +171,6 @@ func parseArgsFrom(argv []string) (*bootstrap.ServerArgs, error) {
 	}
 
 	return args, nil
-}
-
-func parseArgs() (*bootstrap.ServerArgs, error) {
-	return parseArgsFrom(os.Args)
 }
 
 func validateLogLevel(level string) error {
@@ -171,7 +182,21 @@ func validateLogLevel(level string) error {
 	}
 }
 
-func printCommonHelp() {
+func printHelp(_ *bootstrap.ServerArgs) {
+	fmt.Fprintf(os.Stderr, "Usage: %s [OPTIONS]\n\n", os.Args[0])
+	fmt.Fprintln(os.Stderr, "RAGFlow Server - runs admin, API, ingestor, syncer and chatter in one process by default.")
+	fmt.Fprintln(os.Stderr, "Default startup runs database migrations and initializes the superuser automatically.")
+	fmt.Fprintln(os.Stderr, "Default ports: admin 9381, API 9380.")
+	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(os.Stderr, "Select at most one mode:")
+	fmt.Fprintln(os.Stderr, "  --admin            \tRun only the admin server and initialize the superuser")
+	fmt.Fprintln(os.Stderr, "  --api              \tRun only the API server")
+	fmt.Fprintln(os.Stderr, "  --ingestor         \tRun only the ingestion worker")
+	fmt.Fprintln(os.Stderr, "  --syncer           \tRun only the file syncer")
+	fmt.Fprintln(os.Stderr, "  --chatter          \tRun only the chat-channel service")
+	fmt.Fprintln(os.Stderr, "  --migrate          \tRun database migrations and exit")
+	fmt.Fprintln(os.Stderr, "Run --migrate before starting individual services.")
+	fmt.Fprintln(os.Stderr)
 	fmt.Fprintln(os.Stderr, "  -f, --config string\tPath to configuration file")
 	fmt.Fprintln(os.Stderr, "  -v, --version      \tPrint version information and exit")
 	fmt.Fprintln(os.Stderr, "  --log-level string \tLog level: debug, info, warn, error (default: warn)")
@@ -183,7 +208,7 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 	defer cancel()
 
-	arguments, err := parseArgs()
+	arguments, err := parseArgsFrom(os.Args)
 	if err != nil {
 		fmt.Printf("Failed to parse arguments: %v\n", err)
 		os.Exit(1)
@@ -199,22 +224,22 @@ func main() {
 		return
 	}
 
-	if err := runServer(ctx, cancel, arguments); err != nil {
+	if err = runServer(ctx, cancel, arguments); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to start RAGFlow: %v\n", err)
 		os.Exit(1)
 	}
 }
 
 func runServer(ctx context.Context, _ context.CancelFunc, arguments *bootstrap.ServerArgs) error {
-	if err := validateServerMode(arguments); err != nil {
-		return err
-	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	combined := arguments.Mode == nil
-	serverType := common.ServerTypeAPI
-	serverName := "ragflow_server"
-	if !combined {
+
+	serverType := common.ServerTypeUnknown
+	var serverName string
+	if arguments.Mode == nil {
+		serverType = common.ServerTypeStandalone
+		serverName = "ragflow_standalone"
+	} else {
 		serverType = bootstrap.GetServerType(arguments)
 		serverName = bootstrap.TempServerName(serverType, arguments.Name)
 	}
@@ -243,21 +268,21 @@ func runServer(ctx context.Context, _ context.CancelFunc, arguments *bootstrap.S
 	}
 	config.SetLogLevel(resolvedLogLevel)
 	var port int
-	if combined || serverType == common.ServerTypeAPI {
+	if serverType == common.ServerTypeStandalone || serverType == common.ServerTypeAPI {
 		port, err = config.ResolvePort(config.GetAPIServerConfig().HTTPPort, arguments.Port)
 		if err != nil {
 			return fmt.Errorf("resolve API port: %w", err)
 		}
 		config.SetAPIServerHTTPPort(port)
 	}
-	if combined || serverType == common.ServerTypeAdmin {
+	if serverType == common.ServerTypeStandalone || serverType == common.ServerTypeAdmin {
 		port, err = config.ResolvePort(config.GetAdminServerConfig().HTTPPort, arguments.Port)
 		if err != nil {
 			return fmt.Errorf("resolve admin port: %w", err)
 		}
 		config.SetAdminHTTPPort(port)
 	}
-	if !combined {
+	if serverType != common.ServerTypeStandalone {
 		arguments.Name = config.GetServerName(*arguments.Mode)
 		serverName, err = bootstrap.ResolveServerName(*arguments.Mode, arguments.Name, port)
 		if err != nil {
@@ -284,19 +309,19 @@ func runServer(ctx context.Context, _ context.CancelFunc, arguments *bootstrap.S
 	}
 	local.InitAdminStatus()
 	auditConfig := config.GetAuditConfig()
-	if err := common.InitAudit(auditConfig.Type, auditConfig.GetFileOutput(), serverName); err != nil {
+	if err = common.InitAudit(auditConfig.Type, auditConfig.GetFileOutput(), serverName); err != nil {
 		return fmt.Errorf("initialize audit logger: %w", err)
 	}
 	defer common.SyncAudit()
 	if arguments.EnablePProf {
-		if err := startPProf(pprofAddr()); err != nil {
+		if err = startPProf(pprofAddr()); err != nil {
 			common.Error("pprof server failed", err)
 		}
 	}
 	if isStandaloneDeepDocServer(serverType) {
 		return runDeepDoc(ctx, serverName, arguments)
 	}
-	runtimeNeeded := combined || serverType == common.ServerTypeAPI || serverType == common.ServerTypeIngestion || serverType == common.ServerTypeChatter
+	runtimeNeeded := serverType == common.ServerTypeStandalone || serverType == common.ServerTypeAPI || serverType == common.ServerTypeIngestion
 	common.Info("Starting RAGFlow", zap.String("server", serverName))
 	// Keep the full configuration dump tied to the operator's chosen verbosity.
 	if !common.LogLevelHigherThanInfo(resolvedLogLevel) {
@@ -315,17 +340,19 @@ func runServer(ctx context.Context, _ context.CancelFunc, arguments *bootstrap.S
 			common.Error("Failed to close database", err)
 		}
 	}()
-	if err := dao.InitDB(ctx, combined || serverType == common.ServerTypeMigrate); err != nil {
+
+	if err = dao.InitDB(ctx, serverType == common.ServerTypeStandalone || serverType == common.ServerTypeMigrate); err != nil {
 		return fmt.Errorf("initialize database: %w", err)
 	}
+	// Migration mode exits before initializing dependencies used only by services.
 	if serverType == common.ServerTypeMigrate {
 		common.Info("Database migrations completed")
 		return nil
 	}
-	if err := checkDatabaseVersion(ctx); err != nil {
+	if err = checkDatabaseVersion(ctx); err != nil {
 		return err
 	}
-	if err := engine.InitDocEngine(ctx); err != nil {
+	if err = engine.InitDocEngine(ctx); err != nil {
 		return fmt.Errorf("initialize doc engine: %w", err)
 	}
 	defer func() {
@@ -333,15 +360,15 @@ func runServer(ctx context.Context, _ context.CancelFunc, arguments *bootstrap.S
 			common.Error("Failed to close doc engine", err)
 		}
 	}()
-	if err := kvrocks.Init(ctx); err != nil {
+	if err = kvrocks.Init(ctx); err != nil {
 		return fmt.Errorf("initialize Kvrocks: %w", err)
 	}
 	defer kvrocks.Close()
-	if err := storage.Init(ctx); err != nil {
+	if err = storage.Init(ctx); err != nil {
 		return fmt.Errorf("initialize storage: %w", err)
 	}
 	defer storage.CloseStorage()
-	if err := engine.InitMessageQueue(); err != nil {
+	if err = engine.InitMessageQueue(); err != nil {
 		return fmt.Errorf("initialize message queue: %w", err)
 	}
 	if closer, ok := engine.GetMessageQueueEngine().(io.Closer); ok {
@@ -351,18 +378,18 @@ func runServer(ctx context.Context, _ context.CancelFunc, arguments *bootstrap.S
 			}
 		}()
 	}
-	if err := server.InitVariables(kvrocks.Get()); err != nil {
+	if err = server.InitVariables(kvrocks.Get()); err != nil {
 		common.Warn("Failed to initialize server variables from Redis, using defaults", zap.Error(err))
 	}
-	if combined || serverType == common.ServerTypeAPI || serverType == common.ServerTypeChatter {
-		if err := billing.Init(ctx, config.GetBillingConfig()); err != nil {
+	if serverType == common.ServerTypeStandalone || serverType == common.ServerTypeAPI || serverType == common.ServerTypeChatter {
+		if err = billing.Init(ctx, config.GetBillingConfig()); err != nil {
 			return fmt.Errorf("initialize billing: %w", err)
 		}
-		if err := billing.Start(ctx); err != nil {
+		if err = billing.Start(ctx); err != nil {
 			return fmt.Errorf("start billing: %w", err)
 		}
 	}
-	if err := server.StartServer(ctx, cancel, serverName, serverType); err != nil {
+	if err = server.StartServer(ctx, cancel, serverName, serverType); err != nil {
 		return err
 	}
 	defer func() {
@@ -375,7 +402,7 @@ func runServer(ctx context.Context, _ context.CancelFunc, arguments *bootstrap.S
 	defer cancel()
 	var services *bootstrap.AgentServices
 	if runtimeNeeded {
-		if err := deepdocpkg.RegisterNativeDeepDoc(arguments); err != nil {
+		if err = deepdocpkg.RegisterNativeDeepDoc(arguments); err != nil {
 			return fmt.Errorf("register in-process DeepDoc backend: %w", err)
 		}
 		closeTokenizer, err := bootstrap.InitializeAgentTokenizer()
@@ -389,10 +416,22 @@ func runServer(ctx context.Context, _ context.CancelFunc, arguments *bootstrap.S
 	}
 	// Stop and join service work before closing any process-wide resource.
 	defer cancel()
-	if common.GetRAGFlowType() == common.EnterpriseEdition {
-		return runEnterpriseServices(ctx, cancel, arguments, services)
+	switch serverType {
+	case common.ServerTypeStandalone:
+		return runServices(ctx, cancel, arguments, services)
+	case common.ServerTypeAdmin:
+		return admin.Run(ctx, arguments)
+	case common.ServerTypeAPI:
+		return apipkg.Run(ctx, *arguments.Name, arguments, services)
+	case common.ServerTypeIngestion:
+		return ingestorpkg.Run(ctx, cancel, arguments, services)
+	case common.ServerTypeFileSyncer:
+		return syncerpkg.Run(ctx, cancel, arguments)
+	case common.ServerTypeChatter:
+		return chatterpkg.Run(ctx, arguments, services)
+	default:
+		return fmt.Errorf("unsupported server mode %q", *arguments.Mode)
 	}
-	return runServices(ctx, cancel, arguments, services)
 }
 
 func runServices(ctx context.Context, cancel context.CancelFunc, args *bootstrap.ServerArgs, services *bootstrap.AgentServices) error {

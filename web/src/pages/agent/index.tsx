@@ -117,11 +117,11 @@ export default function Agent() {
     },
     [saveGraph],
   );
-  const { data: agentDetail } = useFetchAgent();
+  const { data: agentDetail, loading: agentLoading } = useFetchAgent();
   // The checklist displays all issues; Run separately checks blocking rules.
   const { issues } = useCanvasChecklist({
     resourceTenantId: agentDetail?.tenant_id,
-    ownerUserId: agentDetail?.user_id,
+    ownerUserId: agentLoading ? null : (agentDetail?.user_id ?? null),
     canvasID: id,
   });
   const { buildDslData } = useBuildDslData();
@@ -363,7 +363,9 @@ export default function Agent() {
         </div>
       </PageHeader>
       <ModelResourceTenantIdContext.Provider value={agentDetail?.tenant_id}>
-        <ModelResourceAccessUserIdContext.Provider value={agentDetail?.user_id}>
+        <ModelResourceAccessUserIdContext.Provider
+          value={agentLoading ? null : (agentDetail?.user_id ?? null)}
+        >
           <ResourceTenantIdContext.Provider value={agentDetail?.tenant_id}>
             <ReactFlowProvider>
               <DropdownProvider>

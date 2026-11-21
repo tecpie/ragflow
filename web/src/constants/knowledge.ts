@@ -14,6 +14,14 @@
  *  limitations under the License.
  */
 
+import {
+  ProcessingType as PrivateProcessingType,
+  GenerateType as PrivateGenerateType,
+  TraceType as PrivateTraceType,
+  ProcessingTypeMap as PrivateProcessingTypeMap,
+  GenerateTypeMap as PrivateGenerateTypeMap,
+} from '@/ee/constants/knowledge';
+
 export enum KnowledgeRouteKey {
   Dataset = 'dataset',
   Testing = 'testing',
@@ -150,7 +158,7 @@ export enum ParseType {
   Pipeline = 2,
 }
 
-export enum ProcessingType {
+enum BaseProcessingType {
   knowledgeGraph = 'Graph',
   raptor = 'RAPTOR',
   artifact = 'wiki',
@@ -160,7 +168,6 @@ export enum ProcessingType {
   structureGraph = 'structure_graph',
   /** Artifacts MindMap: KB-wide structure merge. */
   structureMindmap = 'structure_mindmap',
-  timeline = 'Timeline',
   sessionEssence = 'Session_Essence',
   sessionGraph = 'Session_Graph',
   // Task types written by the Go knowledge-compile pipeline
@@ -170,6 +177,13 @@ export enum ProcessingType {
   pageIndex = 'PageIndex',
 }
 
+export const ProcessingType = {
+  ...BaseProcessingType,
+  ...PrivateProcessingType,
+};
+export type ProcessingType =
+  (typeof ProcessingType)[keyof typeof ProcessingType];
+
 export const ProcessingTypeMap = {
   [ProcessingType.knowledgeGraph]: 'Knowledge Graph',
   [ProcessingType.raptor]: 'RAPTOR',
@@ -178,7 +192,7 @@ export const ProcessingTypeMap = {
   [ProcessingType.mindmap]: 'Mind Map',
   [ProcessingType.structureGraph]: 'Structure Graph',
   [ProcessingType.structureMindmap]: 'Structure Mind Map',
-  [ProcessingType.timeline]: 'Timeline',
+  ...PrivateProcessingTypeMap,
   [ProcessingType.sessionEssence]: 'Session Essence',
   [ProcessingType.sessionGraph]: 'Session Graph',
   GraphRAG: 'Knowledge Graph',
@@ -191,7 +205,7 @@ export enum GenerateStatus {
   Failed = 'failed',
 }
 
-export enum GenerateType {
+enum BaseGenerateType {
   KnowledgeGraph = 'KnowledgeGraph',
   Raptor = 'Raptor',
   Artifact = 'Artifact',
@@ -201,12 +215,14 @@ export enum GenerateType {
   StructureGraph = 'StructureGraph',
   /** Artifacts page MindMap view — structure_mindmap merge. */
   StructureMindMap = 'StructureMindMap',
-  Timeline = 'Timeline',
   SessionEssence = 'SessionEssence',
   SessionGraph = 'SessionGraph',
 }
 
-export enum TraceType {
+export const GenerateType = { ...BaseGenerateType, ...PrivateGenerateType };
+export type GenerateType = (typeof GenerateType)[keyof typeof GenerateType];
+
+enum BaseTraceType {
   Graph = 'graph',
   Raptor = 'raptor',
   Artifact = 'wiki',
@@ -214,10 +230,12 @@ export enum TraceType {
   MindMap = 'mindmap',
   StructureGraph = 'structure_graph',
   StructureMindMap = 'structure_mindmap',
-  Timeline = 'timeline',
   SessionEssence = 'session_essence',
   SessionGraph = 'session_graph',
 }
+
+export const TraceType = { ...BaseTraceType, ...PrivateTraceType };
+export type TraceType = (typeof TraceType)[keyof typeof TraceType];
 
 export const GenerateTypeMap = {
   [GenerateType.KnowledgeGraph]: ProcessingType.knowledgeGraph,
@@ -227,7 +245,7 @@ export const GenerateTypeMap = {
   [GenerateType.MindMap]: ProcessingType.mindmap,
   [GenerateType.StructureGraph]: ProcessingType.structureGraph,
   [GenerateType.StructureMindMap]: ProcessingType.structureMindmap,
-  [GenerateType.Timeline]: ProcessingType.timeline,
+  ...PrivateGenerateTypeMap,
   [GenerateType.SessionEssence]: ProcessingType.sessionEssence,
   [GenerateType.SessionGraph]: ProcessingType.sessionGraph,
 };
