@@ -22,9 +22,9 @@ import (
 	"context"
 	"fmt"
 
-	"ragflow/internal/entity"
-
 	"gorm.io/gorm"
+
+	"ragflow/internal/entity"
 )
 
 // deleteEvaluationsEE removes evaluation datasets/cases/runs/results owned by
