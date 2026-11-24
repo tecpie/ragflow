@@ -186,7 +186,7 @@ func TestAgentMCPModelDispatch(t *testing.T) {
 	state.Sys["user_id"] = "outsider"
 	state.Sys["tenant_id"] = "other-tenant"
 	ctx = permission.WithIdentity(withStateForTest(t.Context(), state), "outsider", "other-tenant")
-	if _, err := buildAgentTools(ctx, p); err == nil {
+	if _, _, err := buildAgentTools(ctx, p); err == nil {
 		t.Fatal("MCP dependency access without canvas permission was allowed")
 	}
 }

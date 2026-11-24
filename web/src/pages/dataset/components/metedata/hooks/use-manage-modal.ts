@@ -246,6 +246,12 @@ export const useMetadataOperations = () => {
         const updatedOperations = {
           ...prev,
           updates: updatedUpdates,
+          deletes:
+            originalValue === ''
+              ? prev.deletes.filter(
+                  (item) => item.key !== key || item.value !== undefined,
+                )
+              : prev.deletes,
         };
         return updatedOperations;
       });

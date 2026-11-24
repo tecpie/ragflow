@@ -225,7 +225,7 @@ func TestReferenceRecordingTool_KeepsSameTitleDifferentDocumentIDs(t *testing.T)
 // TestWrapReferenceRecordingTools_WrapsReferenceBuilders asserts the ReAct
 // tool list is decorated while buildAgentTools keeps the raw tools.
 func TestWrapReferenceRecordingTools_WrapsReferenceBuilders(t *testing.T) {
-	raw, err := buildAgentTools(t.Context(), AgentParam{Tools: []string{"youcom"}})
+	raw, _, err := buildAgentTools(t.Context(), AgentParam{Tools: []string{"youcom"}})
 	if err != nil {
 		t.Fatalf("buildAgentTools: %v", err)
 	}

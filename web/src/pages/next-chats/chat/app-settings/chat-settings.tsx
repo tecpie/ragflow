@@ -1,3 +1,4 @@
+import { SettingsFormContainer } from '@/components/settings-form-container';
 import { Form } from '@/components/ui/form';
 import {
   ModelResourceAccessUserIdContext,
@@ -198,9 +199,9 @@ export function ChatSettings() {
       <ModelResourceAccessUserIdContext.Provider
         value={chatLoading ? null : (data?.user_id ?? null)}
       >
-        <section
+        <SettingsFormContainer
           data-testid="chat-detail-settings"
-          className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden"
+          className="flex-1 min-h-0 flex flex-col overflow-hidden"
         >
           <Form {...form}>
             <form
@@ -231,7 +232,7 @@ export function ChatSettings() {
               </div>
             </form>
           </Form>
-        </section>
+        </SettingsFormContainer>
       </ModelResourceAccessUserIdContext.Provider>
     </ModelResourceTenantIdContext.Provider>
   );

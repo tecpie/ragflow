@@ -43,6 +43,42 @@ import (
 	"ragflow/internal/service/document"
 )
 
+func TestParseMetadataUpdatesPreservesTypeAndMatch(t *testing.T) {
+	var body map[string]any
+	if err := json.Unmarshal([]byte(`{"updates":[
+		{"key":"score","value":"42","valueType":"number"},
+		{"key":"tags","value":"new","match":"old","valueType":"list"}
+	]}`), &body); err != nil {
+		t.Fatal(err)
+	}
+	updates, errMsg := parseMetadataUpdates(body["updates"])
+	want := []document.MetadataUpdate{
+		{Key: "score", Value: "42", ValueType: "number"},
+		{Key: "tags", Value: "new", Match: "old", ValueType: "list"},
+	}
+	if errMsg != "" || !reflect.DeepEqual(updates, want) {
+		t.Fatalf("updates = %#v, error = %q, want %#v", updates, errMsg, want)
+	}
+}
+
+func TestParseMetadataDeletesPreservesValue(t *testing.T) {
+	var body map[string]any
+	if err := json.Unmarshal([]byte(`{"deletes":[
+		{"key":"tags","value":"a"},
+		{"key":"status"}
+	]}`), &body); err != nil {
+		t.Fatal(err)
+	}
+	deletes, errMsg := parseMetadataDeletes(body["deletes"])
+	want := []document.MetadataDelete{
+		{Key: "tags", Value: "a"},
+		{Key: "status"},
+	}
+	if errMsg != "" || !reflect.DeepEqual(deletes, want) {
+		t.Fatalf("deletes = %#v, error = %q, want %#v", deletes, errMsg, want)
+	}
+}
+
 func TestParseMetadataSelectorDocumentIDs(t *testing.T) {
 	tests := []struct {
 		name    string
