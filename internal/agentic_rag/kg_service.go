@@ -223,8 +223,8 @@ func (a *KgAdapter) Explore(ctx context.Context, req KgExploreRequest) (KgExplor
 	}
 	classOnly := kgClassOnly(req.Constraint)
 
-	// Encode the seed text ONCE: one embedding request serves every dataset.
-	seedVec := a.seedVector(ctx, req.TenantID, query)
+	tenants := DatasetTenants(ctx, datasetIDs)
+	seedVecs := make(map[string][]float64, len(tenants))
 
 	var entities []KgEntity
 	var relations []KgRelation
@@ -258,7 +258,16 @@ func (a *KgAdapter) Explore(ctx context.Context, req KgExploreRequest) (KgExplor
 	querySeeds := map[string]bool{}
 
 	for _, kbID := range datasetIDs {
-		seedRows := a.seedSearch(ctx, req.TenantID, kbID, docs, query, scopeKwd, seedVec)
+		tenantID := tenants[kbID]
+		if tenantID == "" {
+			tenantID = req.TenantID
+		}
+		seedVec, ok := seedVecs[tenantID]
+		if !ok {
+			seedVec = a.seedVector(ctx, tenantID, query)
+			seedVecs[tenantID] = seedVec
+		}
+		seedRows := a.seedSearch(ctx, kbID, docs, query, scopeKwd, seedVec)
 		var seeds []KgEntity
 		for _, row := range seedRows {
 			e, ok := kgParseEntity(row)
@@ -277,7 +286,7 @@ func (a *KgAdapter) Explore(ctx context.Context, req KgExploreRequest) (KgExplor
 		// raw question matches none of them. Take the entities of each aligned
 		// type directly, then hop.
 		for _, typ := range kgConstraintTypes(req.Constraint) {
-			for _, row := range a.kgSearch(ctx, req.TenantID, kbID, docs, "entity", "", kgTypeSeeds, scopeKwd,
+			for _, row := range a.kgSearch(ctx, kbID, docs, "entity", "", kgTypeSeeds, scopeKwd,
 				map[string]interface{}{"entity_type_kwd": typ}, "", 0) {
 				e, ok := kgParseEntity(row)
 				if !ok {
@@ -308,9 +317,9 @@ func (a *KgAdapter) Explore(ctx context.Context, req KgExploreRequest) (KgExplor
 				break
 			}
 			terms := kgEndpointTerms(frontier)
-			relRows := a.kgSearch(ctx, req.TenantID, kbID, docs, "relation", "", kgRelLimit, scopeKwd,
+			relRows := a.kgSearch(ctx, kbID, docs, "relation", "", kgRelLimit, scopeKwd,
 				map[string]interface{}{"from_entity_kwd": terms}, "", 0)
-			relRows = append(relRows, a.kgSearch(ctx, req.TenantID, kbID, docs, "relation", "", kgRelLimit, scopeKwd,
+			relRows = append(relRows, a.kgSearch(ctx, kbID, docs, "relation", "", kgRelLimit, scopeKwd,
 				map[string]interface{}{"to_entity_kwd": terms}, "", 0)...)
 
 			// Dedup on the row id so the same endpoint pair from different rows
@@ -360,7 +369,7 @@ func (a *KgAdapter) Explore(ctx context.Context, req KgExploreRequest) (KgExplor
 				if len(neighbours) < limit {
 					limit = len(neighbours)
 				}
-				neighRows := a.kgSearch(ctx, req.TenantID, kbID, docs, "entity", "", limit, scopeKwd,
+				neighRows := a.kgSearch(ctx, kbID, docs, "entity", "", limit, scopeKwd,
 					map[string]interface{}{"name_kwd": kgEndpointTerms(neighbours)}, "", 0)
 				for _, row := range neighRows {
 					if e, ok := kgParseEntity(row); ok {
@@ -410,7 +419,7 @@ func (a *KgAdapter) Explore(ctx context.Context, req KgExploreRequest) (KgExplor
 		// Only a probe that succeeded and found nothing is a dataset-level
 		// absence.
 		for _, kbID := range datasetIDs {
-			has, probeErr := a.graphRowsExist(ctx, req.TenantID, kbID, nil, "")
+			has, probeErr := a.graphRowsExist(ctx, kbID, nil, "")
 			if probeErr != nil {
 				return empty, probeErr
 			}
@@ -425,7 +434,7 @@ func (a *KgAdapter) Explore(ctx context.Context, req KgExploreRequest) (KgExplor
 	return KgExploreResult{
 		Entities:  entities,
 		Relations: relations,
-		Passages:  a.evidencePassages(ctx, req.TenantID, datasetIDs, entities, relations),
+		Passages:  a.evidencePassages(ctx, datasetIDs, entities, relations),
 	}, nil
 }
 
@@ -538,7 +547,7 @@ func (a *KgAdapter) seedVector(ctx context.Context, tenantID, text string) []flo
 // seedSearch resolves the seed entity rows: dense KNN over the entity rows
 // re-ranked by mention_count desc. An empty dense hit falls back to a keyword
 // match, which is also the path when no vector is available.
-func (a *KgAdapter) seedSearch(ctx context.Context, tenantID, kbID string, docs []string, text, scopeKwd string, seedVec []float64) []map[string]interface{} {
+func (a *KgAdapter) seedSearch(ctx context.Context, kbID string, docs []string, text, scopeKwd string, seedVec []float64) []map[string]interface{} {
 	if len(seedVec) > 0 {
 		dense := &enginetypes.MatchDenseExpr{
 			VectorColumnName:  common.VectorColumnName(len(seedVec)),
@@ -548,12 +557,12 @@ func (a *KgAdapter) seedSearch(ctx context.Context, tenantID, kbID string, docs 
 			TopN:              kgSeedPool,
 			ExtraOptions:      map[string]interface{}{"similarity": kgSeedSim},
 		}
-		rows := a.kgSearchRaw(ctx, tenantID, kbID, docs, "entity", scopeKwd, nil, []interface{}{dense}, "mention_count_int", kgSeedPool)
+		rows := a.kgSearchRaw(ctx, kbID, docs, "entity", scopeKwd, nil, []interface{}{dense}, "mention_count_int", kgSeedPool)
 		if len(rows) > 0 {
 			return kgTopMentionCount(rows, kgSeeds)
 		}
 	}
-	return a.kgSearch(ctx, tenantID, kbID, docs, "entity", text, kgSeeds, scopeKwd, nil, "mention_count_int", kgSeedPool)
+	return a.kgSearch(ctx, kbID, docs, "entity", text, kgSeeds, scopeKwd, nil, "mention_count_int", kgSeedPool)
 }
 
 // graphRowsExist reports whether one dataset holds ANY compiled entity row in
@@ -561,7 +570,7 @@ func (a *KgAdapter) seedSearch(ctx context.Context, tenantID, kbID string, docs 
 // uses the answer to decide whether an empty walk is a dataset-level absence
 // (which disables the tool) or a transient backend failure (which must not), and
 // a swallowed error would silently turn the latter into the former.
-func (a *KgAdapter) graphRowsExist(ctx context.Context, tenantID, kbID string, docs []string, scopeKwd string) (bool, error) {
+func (a *KgAdapter) graphRowsExist(ctx context.Context, kbID string, docs []string, scopeKwd string) (bool, error) {
 	condition := map[string]interface{}{"knowledge_graph_kwd": "entity"}
 	if scopeKwd != "" {
 		condition["scope_kwd"] = scopeKwd
@@ -570,7 +579,7 @@ func (a *KgAdapter) graphRowsExist(ctx context.Context, tenantID, kbID string, d
 		condition["doc_id"] = docs
 	}
 	res, err := a.docEngine.Search(ctx, &enginetypes.SearchRequest{
-		IndexNames:         []string{kgIndexName(tenantID)},
+		IndexNames:         IndexNamesFor(ctx, []string{kbID}),
 		KbIDs:              []string{kbID},
 		SelectFields:       []string{"id"},
 		Filter:             condition,
@@ -584,7 +593,7 @@ func (a *KgAdapter) graphRowsExist(ctx context.Context, tenantID, kbID string, d
 }
 
 // kgSearchRaw is the low-level KG row search over one dataset.
-func (a *KgAdapter) kgSearchRaw(ctx context.Context, tenantID, kbID string, docs []string, kind, scopeKwd string, extra map[string]interface{}, matchExprs []interface{}, orderDesc string, limit int) []map[string]interface{} {
+func (a *KgAdapter) kgSearchRaw(ctx context.Context, kbID string, docs []string, kind, scopeKwd string, extra map[string]interface{}, matchExprs []interface{}, orderDesc string, limit int) []map[string]interface{} {
 	condition := map[string]interface{}{"knowledge_graph_kwd": kind}
 	if scopeKwd != "" {
 		condition["scope_kwd"] = scopeKwd
@@ -596,7 +605,7 @@ func (a *KgAdapter) kgSearchRaw(ctx context.Context, tenantID, kbID string, docs
 		condition[key] = value
 	}
 	req := &enginetypes.SearchRequest{
-		IndexNames: []string{kgIndexName(tenantID)},
+		IndexNames: IndexNamesFor(ctx, []string{kbID}),
 		KbIDs:      []string{kbID},
 		SelectFields: []string{
 			"id", "content_with_weight", "source_chunk_ids", "doc_id", "docnm_kwd",
@@ -621,7 +630,7 @@ func (a *KgAdapter) kgSearchRaw(ctx context.Context, tenantID, kbID string, docs
 }
 
 // kgSearch searches the KG rows of one dataset with a text match expression.
-func (a *KgAdapter) kgSearch(ctx context.Context, tenantID, kbID string, docs []string, kind, text string, topN int, scopeKwd string, extra map[string]interface{}, orderDesc string, pool int) []map[string]interface{} {
+func (a *KgAdapter) kgSearch(ctx context.Context, kbID string, docs []string, kind, text string, topN int, scopeKwd string, extra map[string]interface{}, orderDesc string, pool int) []map[string]interface{} {
 	var matchExprs []interface{}
 	if text != "" {
 		candidates := topN
@@ -634,12 +643,12 @@ func (a *KgAdapter) kgSearch(ctx context.Context, tenantID, kbID string, docs []
 			TopN:         candidates,
 		}}
 	}
-	return a.kgSearchRaw(ctx, tenantID, kbID, docs, kind, scopeKwd, extra, matchExprs, orderDesc, topN)
+	return a.kgSearchRaw(ctx, kbID, docs, kind, scopeKwd, extra, matchExprs, orderDesc, topN)
 }
 
 // evidencePassages loads the source chunks behind the subgraph, in first-seen
 // doc order, capped at kgMaxPassages.
-func (a *KgAdapter) evidencePassages(ctx context.Context, tenantID string, datasetIDs []string, entities []KgEntity, relations []KgRelation) []KgPassage {
+func (a *KgAdapter) evidencePassages(ctx context.Context, datasetIDs []string, entities []KgEntity, relations []KgRelation) []KgPassage {
 	type evidence struct {
 		docID string
 		ids   []string
@@ -679,15 +688,15 @@ func (a *KgAdapter) evidencePassages(ctx context.Context, tenantID string, datas
 			break
 		}
 		remaining := kgMaxPassages - len(out)
-		for _, p := range a.loadPassages(ctx, tenantID, datasetIDs, group.ids, remaining) {
+		for _, p := range a.loadPassages(ctx, datasetIDs, group.ids, remaining) {
 			out = append(out, p)
 		}
 	}
 	return out
 }
 
-// loadPassages reads the given chunk ids back from the tenant index.
-func (a *KgAdapter) loadPassages(ctx context.Context, tenantID string, datasetIDs, chunkIDs []string, limit int) []KgPassage {
+// loadPassages reads the given chunk ids back from the bound datasets' indexes.
+func (a *KgAdapter) loadPassages(ctx context.Context, datasetIDs, chunkIDs []string, limit int) []KgPassage {
 	chunkIDs = nonEmptyStrings(chunkIDs)
 	if len(chunkIDs) == 0 || limit <= 0 {
 		return nil
@@ -696,7 +705,7 @@ func (a *KgAdapter) loadPassages(ctx context.Context, tenantID string, datasetID
 		chunkIDs = chunkIDs[:limit]
 	}
 	res, err := a.docEngine.Search(ctx, &enginetypes.SearchRequest{
-		IndexNames:   []string{kgIndexName(tenantID)},
+		IndexNames:   IndexNamesFor(ctx, datasetIDs),
 		KbIDs:        datasetIDs,
 		Filter:       map[string]interface{}{"id": chunkIDs},
 		SelectFields: []string{"content_with_weight", "doc_id", "docnm_kwd", "kb_id"},
@@ -720,11 +729,6 @@ func (a *KgAdapter) loadPassages(ctx context.Context, tenantID string, datasetID
 		})
 	}
 	return out
-}
-
-// kgIndexName is the chunk index of a tenant.
-func kgIndexName(tenantID string) string {
-	return "ragflow_" + tenantID
 }
 
 // kgTopMentionCount re-ranks rows by mention_count desc and returns the top N.
@@ -925,7 +929,7 @@ func (a *KgAdapter) DocOutline(ctx context.Context, req KgDocOutlineRequest) (Kg
 	outlined := map[string]bool{}
 	absent := true
 	for _, kbID := range datasetIDs {
-		rows := a.kgSearchRaw(ctx, req.TenantID, kbID, docIDs, "graph", "",
+		rows := a.kgSearchRaw(ctx, kbID, docIDs, "graph", "",
 			nil, nil, "", kgOutlineMaxDocs*kgOutlineRowsEach)
 		if len(rows) > 0 {
 			absent = false
@@ -959,7 +963,7 @@ func (a *KgAdapter) DocOutline(ctx context.Context, req KgDocOutlineRequest) (Kg
 			if kind == "relation" {
 				limit = kgOutlineMaxRelations
 			}
-			rows := a.kgSearchRaw(ctx, req.TenantID, kbID, fallbackDocs, kind, "",
+			rows := a.kgSearchRaw(ctx, kbID, fallbackDocs, kind, "",
 				nil, nil, "mention_count_int", limit)
 			if len(rows) == 0 {
 				continue
@@ -993,7 +997,7 @@ func (a *KgAdapter) DocOutline(ctx context.Context, req KgDocOutlineRequest) (Kg
 	// report the absence only when every probe succeeded and found nothing.
 	if absent {
 		for _, kbID := range datasetIDs {
-			has, probeErr := a.graphRowsExist(ctx, req.TenantID, kbID, nil, "")
+			has, probeErr := a.graphRowsExist(ctx, kbID, nil, "")
 			if probeErr != nil {
 				return empty, probeErr
 			}
@@ -1016,7 +1020,7 @@ func (a *KgAdapter) DocOutline(ctx context.Context, req KgDocOutlineRequest) (Kg
 		relations = relations[:kgOutlineMaxRelations]
 	}
 
-	passages := a.evidencePassages(ctx, req.TenantID, datasetIDs, entities, relations)
+	passages := a.evidencePassages(ctx, datasetIDs, entities, relations)
 	return KgExploreResult{
 		Entities:    entities,
 		Relations:   relations,

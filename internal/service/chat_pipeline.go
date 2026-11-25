@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"math"
@@ -37,6 +38,7 @@ import (
 	"ragflow/internal/service/graph"
 	"ragflow/internal/service/nlp"
 	"ragflow/internal/tokenizer"
+	"ragflow/internal/utility"
 	"regexp"
 	"sort"
 	"strings"
@@ -605,7 +607,11 @@ func (s *ChatPipelineService) AsyncChat(
 				}
 			}
 			var images []string
-			textAttachmentsList, images = splitFileAttachments(ctx, files, modelType == "image2text", chatLayoutRecognize(chat))
+			textAttachmentsList, images, err = splitFileAttachments(ctx, files, modelType == "image2text", chatLayoutRecognize(chat))
+			if err != nil {
+				sendResult(AsyncChatResult{Answer: fmt.Sprintf("**ERROR**: %s", err), Final: true})
+				return
+			}
 			imageFiles, hasImageAttachments = gateImageAttachments(chat.LLMID, modelType, images)
 			attachments = strings.Join(textAttachmentsList, "\n\n")
 			// Log counts only: attachment payloads are base64 images or
@@ -619,7 +625,11 @@ func (s *ChatPipelineService) AsyncChat(
 		var historyImageFiles []string
 		for _, previous := range messages[:len(messages)-1] {
 			if previous["role"] == "user" && previous["files"] != nil {
-				_, images := s.splitChatAttachments(ctx, previous["files"], chatLayoutRecognize(chat))
+				_, images, attachmentErr := s.splitChatAttachments(ctx, previous["files"], chatLayoutRecognize(chat))
+				if attachmentErr != nil {
+					sendResult(AsyncChatResult{Answer: fmt.Sprintf("**ERROR**: %s", attachmentErr), Final: true})
+					return
+				}
 				modelType, _ := llmModelConfig["model_type"].(string)
 				images, _ = gateImageAttachments(chat.LLMID, modelType, images)
 				historyImageFiles = append(historyImageFiles, images...)
@@ -1184,7 +1194,11 @@ func (s *ChatPipelineService) AsyncChat(
 		// Fit messages within token budget.
 		usedTokenCount, llmMessages := s.messageFitIn(llmMessages, int(float64(modelMaxTokens)*0.95))
 		for i := range llmMessages[:len(llmMessages)-1] {
-			llmMessages[i] = s.chatHistoryMessage(ctx, llmMessages[i], modelType, factoryName, chatLayoutRecognize(chat))
+			llmMessages[i], err = s.chatHistoryMessage(ctx, llmMessages[i], modelType, factoryName, chatLayoutRecognize(chat))
+			if err != nil {
+				sendResult(AsyncChatResult{Answer: fmt.Sprintf("**ERROR**: %s", err), Final: true})
+				return
+			}
 		}
 		common.Debug("Messages fitted in token budget",
 			zap.Int("model max_tokens", modelMaxTokens),
@@ -1340,64 +1354,113 @@ func (s *ChatPipelineService) AsyncChat(
 
 			// Tool routing: use tool-loop method when tools are bound.
 			var driverErr error
-			if chatDriver.ToolConfig != nil {
+			onToolDelta := func(answerDelta *string, reason *string) error {
 				// Tool streaming path:
 				// Wraps reasoning in <think></think> markers.
 				// inThink tracks local state to route reasoning vs answer.
 				var inThink bool
-				_, driverErr = chatDriver.ChatStreamlyWithTools(ctx, prompt+prompt4citation, chatMessages, chatCfg,
-					func(answerDelta *string, reason *string) error {
-						if answerDelta == nil || *answerDelta == "" {
-							return nil
-						}
-						text := *answerDelta
-						fullAnswer += text
+				if answerDelta == nil || *answerDelta == "" {
+					return nil
+				}
+				text := *answerDelta
+				fullAnswer += text
 
-						if text == "<think>" {
-							inThink = true
-							if !send(AsyncChatResult{
-								Answer:       "",
-								Reference:    map[string]interface{}{},
-								AudioBinary:  nil,
-								CreatedAt:    float64(time.Now().Unix()),
-								Final:        false,
-								StartToThink: true,
-							}) {
-								return ctx.Err()
+				if text == "<think>" {
+					inThink = true
+					if !send(AsyncChatResult{
+						Answer:       "",
+						Reference:    map[string]interface{}{},
+						AudioBinary:  nil,
+						CreatedAt:    float64(time.Now().Unix()),
+						Final:        false,
+						StartToThink: true,
+					}) {
+						return ctx.Err()
+					}
+					return nil
+				}
+				if text == "</think>" {
+					inThink = false
+					if !send(AsyncChatResult{
+						Answer:      "",
+						Reference:   map[string]interface{}{},
+						AudioBinary: nil,
+						CreatedAt:   float64(time.Now().Unix()),
+						Final:       false,
+						EndToThink:  true,
+					}) {
+						return ctx.Err()
+					}
+					return nil
+				}
+				if inThink {
+					// Reasoning text — route to Reasoning field so
+					// the SSE handler maps it to
+					// `delta.reasoning_content`.
+					if !send(AsyncChatResult{
+						Reasoning:   text,
+						Reference:   map[string]interface{}{},
+						AudioBinary: nil,
+						CreatedAt:   float64(time.Now().Unix()),
+						Final:       false,
+					}) {
+						return ctx.Err()
+					}
+				} else {
+					// Regular answer content
+					if !send(AsyncChatResult{
+						Answer:    text,
+						Reference: map[string]interface{}{},
+						CreatedAt: float64(time.Now().Unix()),
+						Final:     false,
+					}) {
+						return ctx.Err()
+					}
+				}
+				return nil
+			}
+			onDelta := func(answer *string, reason *string) error {
+				if reason != nil && *reason != "" {
+					// Reason channel is already delimited by
+					// StartToThink/EndToThink. Do not run it through
+					// NextThinkDelta: that parser treats reason text as
+					// answer-side tokens and flushes a buffered blob.
+					emitReasonChannelDelta(thinkState, *reason, func(result AsyncChatResult) {
+						send(result)
+					})
+				}
+				if isContentDelta(answer) {
+					if thinkState.ExitReasoning() {
+						for _, d := range FlushRemaining(thinkState) {
+							if d.Kind == ThinkDeltaText && d.Value != "" {
+								fullAnswer += d.Value
+								if !send(AsyncChatResult{
+									Answer:    d.Value,
+									Reference: map[string]interface{}{},
+									CreatedAt: float64(time.Now().Unix()),
+									Final:     false,
+								}) {
+									return ctx.Err()
+								}
 							}
-							return nil
 						}
-						if text == "</think>" {
-							inThink = false
-							if !send(AsyncChatResult{
-								Answer:      "",
-								Reference:   map[string]interface{}{},
-								AudioBinary: nil,
-								CreatedAt:   float64(time.Now().Unix()),
-								Final:       false,
-								EndToThink:  true,
-							}) {
-								return ctx.Err()
-							}
-							return nil
+						if !send(AsyncChatResult{
+							Answer:      "",
+							Reference:   map[string]interface{}{},
+							AudioBinary: nil,
+							CreatedAt:   float64(time.Now().Unix()),
+							Final:       false,
+							EndToThink:  true,
+						}) {
+							return ctx.Err()
 						}
-						if inThink {
-							// Reasoning text — route to Reasoning field so
-							// the SSE handler maps it to
-							// `delta.reasoning_content`.
+					}
+					fullAnswer += *answer
+					deltas := BufferAnswerDelta(thinkState, *answer, 16)
+					for _, d := range deltas {
+						if d.Kind == ThinkDeltaText && d.Value != "" {
 							if !send(AsyncChatResult{
-								Reasoning:   text,
-								Reference:   map[string]interface{}{},
-								AudioBinary: nil,
-								CreatedAt:   float64(time.Now().Unix()),
-								Final:       false,
-							}) {
-								return ctx.Err()
-							}
-						} else {
-							// Regular answer content
-							if !send(AsyncChatResult{
-								Answer:    text,
+								Answer:    d.Value,
 								Reference: map[string]interface{}{},
 								CreatedAt: float64(time.Now().Unix()),
 								Final:     false,
@@ -1405,65 +1468,45 @@ func (s *ChatPipelineService) AsyncChat(
 								return ctx.Err()
 							}
 						}
-						return nil
-					})
+					}
+				}
+				return nil
+			}
+			if chatDriver.ToolConfig != nil {
+				_, driverErr = chatDriver.ChatStreamlyWithTools(ctx, prompt+prompt4citation, chatMessages, chatCfg, onToolDelta)
 			} else {
-				driverErr = chatDriver.ChatStreamlyWithSender(
-					ctx, chatMessages, chatCfg, nil,
-					func(answer *string, reason *string) error {
-						if reason != nil && *reason != "" {
-							// Reason channel is already delimited by
-							// StartToThink/EndToThink. Do not run it through
-							// NextThinkDelta: that parser treats reason text as
-							// answer-side tokens and flushes a buffered blob.
-							emitReasonChannelDelta(thinkState, *reason, func(result AsyncChatResult) {
-								send(result)
-							})
-						}
-						if isContentDelta(answer) {
-							if thinkState.ExitReasoning() {
-								for _, d := range FlushRemaining(thinkState) {
-									if d.Kind == ThinkDeltaText && d.Value != "" {
-										fullAnswer += d.Value
-										if !send(AsyncChatResult{
-											Answer:    d.Value,
-											Reference: map[string]interface{}{},
-											CreatedAt: float64(time.Now().Unix()),
-											Final:     false,
-										}) {
-											return ctx.Err()
-										}
-									}
-								}
-								if !send(AsyncChatResult{
-									Answer:      "",
-									Reference:   map[string]interface{}{},
-									AudioBinary: nil,
-									CreatedAt:   float64(time.Now().Unix()),
-									Final:       false,
-									EndToThink:  true,
-								}) {
-									return ctx.Err()
-								}
+				driverErr = chatDriver.ChatStreamlyWithSender(ctx, chatMessages, chatCfg, nil, onDelta)
+			}
+			// The gp- primary failed before any delta reached the client:
+			// flip its current group member inactive and retry once on the
+			// next member. Once deltas have streamed the answer cannot be
+			// replayed on another model, so the error surfaces as-is.
+			if driverErr != nil && ctx.Err() == nil && fullAnswer == "" && thinkState.fullText == "" {
+				if _, ok := common.ParseGroupModelRef(chat.LLMID); ok {
+					s.flipChatGroupMember(ctx, chat.TenantID, chat.LLMID)
+					modelCtx := permission.WithTenantID(ctx, chat.TenantID)
+					if retryModel, rerr := s.ModelFactory.NewChatModel(modelCtx, chat.LLMID); rerr == nil {
+						if retryDriver := s.buildChatDriver(ctx, chat, retryModel); retryDriver != nil {
+							fullAnswer = ""
+							thinkState = &ThinkStreamState{}
+							if retryDriver.ToolConfig != nil {
+								_, driverErr = retryDriver.ChatStreamlyWithTools(ctx, prompt+prompt4citation, chatMessages, chatCfg, onToolDelta)
+							} else {
+								driverErr = retryDriver.ChatStreamlyWithSender(ctx, chatMessages, chatCfg, nil, onDelta)
 							}
-							fullAnswer += *answer
-							deltas := BufferAnswerDelta(thinkState, *answer, 16)
-							for _, d := range deltas {
-								if d.Kind == ThinkDeltaText && d.Value != "" {
-									if !send(AsyncChatResult{
-										Answer:    d.Value,
-										Reference: map[string]interface{}{},
-										CreatedAt: float64(time.Now().Unix()),
-										Final:     false,
-									}) {
-										return ctx.Err()
-									}
-								}
+							if driverErr != nil {
+								common.WarnCtx(ctx, "chat completions: group failover retry failed",
+									zap.String("llm_id", chat.LLMID), zap.Error(driverErr))
 							}
+						} else {
+							common.WarnCtx(ctx, "chat completions: group failover re-resolve failed",
+								zap.String("llm_id", chat.LLMID), zap.Error(fmt.Errorf("re-resolved driver is nil")))
 						}
-						return nil
-					},
-				)
+					} else {
+						common.WarnCtx(ctx, "chat completions: group failover re-resolve failed",
+							zap.String("llm_id", chat.LLMID), zap.Error(rerr))
+					}
+				}
 			}
 			if driverErr != nil {
 				if ctx.Err() != nil {
@@ -1551,6 +1594,39 @@ func (s *ChatPipelineService) AsyncChat(
 			}
 			timer.Exit(common.PhaseGenerateAnswer)
 
+			if err != nil {
+				// The gp- primary failed: flip its current group member
+				// inactive and retry once on the next member.
+				if _, ok := common.ParseGroupModelRef(chat.LLMID); ok {
+					s.flipChatGroupMember(ctx, chat.TenantID, chat.LLMID)
+					modelCtx := permission.WithTenantID(ctx, chat.TenantID)
+					if retryModel, rerr := s.ModelFactory.NewChatModel(modelCtx, chat.LLMID); rerr == nil {
+						if retryDriver := s.buildChatDriver(ctx, chat, retryModel); retryDriver != nil {
+							if retryDriver.ToolConfig != nil {
+								answer, _, err = retryDriver.ChatWithTools(ctx, prompt+prompt4citation, chatMessages, chatCfg)
+							} else {
+								resp, respErr := retryDriver.ChatWithMessages(ctx, chatMessages, chatCfg, nil)
+								if respErr != nil {
+									err = respErr
+								} else if resp != nil && resp.Answer != nil {
+									answer = *resp.Answer
+									err = nil
+								}
+							}
+							if err != nil {
+								common.WarnCtx(ctx, "chat completions: group failover retry failed",
+									zap.String("llm_id", chat.LLMID), zap.Error(err))
+							}
+						} else {
+							common.WarnCtx(ctx, "chat completions: group failover re-resolve failed",
+								zap.String("llm_id", chat.LLMID), zap.Error(fmt.Errorf("re-resolved driver is nil")))
+						}
+					} else {
+						common.WarnCtx(ctx, "chat completions: group failover re-resolve failed",
+							zap.String("llm_id", chat.LLMID), zap.Error(rerr))
+					}
+				}
+			}
 			if err != nil {
 				sendResult(AsyncChatResult{
 					Answer: fmt.Sprintf("**ERROR**: %s", err.Error()),
@@ -1690,7 +1766,11 @@ func (s *ChatPipelineService) AsyncChatSolo(
 		if len(messages) > 0 {
 			if files, hasFiles := messages[len(messages)-1]["files"]; hasFiles {
 				var images []string
-				attachmentsStr, images = s.splitChatAttachments(ctx, files, chatLayoutRecognize(chat))
+				attachmentsStr, images, err = s.splitChatAttachments(ctx, files, chatLayoutRecognize(chat))
+				if err != nil {
+					sendResult(AsyncChatResult{Answer: fmt.Sprintf("**ERROR**: %s", err), Final: true})
+					return
+				}
 				imageFiles, _ = gateImageAttachments(chat.LLMID, modelType, images)
 				common.Info("AsyncChatSolo: file attachments resolved",
 					zap.Bool("vision_model", isImage2Text),
@@ -1707,7 +1787,11 @@ func (s *ChatPipelineService) AsyncChatSolo(
 				continue
 			}
 			if i < len(messages)-1 {
-				m = s.chatHistoryMessage(ctx, m, modelType, factoryName, chatLayoutRecognize(chat))
+				m, err = s.chatHistoryMessage(ctx, m, modelType, factoryName, chatLayoutRecognize(chat))
+				if err != nil {
+					sendResult(AsyncChatResult{Answer: fmt.Sprintf("**ERROR**: %s", err), Final: true})
+					return
+				}
 			}
 			llmMessage := normalizeLLMMessage(m)
 			content := llmMessage["content"]
@@ -1733,6 +1817,10 @@ func (s *ChatPipelineService) AsyncChatSolo(
 			chatModel, err = s.ModelFactory.NewChatModel(modelCtx, chat.LLMID)
 		}
 		if err != nil {
+			common.WarnCtx(ctx, "chat completions: chat model construction failed",
+				zap.String("tenant_id", chat.TenantID),
+				zap.String("llm_id", chat.LLMID),
+				zap.Error(err))
 			sendResult(AsyncChatResult{
 				Answer: fmt.Sprintf("**ERROR**: %s", err.Error()),
 				Final:  true,
@@ -1786,48 +1874,24 @@ func (s *ChatPipelineService) AsyncChatSolo(
 			chatCfg := BuildChatConfig(chat, config)
 			timer.Enter(common.PhaseGenerateAnswer)
 
-			driverErr := chatModel.ChatStreamlyWithSender(
-				ctx, chatMessages, chatCfg, nil,
-				func(answer *string, reason *string) error {
-					if reason != nil && *reason != "" {
-						emitReasonChannelDelta(thinkState, *reason, func(result AsyncChatResult) {
-							if result.Reasoning != "" {
-								result.AudioBinary = s.synthesizeTTS(ctx, ttsModel, result.Reasoning)
-							}
-							sendResult(result)
-						})
-					}
-					if isContentDelta(answer) {
-						if thinkState.ExitReasoning() {
-							for _, d := range FlushRemaining(thinkState) {
-								if d.Kind == ThinkDeltaText && d.Value != "" {
-									fullAnswer += d.Value
-									if !sendResult(AsyncChatResult{
-										Answer:      d.Value,
-										Reference:   map[string]interface{}{},
-										AudioBinary: s.synthesizeTTS(ctx, ttsModel, d.Value),
-										CreatedAt:   float64(time.Now().Unix()),
-										Final:       false,
-									}) {
-										return ctx.Err()
-									}
-								}
-							}
-							if !sendResult(AsyncChatResult{
-								Answer:      "",
-								Reference:   map[string]interface{}{},
-								AudioBinary: nil,
-								CreatedAt:   float64(time.Now().Unix()),
-								Final:       false,
-								EndToThink:  true,
-							}) {
-								return ctx.Err()
-							}
+			onDelta := func(answer *string, reason *string) error {
+				if reason != nil && *reason != "" {
+					// Reason channel is already delimited by
+					// StartToThink/EndToThink. Do not run it through
+					// NextThinkDelta: that parser treats reason text as
+					// answer-side tokens and flushes a buffered blob.
+					emitReasonChannelDelta(thinkState, *reason, func(result AsyncChatResult) {
+						if result.Reasoning != "" {
+							result.AudioBinary = s.synthesizeTTS(ctx, ttsModel, result.Reasoning)
 						}
-						fullAnswer += *answer
-						deltas := BufferAnswerDelta(thinkState, *answer, 16)
-						for _, d := range deltas {
+						sendResult(result)
+					})
+				}
+				if isContentDelta(answer) {
+					if thinkState.ExitReasoning() {
+						for _, d := range FlushRemaining(thinkState) {
 							if d.Kind == ThinkDeltaText && d.Value != "" {
+								fullAnswer += d.Value
 								if !sendResult(AsyncChatResult{
 									Answer:      d.Value,
 									Reference:   map[string]interface{}{},
@@ -1839,10 +1903,57 @@ func (s *ChatPipelineService) AsyncChatSolo(
 								}
 							}
 						}
+						if !sendResult(AsyncChatResult{
+							Answer:      "",
+							Reference:   map[string]interface{}{},
+							AudioBinary: nil,
+							CreatedAt:   float64(time.Now().Unix()),
+							Final:       false,
+							EndToThink:  true,
+						}) {
+							return ctx.Err()
+						}
 					}
-					return nil
-				},
-			)
+					fullAnswer += *answer
+					deltas := BufferAnswerDelta(thinkState, *answer, 16)
+					for _, d := range deltas {
+						if d.Kind == ThinkDeltaText && d.Value != "" {
+							if !sendResult(AsyncChatResult{
+								Answer:      d.Value,
+								Reference:   map[string]interface{}{},
+								AudioBinary: s.synthesizeTTS(ctx, ttsModel, d.Value),
+								CreatedAt:   float64(time.Now().Unix()),
+								Final:       false,
+							}) {
+								return ctx.Err()
+							}
+						}
+					}
+				}
+				return nil
+			}
+			driverErr := chatModel.ChatStreamlyWithSender(ctx, chatMessages, chatCfg, nil, onDelta)
+			// The gp- primary failed before any delta reached the client:
+			// flip its current group member inactive and retry once on the
+			// next member. Once deltas have streamed the answer cannot be
+			// replayed on another model, so the error surfaces as-is.
+			if driverErr != nil && ctx.Err() == nil && fullAnswer == "" && thinkState.fullText == "" {
+				if _, ok := common.ParseGroupModelRef(chat.LLMID); ok {
+					s.flipChatGroupMember(ctx, chat.TenantID, chat.LLMID)
+					if retryModel, rerr := s.ModelFactory.NewChatModel(modelCtx, chat.LLMID); rerr == nil {
+						thinkState = &ThinkStreamState{}
+						fullAnswer = ""
+						driverErr = retryModel.ChatStreamlyWithSender(ctx, chatMessages, chatCfg, nil, onDelta)
+						if driverErr != nil {
+							common.WarnCtx(ctx, "chat completions: group failover retry failed",
+								zap.String("llm_id", chat.LLMID), zap.Error(driverErr))
+						}
+					} else {
+						common.WarnCtx(ctx, "chat completions: group failover re-resolve failed",
+							zap.String("llm_id", chat.LLMID), zap.Error(rerr))
+					}
+				}
+			}
 			if driverErr != nil {
 				if ctx.Err() != nil {
 					return
@@ -1916,6 +2027,25 @@ func (s *ChatPipelineService) AsyncChatSolo(
 			resp, err := chatModel.ChatWithMessages(ctx, chatMessages, chatCfg, nil)
 			timer.Exit(common.PhaseGenerateAnswer)
 			if err != nil {
+				// The gp- primary failed: flip its current group member
+				// inactive and retry once on the next member.
+				if _, ok := common.ParseGroupModelRef(chat.LLMID); ok {
+					s.flipChatGroupMember(ctx, chat.TenantID, chat.LLMID)
+					if retryModel, rerr := s.ModelFactory.NewChatModel(modelCtx, chat.LLMID); rerr == nil {
+						timer.Enter(common.PhaseGenerateAnswer)
+						resp, err = retryModel.ChatWithMessages(ctx, chatMessages, chatCfg, nil)
+						timer.Exit(common.PhaseGenerateAnswer)
+						if err != nil {
+							common.WarnCtx(ctx, "chat completions: group failover retry failed",
+								zap.String("llm_id", chat.LLMID), zap.Error(err))
+						}
+					} else {
+						common.WarnCtx(ctx, "chat completions: group failover re-resolve failed",
+							zap.String("llm_id", chat.LLMID), zap.Error(rerr))
+					}
+				}
+			}
+			if err != nil {
 				sendResult(AsyncChatResult{
 					Answer: fmt.Sprintf("**ERROR**: %s", err.Error()),
 					Final:  true,
@@ -1949,7 +2079,23 @@ func (s *ChatPipelineService) AsyncChatSolo(
 	return out, nil
 }
 
-// splitChatAttachments resolves the last message's file attachments into
+// flipChatGroupMember deactivates the currently picked member of a gp- chat
+// model reference (best-effort) so the next NewChatModel on the same
+// reference picks the next member, mirroring the ingestion dispatchers'
+// failover. No-op for non-group references; failures are logged without
+// masking the original model error.
+func (s *ChatPipelineService) flipChatGroupMember(ctx context.Context, tenantID, llmID string) {
+	groupID, ok := common.ParseGroupModelRef(llmID)
+	if !ok {
+		return
+	}
+	if _, err := dao.MarkGroupMemberInactive(ctx, dao.DB, strings.TrimSpace(tenantID), groupID, entity.ModelTypeChat); err != nil {
+		common.WarnCtx(ctx, "chat completions: model group failover flip failed",
+			zap.String("llm_id", llmID),
+			zap.Error(err))
+	}
+}
+
 // text content (entries joined by "\n\n") and image data URIs, reading
 // each blob from storage at most once.
 //
@@ -1969,7 +2115,7 @@ func chatLayoutRecognize(chat *entity.Chat) string {
 	return strings.TrimSpace(layout)
 }
 
-func (s *ChatPipelineService) splitChatAttachments(ctx context.Context, files interface{}, layoutRecognize string) (string, []string) {
+func (s *ChatPipelineService) splitChatAttachments(ctx context.Context, files interface{}, layoutRecognize string) (string, []string, error) {
 	// ── File-dict mode ──
 	if fileDicts, ok := parseFileDicts(files); ok {
 		// Only used for GetFileContents (read-only); nil DocRemover means
@@ -1977,14 +2123,17 @@ func (s *ChatPipelineService) splitChatAttachments(ctx context.Context, files in
 		fileSvc := file.NewFileService(nil)
 		texts, images, err := fileSvc.GetFileContents(ctx, fileDicts, layoutRecognize)
 		if err != nil {
+			if errors.Is(err, utility.ErrFeatureDisabled) {
+				return "", nil, err
+			}
 			common.Warn("GetFileContents failed in splitChatAttachments",
 				zap.Error(err))
-			return "", nil
+			return "", nil, nil
 		}
 		if len(texts) == 0 {
-			return "", images
+			return "", images, nil
 		}
-		return strings.Join(texts, "\n\n"), images
+		return strings.Join(texts, "\n\n"), images, nil
 	}
 
 	// ── String mode ──
@@ -2019,9 +2168,9 @@ func (s *ChatPipelineService) splitChatAttachments(ctx context.Context, files in
 		}
 	}
 	if len(texts) == 0 {
-		return "", images
+		return "", images, nil
 	}
-	return strings.Join(texts, "\n\n"), images
+	return strings.Join(texts, "\n\n"), images, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -2405,7 +2554,7 @@ func (s *ChatPipelineService) buildCodexReference(ctx context.Context, tenantID 
 		return map[string]interface{}{}, final
 	}
 	byID := make(map[string]map[string]interface{}, len(corpus)+len(web))
-	for _, r := range fetchChunksByIDs(ctx, tenantID, datasetIDs, corpus) {
+	for _, r := range fetchChunksByIDs(ctx, datasetIDs, corpus) {
 		if id, ok := r["id"].(string); ok {
 			byID[id] = r
 		}
@@ -2528,7 +2677,7 @@ func emptyResponseReference(kbinfos map[string]interface{}, knowledges []string,
 //     URIs → image files.
 //     - raw=true: all items go to textAttachments (Python's FileService.get_files
 //     with raw=True pre-separates images, so non-image content arrives here).
-func splitFileAttachments(ctx context.Context, files interface{}, raw bool, layoutRecognize string) (textAttachments []string, imageAttachments []string) {
+func splitFileAttachments(ctx context.Context, files interface{}, raw bool, layoutRecognize string) (textAttachments []string, imageAttachments []string, err error) {
 	// ── Mode 1: file dicts (Python-compatible) ──
 	if fileDicts, ok := parseFileDicts(files); ok {
 		// Only used for GetFileContents (read-only); nil DocRemover means
@@ -2536,10 +2685,12 @@ func splitFileAttachments(ctx context.Context, files interface{}, raw bool, layo
 		fileSvc := file.NewFileService(nil)
 		texts, images, err := fileSvc.GetFileContents(ctx, fileDicts, layoutRecognize)
 		if err != nil {
-			common.Warn("GetFileContents failed, falling back to string splitting",
-				zap.Error(err))
+			if errors.Is(err, utility.ErrFeatureDisabled) {
+				return nil, nil, err
+			}
+			common.Warn("GetFileContents failed, falling back to string splitting", zap.Error(err))
 		} else {
-			return texts, images
+			return texts, images, nil
 		}
 	}
 
@@ -2568,7 +2719,7 @@ func splitFileAttachments(ctx context.Context, files interface{}, raw bool, layo
 				}
 			}
 		}
-		return texts, images
+		return texts, images, nil
 	}
 
 	// raw=false: split by "data:" prefix.
@@ -2595,7 +2746,7 @@ func splitFileAttachments(ctx context.Context, files interface{}, raw bool, layo
 			}
 		}
 	}
-	return texts, images
+	return texts, images, nil
 }
 
 // parseFileDicts attempts to parse files as a list of file-dict maps
@@ -2975,19 +3126,22 @@ func (s *ChatPipelineService) buildChatMessages(systemContent string, messages [
 	return result
 }
 
-func (s *ChatPipelineService) chatHistoryMessage(ctx context.Context, message map[string]interface{}, modelType, factory, layoutRecognize string) map[string]interface{} {
+func (s *ChatPipelineService) chatHistoryMessage(ctx context.Context, message map[string]interface{}, modelType, factory, layoutRecognize string) (map[string]interface{}, error) {
 	if message["role"] != "user" || message["files"] == nil {
-		return message
+		return message, nil
 	}
-	_, images := s.splitChatAttachments(ctx, message["files"], layoutRecognize)
+	_, images, attachmentErr := s.splitChatAttachments(ctx, message["files"], layoutRecognize)
+	if attachmentErr != nil {
+		return nil, attachmentErr
+	}
 	images, _ = gateImageAttachments("", modelType, images)
 	msg := normalizeLLMMessage(message)
 	converted, err := common.ConvertLastUserMsgToMultimodal(msg, images, factory)
 	if err != nil {
 		common.Warn("chat history multimodal conversion failed", zap.Error(err))
-		return msg
+		return msg, nil
 	}
-	return converted
+	return converted, nil
 }
 
 func normalizeLLMMessage(message map[string]interface{}) map[string]interface{} {
@@ -5741,7 +5895,12 @@ func (s *ChatPipelineService) planExplorerAuditorRag(
 		if info := modelChain[0].Info(); info != nil && entity.ModelTypeFromStrings(info.ModelTypes).Has(entity.ModelTypeImage2Text) {
 			modelType = "image2text"
 		}
-		msgs := s.convertMessagesToEino(ctx, modelType, messages, chatLayoutRecognize(chat))
+		msgs, err := s.convertMessagesToEino(ctx, modelType, messages, chatLayoutRecognize(chat))
+		if err != nil {
+			common.ErrorCtx(ctx, "smart_reasoning: resolve chat attachments", err)
+			out <- AsyncChatResult{Answer: fmt.Sprintf("**ERROR**: %s", err.Error()), Final: true}
+			return
+		}
 
 		// Resolve the dataset scope from the chat's KBs. These are passed into
 		// the agent's Input and injected into its retrieval tools, so
@@ -5943,6 +6102,12 @@ func (s *ChatPipelineService) planExplorerAuditorRag(
 		}
 		if err != nil {
 			common.ErrorCtx(ctx, "smart_reasoning: run", err)
+			// A turn that died on a model failure marks the gp- primary's
+			// current member inactive: agenticModelChain rebuilds the chain
+			// on the next request, which then picks the next member.
+			if agentic_rag.ModelFailure(err) {
+				s.flipChatGroupMember(ctx, chat.TenantID, chat.LLMID)
+			}
 			if final == "" {
 				final = fmt.Sprintf("**ERROR**: %s", err.Error())
 			}
@@ -5974,7 +6139,7 @@ func (s *ChatPipelineService) planExplorerAuditorRag(
 		// naive answers ([ID:N] -> reference.chunks[N], N 0-based).
 		reference := map[string]interface{}{}
 		if quote {
-			reference, final = s.buildAgenticReference(ctx, chat.TenantID, datasetIDs, final, registry)
+			reference, final = s.buildAgenticReference(ctx, datasetIDs, final, registry)
 		} else {
 			// No reference payload ships, so no marker may survive: it would
 			// point the client at a citation that does not exist. Only the
