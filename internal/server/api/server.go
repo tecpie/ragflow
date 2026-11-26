@@ -47,22 +47,11 @@ import (
 	"ragflow/internal/server/bootstrap"
 )
 
-func Run(ctx context.Context, serverName string, args *bootstrap.ServerArgs, services *bootstrap.AgentServices) error {
+func Run(ctx context.Context, serverName string, arguments *bootstrap.ServerArgs, agentServices *bootstrap.AgentServices) error {
 	if !kvrocks.IsEnabled() {
 		return fmt.Errorf("API requires Kvrocks for shared channel runtime status")
 	}
 
-	if err := startServer(ctx, serverName, args, services); err != nil {
-		return err
-	}
-
-	common.Info("Server exited")
-
-	return nil
-}
-
-// startServer owns the API listeners and background workers until ctx is canceled.
-func startServer(ctx context.Context, serverName string, arguments *bootstrap.ServerArgs, agentServices *bootstrap.AgentServices) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -250,12 +239,15 @@ func startServer(ctx context.Context, serverName string, arguments *bootstrap.Se
 
 	apiServerConfig := globalConfig.GetAPIServerConfig()
 
+	requestCtx, cancelRequests := newRequestContext(ctx)
+	defer cancelRequests()
+
 	// Create HTTP server with timeouts to prevent slow clients from blocking shutdown
 	addr := fmt.Sprintf(":%d", apiServerConfig.HTTPPort)
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           ginEngine,
-		BaseContext:       func(net.Listener) context.Context { return ctx },
+		BaseContext:       func(net.Listener) context.Context { return requestCtx },
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       60 * time.Second,
 		// WriteTimeout spans "request header read → response written", so it is a
@@ -340,7 +332,7 @@ func startServer(ctx context.Context, serverName string, arguments *bootstrap.Se
 		defer hb.Stop()
 	}
 	if arguments.Ready != nil {
-		if err := arguments.Ready(); err != nil {
+		if err = arguments.Ready(); err != nil {
 			srv.Close()
 			if mcpSrv != nil {
 				mcpSrv.Close()
@@ -354,7 +346,7 @@ func startServer(ctx context.Context, serverName string, arguments *bootstrap.Se
 	select {
 	case <-ctx.Done():
 		common.Info("Received shutdown signal")
-	case err := <-serveErr:
+	case err = <-serveErr:
 		runErr = err
 		common.Error("Server failed; shutting down", err)
 	}
@@ -376,6 +368,11 @@ func startServer(ctx context.Context, serverName string, arguments *bootstrap.Se
 			return err
 		}
 	}
+
+	if runErr == nil {
+		common.Info("Server exited successfully")
+	}
+
 	return runErr
 }
 

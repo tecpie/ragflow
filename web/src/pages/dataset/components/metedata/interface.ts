@@ -75,6 +75,7 @@ export type IManageModalProps = {
   hideModal: () => void;
   tableData?: IMetaDataTableData[];
   isCanAdd: boolean;
+  readOnly?: boolean;
   type: MetadataType;
   otherData?: Record<string, any>;
   isEditField?: boolean;
