@@ -307,6 +307,8 @@ func (s *OntologyService) Delete(ctx context.Context, tenantID, id string) error
 }
 
 // Playground returns the Microsoft Ontology Playground JSON for an ontology.
+// When a modeling document is present it is preferred so function/action types
+// and datatype properties project with stable kinds; Turtle is the fallback.
 func (s *OntologyService) Playground(ctx context.Context, tenantID, id string) (*ontology.PlaygroundOntology, error) {
 	row, err := s.dao.GetByID(ctx, dao.DB, tenantID, id)
 	if err != nil {
@@ -318,6 +320,10 @@ func (s *OntologyService) Playground(ctx context.Context, tenantID, id string) (
 	desc := ""
 	if row.Description != nil {
 		desc = *row.Description
+	}
+	if modeling, ok, err := ontology.ParseModelingDocument(row.Document); err == nil && ok {
+		pg := ontology.PlaygroundFromModeling(row.Name, desc, modeling)
+		return &pg, nil
 	}
 	doc, err := ontology.ParseTurtle(row.Turtle, row.Name, desc, row.BaseIRI)
 	if err != nil {

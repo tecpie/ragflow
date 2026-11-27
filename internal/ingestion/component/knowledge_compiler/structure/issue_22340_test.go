@@ -181,7 +181,7 @@ func TestIssue22340_EndToEndRelationExtraction(t *testing.T) {
 	}
 
 	nodePrompt, edgePromptTmpl := HypergraphPrompts(cfg.ParserConfig, "en")
-	nodes, edges, err := extractHypergraph(ctx, deps, cfg, nodePrompt, edgePromptTmpl, "WO-001 repairs Pump-001 using Bearing-001")
+	nodes, edges, _, _, err := extractHypergraph(ctx, deps, cfg, nodePrompt, edgePromptTmpl, "", "", "WO-001 repairs Pump-001 using Bearing-001")
 	if err != nil {
 		t.Fatalf("extractHypergraph: %v", err)
 	}
@@ -193,7 +193,7 @@ func TestIssue22340_EndToEndRelationExtraction(t *testing.T) {
 		t.Fatalf("extractHypergraph edges: got %d, want 2 (bug was returning 0)", len(edges))
 	}
 
-	rows, err := buildRows(ctx, deps, cfg, nodes, edges, []string{"c1"})
+	rows, err := buildRows(ctx, deps, cfg, nodes, edges, nil, nil, []string{"c1"})
 	if err != nil {
 		t.Fatalf("buildRows: %v", err)
 	}
@@ -266,7 +266,7 @@ func TestIssue22340_EntityAliasPopulatesKnown(t *testing.T) {
 		},
 	}
 	nodePrompt, edgePromptTmpl := HypergraphPrompts(cfg.ParserConfig, "en")
-	nodes, edges, err := extractHypergraph(ctx, deps, cfg, nodePrompt, edgePromptTmpl, "test text")
+	nodes, edges, _, _, err := extractHypergraph(ctx, deps, cfg, nodePrompt, edgePromptTmpl, "", "", "test text")
 	if err != nil {
 		t.Fatalf("extractHypergraph: %v", err)
 	}
@@ -498,7 +498,7 @@ func TestIssue22340_ConfiguredEndpointsSurviveReplacement(t *testing.T) {
 				payload["to_entity"] = "Y"
 			}
 			cfg := CompileConfig{ParserConfig: map[string]any{"identifiers": map[string]any{"relation_members": map[string]any{"source": "left", "target": "right"}}}}
-			rows, err := buildRows(context.Background(), common.Deps{Embed: constEmbedder{dim: 4}}, cfg, nil, []map[string]any{payload}, nil)
+			rows, err := buildRows(context.Background(), common.Deps{Embed: constEmbedder{dim: 4}}, cfg, nil, []map[string]any{payload}, nil, nil, nil)
 			if err != nil || len(rows) != 1 {
 				t.Fatalf("buildRows: %v rows=%d", err, len(rows))
 			}
@@ -544,7 +544,7 @@ func TestIssue22340_ConfiguredEndpointsSurviveReplacement(t *testing.T) {
 func TestIssue22340_DescriptionMatchingEndpointValueNotOverwritten(t *testing.T) {
 	existingPayload := map[string]any{"left": "A", "right": "B", "description": "A", "type": "linked"}
 	cfg := CompileConfig{ParserConfig: map[string]any{"identifiers": map[string]any{"relation_members": map[string]any{"source": "left", "target": "right"}}}}
-	rows, err := buildRows(context.Background(), common.Deps{Embed: constEmbedder{dim: 4}}, cfg, nil, []map[string]any{existingPayload}, nil)
+	rows, err := buildRows(context.Background(), common.Deps{Embed: constEmbedder{dim: 4}}, cfg, nil, []map[string]any{existingPayload}, nil, nil, nil)
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("buildRows: %v rows=%d", err, len(rows))
 	}

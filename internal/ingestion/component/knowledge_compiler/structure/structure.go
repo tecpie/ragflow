@@ -118,7 +118,7 @@ func Run(ctx context.Context, deps common.Deps, param common.Param, inputs commo
 		TemplateID:   param.TemplateID,
 	}
 
-	nodePrompt, edgePromptTmpl := HypergraphPrompts(parserConfig, param.Language)
+	nodePrompt, edgePromptTmpl, functionPromptTmpl, actionPromptTmpl := HypergraphPrompts(parserConfig, param.Language)
 	gateMode := EvidenceGateMode(parserConfig)
 
 	// ---- MAP ----
@@ -153,8 +153,8 @@ func Run(ctx context.Context, deps common.Deps, param common.Param, inputs commo
 	// extract; buildRows (which calls Embed.Encode) runs serially afterwards so
 	// embedding batch jobs are never nested inside a compiler-pool worker.
 	type extractedBatch struct {
-		nodes, edges []map[string]any
-		batchIDs     []string
+		nodes, edges, functions, actions []map[string]any
+		batchIDs                         []string
 	}
 	extracted := make([]extractedBatch, len(batches))
 	perBatch := make([][]common.Product, len(batches))
@@ -179,7 +179,7 @@ func Run(ctx context.Context, deps common.Deps, param common.Param, inputs commo
 				mapDone()
 				return nil
 			}
-			nodes, edges, err := extractHypergraph(ctx, deps, cfg, nodePrompt, edgePromptTmpl, packed)
+			nodes, edges, functions, actions, err := extractHypergraph(ctx, deps, cfg, nodePrompt, edgePromptTmpl, functionPromptTmpl, actionPromptTmpl, packed)
 			if err != nil {
 				return err
 			}
@@ -199,11 +199,11 @@ func Run(ctx context.Context, deps common.Deps, param common.Param, inputs commo
 			// Keep embedding out of the compiler-pool worker. buildRows calls
 			// Embed.Encode, which may submit its own batch jobs to that pool;
 			// the serial loop after runBatches owns it.
-			extracted[i] = extractedBatch{nodes: nodes, edges: edges, batchIDs: batchIDs}
+			extracted[i] = extractedBatch{nodes: nodes, edges: edges, functions: functions, actions: actions, batchIDs: batchIDs}
 			progressMu.Lock()
 			runtime.ReportProgressMessage(ctx, "Compiler", fmt.Sprintf(
-				"%s-template: batch %d/%d done: %d entities, %d relations",
-				compileType, i+1, len(batches), len(nodes), len(edges)))
+				"%s-template: batch %d/%d done: %d entities, %d relations, %d functions, %d actions",
+				compileType, i+1, len(batches), len(nodes), len(edges), len(functions), len(actions)))
 			progressMu.Unlock()
 			mapDone()
 			return nil
@@ -233,7 +233,7 @@ func Run(ctx context.Context, deps common.Deps, param common.Param, inputs commo
 		if len(result.batchIDs) == 0 {
 			continue
 		}
-		rows, err := buildRows(ctx, deps, cfg, result.nodes, result.edges, result.batchIDs)
+		rows, err := buildRows(ctx, deps, cfg, result.nodes, result.edges, result.functions, result.actions, result.batchIDs)
 		if err != nil {
 			return common.Outputs{}, err
 		}

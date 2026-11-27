@@ -50,13 +50,14 @@ func chatRequest(llmID, systemPrompt, userPrompt string) common.ChatRequest {
 
 // extractHypergraph mirrors _struct_extract_hypergraph: stage 1 extracts node
 // (entity) items, stage 2 extracts edge (relation) items constrained to the
-// stage-1 entities via the {known_nodes} placeholder. The two stages within
-// one batch are strictly sequential; batches parallelise at the caller.
-func extractHypergraph(ctx context.Context, deps common.Deps, cfg CompileConfig, nodePrompt, edgePromptTmpl, packedText string) (nodes, edges []map[string]any, err error) {
+// stage-1 entities via the {known_nodes} placeholder. Optional stages extract
+// function/action instances when prompts are non-empty. Stages within one
+// batch are strictly sequential; batches parallelise at the caller.
+func extractHypergraph(ctx context.Context, deps common.Deps, cfg CompileConfig, nodePrompt, edgePromptTmpl, functionPromptTmpl, actionPromptTmpl, packedText string) (nodes, edges, functions, actions []map[string]any, err error) {
 	user := UserPrompt(packedText)
 	nodeRaw, err := common.GenJSONOrArray(ctx, deps.Chat, chatRequest(cfg.LLMID, nodePrompt, user))
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	nodes = unwrapItems(nodeRaw, entityItemFallbackKeys...)
 
@@ -75,20 +76,40 @@ func extractHypergraph(ctx context.Context, deps common.Deps, cfg CompileConfig,
 		known = append(known, v)
 	}
 
-	// Relations can only reference entities from this batch. If entity extraction
-	// returned nothing, skip the second LLM call and avoid creating orphan edges.
+	// Relations/functions/actions can only reference entities from this batch.
 	if len(known) == 0 {
-		return nodes, nil, nil
+		return nodes, nil, nil, nil, nil
 	}
 
-	if strings.TrimSpace(edgePromptTmpl) == "" {
-		return nodes, nil, nil
+	if strings.TrimSpace(edgePromptTmpl) != "" {
+		edgeRaw, edgeErr := common.GenJSONOrArray(ctx, deps.Chat, chatRequest(cfg.LLMID, fillKnownNodes(edgePromptTmpl, known), EdgeUserPrompt(packedText)))
+		if edgeErr != nil {
+			return nil, nil, nil, nil, edgeErr
+		}
+		edges = unwrapItems(edgeRaw, relationItemFallbackKeys...)
 	}
-	edgeRaw, err := common.GenJSONOrArray(ctx, deps.Chat, chatRequest(cfg.LLMID, fillKnownNodes(edgePromptTmpl, known), EdgeUserPrompt(packedText)))
-	if err != nil {
-		return nil, nil, err
+	if strings.TrimSpace(functionPromptTmpl) != "" {
+		fnRaw, fnErr := common.GenJSONOrArray(ctx, deps.Chat, chatRequest(cfg.LLMID, fillKnownNodes(functionPromptTmpl, known), roleUserPrompt(packedText, "function")))
+		if fnErr != nil {
+			return nil, nil, nil, nil, fnErr
+		}
+		functions = unwrapItems(fnRaw)
 	}
-	return nodes, unwrapItems(edgeRaw, relationItemFallbackKeys...), nil
+	if strings.TrimSpace(actionPromptTmpl) != "" {
+		actRaw, actErr := common.GenJSONOrArray(ctx, deps.Chat, chatRequest(cfg.LLMID, fillKnownNodes(actionPromptTmpl, known), roleUserPrompt(packedText, "action")))
+		if actErr != nil {
+			return nil, nil, nil, nil, actErr
+		}
+		actions = unwrapItems(actRaw)
+	}
+	return nodes, edges, functions, actions, nil
+}
+
+func roleUserPrompt(packedText, kind string) string {
+	return "## Source Text:\n" +
+		"Each source chunk is enclosed by [CHUNK_ID: ...] and [END_CHUNK]. " +
+		"For every " + kind + ", return source_chunk_ids containing only the IDs of chunks that support that item.\n" +
+		packedText + "\n\n## Output (JSON only):"
 }
 
 // Shared endpoint and relation-type aliases used across extraction, row building, and merge passes.
@@ -246,14 +267,15 @@ func parsePayload(content string) map[string]any {
 // payloadDescription(payload); content is the payload JSON (
 // content_with_weight); source_chunk_ids are the model's picks filtered to
 // the batch; the stable row id hashes (content, doc_id, template_id).
-func buildRows(ctx context.Context, deps common.Deps, cfg CompileConfig, nodes, edges []map[string]any, batchIDs []string) ([]common.Product, error) {
+// Optional function/action payloads become knowledge_graph rows of those kinds.
+func buildRows(ctx context.Context, deps common.Deps, cfg CompileConfig, nodes, edges, functions, actions []map[string]any, batchIDs []string) ([]common.Product, error) {
 	srcField, tgtField := RelationMemberFields(cfg.ParserConfig)
 
 	type spec struct {
-		kind    string // "entity" | "relation"
+		kind    string // "entity" | "relation" | "function" | "action"
 		payload map[string]any
 	}
-	specs := make([]spec, 0, len(nodes)+len(edges))
+	specs := make([]spec, 0, len(nodes)+len(edges)+len(functions)+len(actions))
 	for _, p := range nodes {
 		specs = append(specs, spec{kind: "entity", payload: p})
 	}
@@ -262,6 +284,12 @@ func buildRows(ctx context.Context, deps common.Deps, cfg CompileConfig, nodes, 
 			continue
 		}
 		specs = append(specs, spec{kind: "relation", payload: p})
+	}
+	for _, p := range functions {
+		specs = append(specs, spec{kind: "function", payload: p})
+	}
+	for _, p := range actions {
+		specs = append(specs, spec{kind: "action", payload: p})
 	}
 	if len(specs) == 0 {
 		return nil, nil
@@ -293,20 +321,43 @@ func buildRows(ctx context.Context, deps common.Deps, cfg CompileConfig, nodes, 
 			// carries one, else 1 (never a synthesized constant).
 			"mention_count": mentionCountOf(s.payload),
 		}
-		if s.kind == "entity" {
+		switch s.kind {
+		case "entity":
 			if name := entityName(s.payload); name != "" {
 				meta["name"] = name
 			}
-			// entity_type_kwd is only stamped when the payload has a type —
-			// omits the column entirely for an untyped entity rather
-			// than writing a synthesized "other".
 			if typ := strings.TrimSpace(stringOf(s.payload["type"])); typ != "" {
 				meta["entity_type"] = typ
 			}
 			if desc := strings.TrimSpace(stringOf(s.payload["description"])); desc != "" {
 				meta["description"] = desc
 			}
-		} else {
+		case "function":
+			if typ := strings.TrimSpace(stringOf(s.payload["type"])); typ != "" {
+				meta["entity_type"] = typ
+				meta["name"] = typ
+			}
+			if bearer := strings.TrimSpace(stringOf(s.payload["bearer"])); bearer != "" {
+				meta["from"] = bearer
+			}
+			if desc := strings.TrimSpace(stringOf(s.payload["description"])); desc != "" {
+				meta["description"] = desc
+			}
+		case "action":
+			if typ := strings.TrimSpace(stringOf(s.payload["type"])); typ != "" {
+				meta["entity_type"] = typ
+				meta["name"] = typ
+			}
+			if agent := strings.TrimSpace(stringOf(s.payload["agent"])); agent != "" {
+				meta["from"] = agent
+			}
+			if object := strings.TrimSpace(stringOf(s.payload["object"])); object != "" {
+				meta["to"] = object
+			}
+			if desc := strings.TrimSpace(stringOf(s.payload["description"])); desc != "" {
+				meta["description"] = desc
+			}
+		default:
 			if from := relationEndpoint(s.payload, srcField, sourceEndpointAliases...); from != "" {
 				meta["from"] = from
 			}

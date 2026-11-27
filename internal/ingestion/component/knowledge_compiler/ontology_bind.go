@@ -25,6 +25,7 @@ import (
 	"ragflow/internal/dao"
 	"ragflow/internal/entity"
 	"ragflow/internal/ontology"
+	"ragflow/internal/ontology/remote"
 
 	"gorm.io/gorm"
 )
@@ -34,7 +35,7 @@ import (
 // document (preferred) or Turtle playground projection (fallback without
 // datatype properties).
 func prepareOntologyExtractionConfig(ctx context.Context, db *gorm.DB, tenantID string, cfg map[string]any) (map[string]any, error) {
-	if db == nil {
+	if db == nil && !remote.Enabled() {
 		return nil, fmt.Errorf("ontology extraction: database is unavailable")
 	}
 	row, err := resolveOntologyRow(ctx, db, tenantID, cfg)
@@ -63,6 +64,12 @@ func resolveOntologyRow(ctx context.Context, db *gorm.DB, tenantID string, cfg m
 	if id == "" && name == "" {
 		name = "Compiled Ontology"
 	}
+	if remote.Enabled() {
+		return resolveRemoteOntology(ctx, id, name)
+	}
+	if db == nil {
+		return nil, fmt.Errorf("ontology extraction: database is unavailable")
+	}
 	ontDAO := dao.NewOntologyDAO()
 	var row *entity.Ontology
 	var err error
@@ -74,6 +81,30 @@ func resolveOntologyRow(ctx context.Context, db *gorm.DB, tenantID string, cfg m
 	if err != nil {
 		return nil, err
 	}
+	if row == nil {
+		if id != "" {
+			return nil, fmt.Errorf("ontology %s not found", id)
+		}
+		return nil, fmt.Errorf("ontology %q not found", name)
+	}
+	return row, nil
+}
+
+func resolveRemoteOntology(ctx context.Context, id, name string) (*entity.Ontology, error) {
+	client := remote.Default()
+	var (
+		remoteRow *remote.Ontology
+		err       error
+	)
+	if id != "" {
+		remoteRow, err = client.Get(ctx, id)
+	} else {
+		remoteRow, err = client.GetByName(ctx, name)
+	}
+	if err != nil {
+		return nil, err
+	}
+	row := remote.ToEntity(remoteRow)
 	if row == nil {
 		if id != "" {
 			return nil, fmt.Errorf("ontology %s not found", id)
@@ -170,16 +201,111 @@ func parserConfigFromModeling(base map[string]any, modeling ontology.ModelingDoc
 	}
 	if len(relationFields) == 0 {
 		delete(out, "relation")
-		return out
+	} else {
+		relationCfg := map[string]any{
+			"description": "Extract relations of the bound ontology. type must be one of the listed relations, and the direction must follow the description.",
+			"fields":      relationFields,
+		}
+		if hasRelationProps {
+			relationCfg["output_fields"] = []any{propertiesOutputField()}
+		}
+		out["relation"] = relationCfg
 	}
-	relationCfg := map[string]any{
-		"description": "Extract relations of the bound ontology. type must be one of the listed relations, and the direction must follow the description.",
-		"fields":      relationFields,
+
+	var functionFields []any
+	hasFunctionProps := false
+	for _, f := range modeling.Functions {
+		label := strings.TrimSpace(f.Name)
+		if label == "" {
+			label = strings.TrimSpace(f.ID)
+		}
+		if label == "" {
+			continue
+		}
+		item := map[string]any{"type": label}
+		var parts []string
+		if d := strings.TrimSpace(f.Description); d != "" {
+			parts = append(parts, d)
+		}
+		bearers := conceptLabels(nameByID, f.BearerConcepts)
+		if len(bearers) > 0 {
+			parts = append(parts, "Bearer must be one of: "+strings.Join(bearers, "|")+".")
+		}
+		ioProps := append(append([]ontology.ModelingProperty{}, f.Inputs...), f.Outputs...)
+		if rule := propertyRule(ioProps); rule != "" {
+			parts = append(parts, rule)
+			hasFunctionProps = true
+		}
+		if len(parts) > 0 {
+			item["description"] = strings.Join(parts, " ")
+		}
+		functionFields = append(functionFields, item)
 	}
-	if hasRelationProps {
-		relationCfg["output_fields"] = []any{propertiesOutputField()}
+	if len(functionFields) > 0 {
+		fnCfg := map[string]any{
+			"description": "Extract function (capability) instances. type must be one of the listed functions; bearer must be a known entity name.",
+			"fields":      functionFields,
+			"output_fields": []any{
+				map[string]any{
+					"name": "bearer", "type": "string", "required": true,
+					"description": "Name of the entity that bears this function.",
+				},
+			},
+		}
+		if hasFunctionProps {
+			fnCfg["output_fields"] = append(fnCfg["output_fields"].([]any), propertiesOutputField())
+		}
+		out["function"] = fnCfg
 	}
-	out["relation"] = relationCfg
+
+	var actionFields []any
+	hasActionProps := false
+	for _, a := range modeling.Actions {
+		label := strings.TrimSpace(a.Name)
+		if label == "" {
+			label = strings.TrimSpace(a.ID)
+		}
+		if label == "" {
+			continue
+		}
+		item := map[string]any{"type": label}
+		var parts []string
+		if d := strings.TrimSpace(a.Description); d != "" {
+			parts = append(parts, d)
+		}
+		if agents := conceptLabels(nameByID, a.AgentConcepts); len(agents) > 0 {
+			parts = append(parts, "Agent must be one of: "+strings.Join(agents, "|")+".")
+		}
+		if objects := conceptLabels(nameByID, a.ObjectConcepts); len(objects) > 0 {
+			parts = append(parts, "Object (patient) must be one of: "+strings.Join(objects, "|")+".")
+		}
+		if results := conceptLabels(nameByID, a.ResultConcepts); len(results) > 0 {
+			parts = append(parts, "Result must be one of: "+strings.Join(results, "|")+".")
+		}
+		if rule := propertyRule(a.Properties); rule != "" {
+			parts = append(parts, rule)
+			hasActionProps = true
+		}
+		if len(parts) > 0 {
+			item["description"] = strings.Join(parts, " ")
+		}
+		actionFields = append(actionFields, item)
+	}
+	if len(actionFields) > 0 {
+		actCfg := map[string]any{
+			"description": "Extract action/process instances. type must be one of the listed actions; agent/object/result reference known entity names when stated.",
+			"fields":      actionFields,
+			"output_fields": []any{
+				map[string]any{"name": "agent", "type": "string", "required": true, "description": "Performer entity name."},
+				map[string]any{"name": "object", "type": "string", "required": false, "description": "Patient/object entity name."},
+				map[string]any{"name": "result", "type": "string", "required": false, "description": "Result entity name when stated."},
+			},
+		}
+		if hasActionProps {
+			actCfg["output_fields"] = append(actCfg["output_fields"].([]any), propertiesOutputField())
+		}
+		out["action"] = actCfg
+	}
 	return out
 }
 

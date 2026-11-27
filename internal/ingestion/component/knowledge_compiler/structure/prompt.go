@@ -235,7 +235,9 @@ func configSection(parserConfig map[string]any, keys ...string) map[string]any {
 // The returned edge prompt still contains the "{known_nodes}" placeholder,
 // filled per batch from the stage-1 entities (see fillKnownNodes). An empty
 // edge prompt means the config declares no relations and stage 2 is skipped.
-func HypergraphPrompts(parserConfig map[string]any, lang string) (nodePrompt, edgePrompt string) {
+// Optional function/action prompts are returned when parser_config declares
+// those sections (ontology operator); empty means the stage is skipped.
+func HypergraphPrompts(parserConfig map[string]any, lang string) (nodePrompt, edgePrompt, functionPrompt, actionPrompt string) {
 	autotype := InferType(parserConfig)
 	guideline := common.GetMap(parserConfig, "guideline")
 	output := common.GetMap(parserConfig, "output")
@@ -301,36 +303,77 @@ func HypergraphPrompts(parserConfig map[string]any, lang string) (nodePrompt, ed
 			fmt.Sprintf(`Auto-type: %q. `, string(autotype))+unique+"Return JSON only, no commentary.")
 	nodePrompt = strings.Join(nodeParts, "\n\n")
 
-	if len(relationsCfg) == 0 {
-		return nodePrompt, ""
+	if len(relationsCfg) > 0 {
+		var edgeParts []string
+		if target != "" {
+			edgeParts = append(edgeParts, "# Role and Task:\n"+target)
+		}
+		if globalRules != "" {
+			edgeParts = append(edgeParts, "## Global Rules:\n"+globalRules)
+		}
+		if rulesR != "" {
+			edgeParts = append(edgeParts, "## Relation Extraction Rules:\n"+rulesR)
+		}
+		if rulesT != "" {
+			edgeParts = append(edgeParts, "## Time Rules:\n"+rulesT)
+		}
+		if relDesc != "" {
+			edgeParts = append(edgeParts, "## Relation Description:\n"+relDesc)
+		}
+		edgeParts = append(edgeParts, "## Relation Fields:\n"+relFieldsText)
+		edgeParts = append(edgeParts, "## Known Entities:\n{known_nodes}")
+		edgeParts = append(edgeParts,
+			"## Response Format:\n"+
+				"Reply with a single JSON object of the form: "+
+				fmt.Sprintf(`{"items": [%s, ...]}.`, relSkel)+"\n"+
+				"Only create relations between entities listed in 'Known Entities'. "+
+				"Return JSON only, no commentary.")
+		edgePrompt = strings.Join(edgeParts, "\n\n")
 	}
 
-	var edgeParts []string
+	functionPrompt = roleStagePrompt(parserConfig, lang, "function", target, globalRules,
+		`{ "type": "<function type>", "bearer": "<known entity name>", "description": "<capability evidence>", "source_chunk_ids": ["<source chunk id>", ...] }`)
+	actionPrompt = roleStagePrompt(parserConfig, lang, "action", target, globalRules,
+		`{ "type": "<action type>", "agent": "<known entity name>", "object": "<optional entity name>", "result": "<optional entity name>", "description": "<process evidence>", "source_chunk_ids": ["<source chunk id>", ...] }`)
+	return nodePrompt, edgePrompt, functionPrompt, actionPrompt
+}
+
+func roleStagePrompt(parserConfig map[string]any, lang, key, target, globalRules, defaultSkel string) string {
+	cfg := common.GetMap(parserConfig, key)
+	if len(cfg) == 0 {
+		return ""
+	}
+	fields := configFields(cfg)
+	if len(fields) == 0 {
+		return ""
+	}
+	fieldsText, skel := renderTypeFields(fields, lang, "entity", configOutputFields(cfg))
+	if strings.TrimSpace(skel) == "" {
+		skel = defaultSkel
+	}
+	desc := common.Localize(common.Get(cfg, "description"), lang)
+	var parts []string
 	if target != "" {
-		edgeParts = append(edgeParts, "# Role and Task:\n"+target)
+		parts = append(parts, "# Role and Task:\n"+target)
 	}
 	if globalRules != "" {
-		edgeParts = append(edgeParts, "## Global Rules:\n"+globalRules)
+		parts = append(parts, "## Global Rules:\n"+globalRules)
 	}
-	if rulesR != "" {
-		edgeParts = append(edgeParts, "## Relation Extraction Rules:\n"+rulesR)
+	title := key
+	if len(key) > 0 {
+		title = strings.ToUpper(key[:1]) + key[1:]
 	}
-	if rulesT != "" {
-		edgeParts = append(edgeParts, "## Time Rules:\n"+rulesT)
+	if desc != "" {
+		parts = append(parts, "## "+title+" Description:\n"+desc)
 	}
-	if relDesc != "" {
-		edgeParts = append(edgeParts, "## Relation Description:\n"+relDesc)
-	}
-	edgeParts = append(edgeParts, "## Relation Fields:\n"+relFieldsText)
-	edgeParts = append(edgeParts, "## Known Entities:\n{known_nodes}")
-	edgeParts = append(edgeParts,
+	parts = append(parts, "## "+title+" Fields:\n"+fieldsText)
+	parts = append(parts, "## Known Entities:\n{known_nodes}")
+	parts = append(parts,
 		"## Response Format:\n"+
 			"Reply with a single JSON object of the form: "+
-			fmt.Sprintf(`{"items": [%s, ...]}.`, relSkel)+"\n"+
-			"Only create relations between entities listed in 'Known Entities'. "+
-			"Return JSON only, no commentary.")
-	edgePrompt = strings.Join(edgeParts, "\n\n")
-	return nodePrompt, edgePrompt
+			fmt.Sprintf(`{"items": [%s, ...]}.`, skel)+"\n"+
+			"Only reference entities listed in 'Known Entities'. Return JSON only, no commentary.")
+	return strings.Join(parts, "\n\n")
 }
 
 // fillKnownNodes renders the stage-2 edge prompt by substituting the

@@ -135,3 +135,33 @@ func TestOverlayOntologyFieldsDropsRelationsWhenOntologyHasNone(t *testing.T) {
 		t.Fatalf("relation should be removed, cfg = %#v", cfg["relation"])
 	}
 }
+
+func TestParserConfigFromModelingIncludesFunctionAction(t *testing.T) {
+	cfg := parserConfigFromModeling(nil, ontology.ModelingDocument{
+		Concepts: []ontology.ModelingConcept{
+			{ID: "Transformer", Name: "变压器"},
+			{ID: "ProtectionDevice", Name: "保护装置"},
+			{ID: "CircuitBreaker", Name: "断路器"},
+		},
+		Functions: []ontology.ModelingFunction{
+			{ID: "VoltageRegulation", Name: "调压功能", BearerConcepts: []string{"Transformer"}},
+		},
+		Actions: []ontology.ModelingAction{
+			{ID: "Trip", Name: "跳闸", AgentConcepts: []string{"ProtectionDevice"}, ObjectConcepts: []string{"CircuitBreaker"}},
+		},
+	})
+	fn, _ := cfg["function"].(map[string]any)
+	fields, _ := fn["fields"].([]any)
+	if len(fields) != 1 {
+		t.Fatalf("function fields = %#v", fields)
+	}
+	act, _ := cfg["action"].(map[string]any)
+	actFields, _ := act["fields"].([]any)
+	if len(actFields) != 1 {
+		t.Fatalf("action fields = %#v", actFields)
+	}
+	desc, _ := actFields[0].(map[string]any)["description"].(string)
+	if !strings.Contains(desc, "保护装置") || !strings.Contains(desc, "断路器") {
+		t.Fatalf("action description = %s", desc)
+	}
+}

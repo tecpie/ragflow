@@ -25,6 +25,7 @@ import (
 	"ragflow/internal/dao"
 	"ragflow/internal/entity"
 	"ragflow/internal/ontology"
+	"ragflow/internal/ontology/remote"
 
 	"go.uber.org/zap"
 )
@@ -40,12 +41,26 @@ func (c *Consumer) syncOntologyFromBuckets(ctx context.Context, tenant, kb strin
 	if len(targets) == 0 {
 		return
 	}
+	useRemote := remote.Enabled()
 	ontDAO := dao.NewOntologyDAO()
 	for _, t := range targets {
 		if len(t.schema.Classes) == 0 && len(t.schema.Properties) == 0 {
 			continue
 		}
-		item, err := upsertInducedOntology(ctx, ontDAO, tenant, t)
+		var (
+			itemID   string
+			itemName string
+			err      error
+		)
+		if useRemote {
+			itemID, itemName, err = upsertInducedOntologyRemote(ctx, t)
+		} else {
+			item, upsertErr := upsertInducedOntology(ctx, ontDAO, tenant, t)
+			err = upsertErr
+			if item != nil {
+				itemID, itemName = item.ID, item.Name
+			}
+		}
 		if err != nil {
 			common.Warn("knowledge_compile: ontology induce failed",
 				zap.String("tenant_id", tenant),
@@ -55,17 +70,41 @@ func (c *Consumer) syncOntologyFromBuckets(ctx context.Context, tenant, kb strin
 				zap.Error(err))
 			continue
 		}
-		if item == nil {
+		if itemID == "" && itemName == "" {
 			continue
 		}
 		common.Info("knowledge_compile: ontology induced",
 			zap.String("tenant_id", tenant),
 			zap.String("kb_id", kb),
-			zap.String("ontology_id", item.ID),
-			zap.String("ontology_name", item.Name),
+			zap.String("ontology_id", itemID),
+			zap.String("ontology_name", itemName),
 			zap.Int("classes", len(t.schema.Classes)),
 			zap.Int("properties", len(t.schema.Properties)))
 	}
+}
+
+func upsertInducedOntologyRemote(ctx context.Context, t ontologyTarget) (id, name string, err error) {
+	row, err := remote.Default().UpsertInduced(ctx, remote.UpsertInducedRequest{
+		OntologyID:  strings.TrimSpace(t.ontologyID),
+		Name:        strings.TrimSpace(t.name),
+		Description: strings.TrimSpace(t.description),
+		BaseIRI:     strings.TrimSpace(t.baseIRI),
+		Classes:     t.schema.Classes,
+		Properties:  t.schema.Properties,
+	})
+	if err != nil {
+		return "", "", err
+	}
+	if row == nil {
+		return "", "", nil
+	}
+	if entity.OntologySourceModeled(row.Source) {
+		common.Info("knowledge_compile: ontology induce skipped",
+			zap.String("ontology_id", row.ID),
+			zap.String("source", row.Source))
+		return "", "", nil
+	}
+	return row.ID, row.Name, nil
 }
 
 type ontologyTarget struct {

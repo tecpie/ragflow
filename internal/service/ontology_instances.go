@@ -54,10 +54,34 @@ type OntologyRelationInstance struct {
 	DatasetID  string         `json:"dataset_id"`
 }
 
+// OntologyFunctionInstance is one extracted function (capability) instance.
+type OntologyFunctionInstance struct {
+	Type        string         `json:"type"`
+	TypeID      string         `json:"type_id"`
+	Bearer      string         `json:"bearer"`
+	Description string         `json:"description,omitempty"`
+	Properties  map[string]any `json:"properties,omitempty"`
+	DatasetID   string         `json:"dataset_id"`
+}
+
+// OntologyActionInstance is one extracted action/process instance.
+type OntologyActionInstance struct {
+	Type        string         `json:"type"`
+	TypeID      string         `json:"type_id"`
+	Agent       string         `json:"agent"`
+	Object      string         `json:"object,omitempty"`
+	Result      string         `json:"result,omitempty"`
+	Description string         `json:"description,omitempty"`
+	Properties  map[string]any `json:"properties,omitempty"`
+	DatasetID   string         `json:"dataset_id"`
+}
+
 // OntologyInstances is the ABox extracted for one ontology.
 type OntologyInstances struct {
 	Entities  []OntologyEntityInstance   `json:"entities"`
 	Relations []OntologyRelationInstance `json:"relations"`
+	Functions []OntologyFunctionInstance `json:"functions"`
+	Actions   []OntologyActionInstance   `json:"actions"`
 }
 
 // Instances lists compiled-graph entities and relations for datasets whose
@@ -79,9 +103,14 @@ func (s *OntologyService) Instances(ctx context.Context, tenantID, id string) (*
 		return nil, err
 	}
 	pg := doc.ToPlayground()
+	if modeling, ok, err := ontology.ParseModelingDocument(row.Document); err == nil && ok {
+		pg = ontology.PlaygroundFromModeling(row.Name, desc, modeling)
+	}
 	out := &OntologyInstances{
 		Entities:  []OntologyEntityInstance{},
 		Relations: []OntologyRelationInstance{},
+		Functions: []OntologyFunctionInstance{},
+		Actions:   []OntologyActionInstance{},
 	}
 	datasetIDs, err := datasetsBoundToOntology(ctx, tenantID, row)
 	if err != nil {
@@ -122,6 +151,32 @@ func (s *OntologyService) Instances(ctx context.Context, tenantID, id string) (*
 		out.Relations = append(out.Relations, projectRelations(pg, kbID, names, relRows)...)
 		if len(out.Relations) > ontologyInstanceLimit {
 			out.Relations = out.Relations[:ontologyInstanceLimit]
+		}
+	}
+	for _, kbID := range datasetIDs {
+		if len(out.Functions) >= ontologyInstanceLimit {
+			break
+		}
+		fnRows, err := searchGraphRows(ctx, de, tenantID, kbID, "function", ontologyInstanceLimit-len(out.Functions))
+		if err != nil {
+			return nil, err
+		}
+		out.Functions = append(out.Functions, projectFunctions(pg, kbID, names, fnRows)...)
+		if len(out.Functions) > ontologyInstanceLimit {
+			out.Functions = out.Functions[:ontologyInstanceLimit]
+		}
+	}
+	for _, kbID := range datasetIDs {
+		if len(out.Actions) >= ontologyInstanceLimit {
+			break
+		}
+		actRows, err := searchGraphRows(ctx, de, tenantID, kbID, "action", ontologyInstanceLimit-len(out.Actions))
+		if err != nil {
+			return nil, err
+		}
+		out.Actions = append(out.Actions, projectActions(pg, kbID, names, actRows)...)
+		if len(out.Actions) > ontologyInstanceLimit {
+			out.Actions = out.Actions[:ontologyInstanceLimit]
 		}
 	}
 	return out, nil
@@ -305,6 +360,79 @@ func instanceProperties(v any) map[string]any {
 	}
 	if len(out) == 0 {
 		return nil
+	}
+	return out
+}
+
+func projectFunctions(pg ontology.PlaygroundOntology, datasetID string, names map[string]bool, rows []map[string]interface{}) []OntologyFunctionInstance {
+	seen := map[string]bool{}
+	var out []OntologyFunctionInstance
+	for _, row := range rows {
+		if graphRowKind(row) != "function" {
+			continue
+		}
+		payload := rowPayload(row)
+		bearer := firstString(payload["bearer"], row["from_entity_kwd"])
+		if bearer == "" || !names[strings.ToLower(bearer)] {
+			continue
+		}
+		typeID, label, ok := matchClass(pg, firstString(payload["type"], row["entity_type_kwd"]))
+		if !ok {
+			continue
+		}
+		key := strings.ToLower(label) + "\x00" + strings.ToLower(bearer)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, OntologyFunctionInstance{
+			Type:        label,
+			TypeID:      typeID,
+			Bearer:      bearer,
+			Description: instanceField(payload["description"]),
+			Properties:  instanceProperties(payload["properties"]),
+			DatasetID:   datasetID,
+		})
+	}
+	return out
+}
+
+func projectActions(pg ontology.PlaygroundOntology, datasetID string, names map[string]bool, rows []map[string]interface{}) []OntologyActionInstance {
+	seen := map[string]bool{}
+	var out []OntologyActionInstance
+	for _, row := range rows {
+		if graphRowKind(row) != "action" {
+			continue
+		}
+		payload := rowPayload(row)
+		agent := firstString(payload["agent"], row["from_entity_kwd"])
+		if agent == "" || !names[strings.ToLower(agent)] {
+			continue
+		}
+		object := firstString(payload["object"], row["to_entity_kwd"])
+		if object != "" && !names[strings.ToLower(object)] {
+			object = ""
+		}
+		result := instanceField(payload["result"])
+		typeID, label, ok := matchClass(pg, firstString(payload["type"], row["entity_type_kwd"]))
+		if !ok {
+			continue
+		}
+		key := strings.ToLower(label) + "\x00" + strings.ToLower(agent) + "\x00" + strings.ToLower(object) + "\x00" + strings.ToLower(result)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, OntologyActionInstance{
+			Type:        label,
+			TypeID:      typeID,
+			Agent:       agent,
+			Object:      object,
+			Result:      result,
+			Description: instanceField(payload["description"]),
+			Properties:  instanceProperties(payload["properties"]),
+			DatasetID:   datasetID,
+		})
 	}
 	return out
 }

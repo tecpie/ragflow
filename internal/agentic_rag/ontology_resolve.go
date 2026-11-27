@@ -23,6 +23,7 @@ import (
 	"ragflow/internal/dao"
 	"ragflow/internal/entity"
 	"ragflow/internal/ontology"
+	"ragflow/internal/ontology/remote"
 )
 
 // playgroundForDatasets loads the ontologies named by each dataset's compilation
@@ -90,6 +91,11 @@ func ontologyPlayground(ctx context.Context, ontDAO *dao.OntologyDAO, tenantID s
 	if pg, ok := cache[key]; ok {
 		return pg, len(pg.EntityTypes) > 0 || len(pg.Relationships) > 0
 	}
+	if remote.Enabled() {
+		pg, ok := ontologyPlaygroundRemote(ctx, id, name)
+		cache[key] = pg
+		return pg, ok
+	}
 	var row *entity.Ontology
 	var err error
 	if id != "" {
@@ -113,6 +119,23 @@ func ontologyPlayground(ctx context.Context, ontDAO *dao.OntologyDAO, tenantID s
 	pg := doc.ToPlayground()
 	cache[key] = pg
 	return pg, len(pg.EntityTypes) > 0 || len(pg.Relationships) > 0
+}
+
+func ontologyPlaygroundRemote(ctx context.Context, id, name string) (ontology.PlaygroundOntology, bool) {
+	client := remote.Default()
+	resolveID := strings.TrimSpace(id)
+	if resolveID == "" {
+		row, err := client.GetByName(ctx, name)
+		if err != nil || row == nil || strings.TrimSpace(row.ID) == "" {
+			return ontology.PlaygroundOntology{}, false
+		}
+		resolveID = row.ID
+	}
+	pg, err := client.Playground(ctx, resolveID)
+	if err != nil || pg == nil {
+		return ontology.PlaygroundOntology{}, false
+	}
+	return *pg, len(pg.EntityTypes) > 0 || len(pg.Relationships) > 0
 }
 
 func mergePlayground(dst, src ontology.PlaygroundOntology) ontology.PlaygroundOntology {

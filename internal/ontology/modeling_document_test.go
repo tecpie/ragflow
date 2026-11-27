@@ -16,7 +16,10 @@
 
 package ontology
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestTurtleFromModelingJSONCaseBundle(t *testing.T) {
 	raw := `{
@@ -56,6 +59,72 @@ func TestTurtleFromModelingJSONRejectsNonModel(t *testing.T) {
 	}
 	if _, err := TurtleFromModelingJSON("", `{"name":"x"}`); err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestTurtleFromModelingJSONFunctionAction(t *testing.T) {
+	raw := `{
+	  "name": "电力",
+	  "conceptTypes": [
+	    {"id": "Transformer", "name": "变压器"},
+	    {"id": "ProtectionDevice", "name": "保护装置"},
+	    {"id": "CircuitBreaker", "name": "断路器"}
+	  ],
+	  "relationTypes": [],
+	  "functionTypes": [
+	    {"id": "VoltageRegulation", "name": "调压功能", "bearerConcepts": ["Transformer"]}
+	  ],
+	  "actionTypes": [
+	    {"id": "Trip", "name": "跳闸", "agentConcepts": ["ProtectionDevice"], "objectConcepts": ["CircuitBreaker"]}
+	  ]
+	}`
+	fns, acts, present, err := CountFunctionAction(raw)
+	if err != nil || !present || fns != 1 || acts != 1 {
+		t.Fatalf("fn/act counts = %d %d present=%v err=%v", fns, acts, present, err)
+	}
+	text, err := TurtleFromModelingJSON("http://example.org/power#", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "BFO_0000034") || !strings.Contains(text, "BFO_0000015") {
+		t.Fatalf("turtle missing BFO parents: %s", text)
+	}
+	if !strings.Contains(text, "inheres_in") || !strings.Contains(text, "has_agent") {
+		t.Fatalf("turtle missing role properties: %s", text)
+	}
+	doc, err := ParseTurtle(text, "电力", "", "http://example.org/power#")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pg := doc.ToPlayground()
+	if len(pg.EntityTypes) < 5 {
+		t.Fatalf("playground entityTypes=%d want >=5", len(pg.EntityTypes))
+	}
+	foundFn, foundAct := false, false
+	for _, et := range pg.EntityTypes {
+		if et.Icon == IconFunction {
+			foundFn = true
+		}
+		if et.Icon == IconAction {
+			foundAct = true
+		}
+	}
+	if !foundFn || !foundAct {
+		t.Fatalf("playground icons fn=%v act=%v types=%+v", foundFn, foundAct, pg.EntityTypes)
+	}
+	body, _, _ := ParseModelingDocument(raw)
+	mpg := PlaygroundFromModeling("电力", "", body)
+	if len(mpg.EntityTypes) != 5 {
+		t.Fatalf("modeling playground types=%d", len(mpg.EntityTypes))
+	}
+	var roleKinds int
+	for _, r := range mpg.Relationships {
+		if r.Kind == KindInheresIn || r.Kind == KindHasAgent || r.Kind == KindHasPatient {
+			roleKinds++
+		}
+	}
+	if roleKinds < 3 {
+		t.Fatalf("role edges=%d rels=%+v", roleKinds, mpg.Relationships)
 	}
 }
 

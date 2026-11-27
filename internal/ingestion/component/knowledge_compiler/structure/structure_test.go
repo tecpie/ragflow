@@ -303,7 +303,7 @@ func TestHypergraphPromptsTemplateShape(t *testing.T) {
 			"fields":      []any{map[string]any{"type": "linked", "description": "a link"}},
 		},
 	}
-	node, edge := HypergraphPrompts(cfg, "en")
+	node, edge, _, _ := HypergraphPrompts(cfg, "en")
 
 	for _, want := range []string{
 		"# Role and Task:\nExtract the letter graph.",
@@ -347,7 +347,7 @@ func TestHypergraphPromptsSetUniquenessAndNoRelations(t *testing.T) {
 		"compile_type": "set",
 		"entity":       map[string]any{"fields": []any{map[string]any{"type": "letter"}}},
 	}
-	node, edge := HypergraphPrompts(cfg, "en")
+	node, edge, _, _ := HypergraphPrompts(cfg, "en")
 	if !strings.Contains(node, "Items must be unique. ") {
 		t.Errorf("set kind must demand uniqueness:\n%s", node)
 	}
@@ -393,7 +393,7 @@ func TestFillKnownNodes(t *testing.T) {
 
 func TestExtractHypergraphSkipsEdgesWithoutEntities(t *testing.T) {
 	chat := &graphChat{}
-	nodes, edges, err := extractHypergraph(context.Background(), common.Deps{Chat: chat}, CompileConfig{LLMID: "llm", ParserConfig: map[string]any{"entity": map[string]any{"id": "name"}}}, "node", "## Known Entities: {known_nodes}", "unrelated text")
+	nodes, edges, _, _, err := extractHypergraph(context.Background(), common.Deps{Chat: chat}, CompileConfig{LLMID: "llm", ParserConfig: map[string]any{"entity": map[string]any{"id": "name"}}}, "node", "## Known Entities: {known_nodes}", "", "", "unrelated text")
 	if err != nil {
 		t.Fatalf("extractHypergraph: %v", err)
 	}
@@ -585,7 +585,7 @@ func TestStructureSkipsSelfLoopRelations(t *testing.T) {
 	rows, err := buildRows(context.Background(), deps, cfg, nil, []map[string]any{
 		{"type": "linked", "source": "Root", "target": "Root"},
 		{"type": "linked", "source": "Root", "target": "Child"},
-	}, []string{"c1"})
+	}, nil, nil, []string{"c1"})
 	if err != nil {
 		t.Fatalf("buildRows: %v", err)
 	}

@@ -125,6 +125,10 @@ func (d *Document) ToPlayground() PlaygroundOntology {
 	idByIRI := map[string]string{}
 	usedIDs := map[string]struct{}{}
 	for i, iri := range classIRIs {
+		// Skip bare BFO upper classes if they appear only as parents.
+		if iri == BFOFunction || iri == BFOProcess {
+			continue
+		}
 		id := localName(iri)
 		if id == "" {
 			id = fmt.Sprintf("class_%d", i)
@@ -138,13 +142,20 @@ func (d *Document) ToPlayground() PlaygroundOntology {
 		}
 		usedIDs[id] = struct{}{}
 		idByIRI[iri] = id
+		icon, color := IconConcept, entityColors[i%len(entityColors)]
+		switch d.primaryParentIRI(iri) {
+		case BFOFunction:
+			icon, color = IconFunction, ColorFunction
+		case BFOProcess:
+			icon, color = IconAction, ColorAction
+		}
 		out.EntityTypes = append(out.EntityTypes, PlaygroundEntityType{
 			ID:          id,
 			Name:        d.labelOf(iri, id),
 			Description: d.commentOf(iri),
-			Properties:  []PlaygroundProperty{},
-			Icon:        "◇",
-			Color:       entityColors[i%len(entityColors)],
+			Properties:  d.datatypePropsOf(iri),
+			Icon:        icon,
+			Color:       color,
 		})
 	}
 
@@ -191,7 +202,7 @@ func (d *Document) ToPlayground() PlaygroundOntology {
 					From:        fromID,
 					To:          toID,
 					Cardinality: "many-to-many",
-					Kind:        "association",
+					Kind:        roleKindFromLocal(propID),
 					Description: d.commentOf(propIRI),
 				})
 			}
@@ -228,6 +239,65 @@ func (d *Document) classIRIs() []string {
 		out = append(out, iri)
 	}
 	return out
+}
+
+func (d *Document) primaryParentIRI(classIRI string) string {
+	subP := rdflibgo.RDFS.SubClassOf
+	for parent := range d.g.Objects(rdflibgo.NewURIRefUnsafe(classIRI), &subP) {
+		if iri := termIRI(parent); iri != "" {
+			return iri
+		}
+	}
+	return ""
+}
+
+func (d *Document) datatypePropsOf(classIRI string) []PlaygroundProperty {
+	typeP := rdflibgo.RDF.Type
+	domainP := rdflibgo.RDFS.Domain
+	var out []PlaygroundProperty
+	for s := range d.g.Subjects(&typeP, rdflibgo.OWL.DatatypeProperty) {
+		propIRI := termIRI(s)
+		if propIRI == "" {
+			continue
+		}
+		domains := d.objectsOf(propIRI, domainP)
+		match := false
+		for _, dom := range domains {
+			if dom == classIRI {
+				match = true
+				break
+			}
+		}
+		if !match {
+			continue
+		}
+		id := localName(propIRI)
+		out = append(out, PlaygroundProperty{
+			Name:        d.labelOf(propIRI, id),
+			Type:        "string",
+			Description: d.commentOf(propIRI),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	if out == nil {
+		out = []PlaygroundProperty{}
+	}
+	return out
+}
+
+func roleKindFromLocal(propID string) string {
+	switch {
+	case strings.Contains(propID, RoleInheresIn):
+		return KindInheresIn
+	case strings.Contains(propID, RoleHasAgent):
+		return KindHasAgent
+	case strings.Contains(propID, RoleHasPatient):
+		return KindHasPatient
+	case strings.Contains(propID, RoleHasResult):
+		return KindHasResult
+	default:
+		return KindAssociation
+	}
 }
 
 func (d *Document) objectPropertyIRIs() []string {
