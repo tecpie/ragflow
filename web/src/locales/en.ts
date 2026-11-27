@@ -630,12 +630,12 @@ Example: A 1 KB message with 1024-dim embedding uses ~9 KB. The 5 MB default lim
       chunkMethodTab: 'Chunk method',
       testResults: 'Results',
       testSetting: 'Setting',
-      retrievalTesting: 'Retrieval testing',
+      retrievalTesting: 'Retrieval',
       retrievalTestingDescription:
-        'Conduct a retrieval test to check if RAGFlow can recover the intended content for the LLM.',
+        'Run retrieval to check if RAGFlow can recover the intended content for the LLM.',
       Parse: 'Parse',
       dataset: 'Dataset',
-      testing: 'Retrieval testing',
+      testing: 'Retrieval',
       files: 'files',
       configuration: 'Configuration',
       knowledgeGraph: 'Knowledge graph',
@@ -671,7 +671,7 @@ Example: A 1 KB message with 1024-dim embedding uses ~9 KB. The 5 MB default lim
       noTestResultsForNotRuned:
         'No test has been run yet. Results will appear here.',
       testingDescription:
-        'Conduct a retrieval test to check if RAGFlow can recover the intended content for the LLM. If you have adjusted the default settings, such as keyword similarity weight or similarity threshold, to achieve the optimal results, be aware that these changes will not be automatically saved. You must apply them to your chat assistant settings or the Retrieval agent component settings.',
+        'Run retrieval to check if RAGFlow can recover the intended content for the LLM. If you have adjusted the default settings, such as keyword similarity weight or similarity threshold, to achieve the optimal results, be aware that these changes will not be automatically saved. You must apply them to your chat assistant settings or the Retrieval agent component settings.',
       similarityThreshold: 'Similarity threshold',
       similarityThresholdTip:
         'RAGFlow employs either a combination of weighted keyword similarity and weighted vector cosine similarity, or a combination of weighted keyword similarity and weighted reranking score during retrieval when a reranker model is selected. This parameter sets the threshold for similarities between the user query and chunks. Any chunk with a similarity score below this threshold will be excluded from the results. By default, the threshold is set to 20. This means that only chunks with hybrid similarity score of 20 or higher will be retrieved. If the vector similarity weight is set to 0, this threshold does not apply.',
@@ -1442,6 +1442,9 @@ This auto-tagging feature enhances retrieval by adding another layer of domain-s
       serplyApiKeyTip:
         'When Serply is selected, its web search results supplement dataset retrieval.',
       serplyApiKeyMessage: 'Please enter your Serply API Key',
+      specstreamApiKeyTip:
+        'When SpecStream is selected, its web search results supplement dataset retrieval.',
+      specstreamApiKeyMessage: 'Please enter your SpecStream API Key',
       tavilyApiKeyTip:
         'If an API Key is correctly set here, Tavily-based web searches will be used to supplement dataset retrieval.',
       tavilyApiKeyMessage: 'Please enter your Tavily API Key',
@@ -2626,8 +2629,8 @@ Example: Virtual Hosted Style`,
         decision: 'Decision',
         scoring: 'Scoring',
       },
-      showToc: 'Show content',
-      hideToc: 'Hide content',
+      showToc: 'Show table of contents',
+      hideToc: 'Hide table of contents',
       listModels: 'List models',
       allModels: 'All models',
       listModelsSearchPlaceholder: 'Search models…',
@@ -3405,6 +3408,19 @@ Best for: Documents with flowing, contextually connected content — such as boo
       search1APICrawlUrl: 'URL',
       search1APICrawlUrlTip:
         'The absolute HTTP or HTTPS URL of the page to read. As an agent tool, the agent supplies the URL.',
+      specStreamSearch: 'SpecStream',
+      specStreamSearchDescription:
+        'Search the live web with the SpecStream Search API and return ranked results with titles, URLs, and snippets. An API Key is required.',
+      specStreamApiKeyTip: 'Required. Create an API Key at specstream.ai.',
+      specStreamPassages: 'Passages',
+      specStreamPassagesTip:
+        'Also return extracted text passages from the top matching pages, so no separate fetch is needed.',
+      specStreamExtract: 'SpecStream extract',
+      specStreamExtractDescription:
+        'Read a web page or document (PDF, Word, Excel) with the SpecStream Extract API and return its title and main text. An API Key is required.',
+      specStreamExtractUrl: 'URL',
+      specStreamExtractUrlTip:
+        'The absolute HTTP or HTTPS URL of the page or document to read. As an agent tool, the agent supplies the URL.',
       anySearchSearch: 'AnySearch',
       anySearchSearchDescription:
         'Web and vertical search through AnySearch: general web results, or finance, academic, code, legal and other verticals. Works without an API key.',
@@ -3868,7 +3884,7 @@ This delimiter is used to split the input text into several text pieces echo of 
       mergePath: 'Merge path',
       mergePathTip:
         'When enabled, a dot suffix immediately after a variable is merged into a path query, such as {node@result.name}.',
-      historyVersion: 'Version history',
+      historyVersion: 'Versions',
       version: {
         created: 'Created',
         details: 'Version details',
@@ -3903,13 +3919,13 @@ This delimiter is used to split the input text into several text pieces echo of 
       setting: 'Setting',
       settings: {
         agentSetting: 'Agent settings',
-        title: 'title',
-        description: 'description',
+        title: 'Name',
+        description: 'Description',
         upload: 'Upload',
-        photo: 'Photo',
-        permissions: 'Permissions',
+        photo: 'Avatar',
+        permissions: 'Permission',
         permissionsTip: 'You can set the permissions of the team members here.',
-        me: 'me',
+        me: 'Only Me',
         team: 'Team',
       },
       noMoreData: 'No more data',
@@ -4114,7 +4130,7 @@ This process aggregates variables from multiple branches into a single variable 
         'No additional configuration is required for this chunker.',
       pageChunkerDescription:
         'No additional configuration is required for this chunker.',
-      extractor: 'Transformer',
+      extractor: 'Extractor',
       extractorDescription:
         'Use an LLM to extract structured insights from document chunks—such as summaries, classifications, etc.',
       compiler: 'Compiler',
@@ -4687,7 +4703,7 @@ Important structured information may include: names, dates, locations, events, k
     },
     explore: {
       title: 'Launch',
-      sessions: 'Sessions',
+      sessions: 'Conversation',
       newSession: 'New Session',
       newSessionLabel: 'Start a new conversation',
       deleteSession: 'Delete Session',

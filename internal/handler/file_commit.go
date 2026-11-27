@@ -28,11 +28,12 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // fileCommitService is the consumer-side interface for FileCommitHandler's service dependency.
 type fileCommitService interface {
-	CreateCommit(ctx context.Context, folderID, authorID, message string, changes []entity.FileChange) (*entity.FileCommit, error)
+	CreateCommit(ctx context.Context, db *gorm.DB, folderID, authorID, message string, changes []entity.FileChange) (*entity.FileCommit, error)
 	ListCommits(ctx context.Context, folderID string, page, pageSize int, orderBy string, desc bool) ([]*entity.FileCommit, int64, error)
 	GetCommit(ctx context.Context, commitID string) (*entity.FileCommit, error)
 	GetPageCommitDetail(ctx context.Context, datasetID, commitID string) (*entity.WikiPageCommitDetail, error)
@@ -135,15 +136,24 @@ func (h *FileCommitHandler) resolveDatasetFolderID(ctx context.Context, datasetI
 // same access check as the other file routes instead of trusting a
 // caller-supplied folder ID.
 func (h *FileCommitHandler) folderAccessible(c *gin.Context, folderID string) bool {
+	return h.fileAccessible(c, folderID, true)
+}
+
+func (h *FileCommitHandler) fileAccessible(c *gin.Context, fileID string, folder bool) bool {
 	ctx := c.Request.Context()
-	folder, err := h.fileDAO.GetByID(ctx, dao.DB, folderID)
-	if err != nil || folder == nil || folder.Type != "folder" {
+	userID := permission.UserIDFromContext(ctx)
+	tenantID := permission.TenantIDFromContext(ctx)
+	if userID == "" {
 		return false
 	}
-	return permission.NewDatabaseChecker(dao.DB).CheckResource(ctx, permission.ResourceRef{
-		Kind: permission.ResourceKindFolder,
-		ID:   folder.ID,
-	}, permission.OperationRead) == nil
+	if tenantID == "" {
+		tenantID = userID
+	}
+	fileRecord, err := h.fileDAO.GetByID(ctx, dao.DB, fileID)
+	if err != nil || fileRecord == nil || fileRecord.TenantID != tenantID || file.FileOwnerUserID(fileRecord, userID, tenantID) != userID {
+		return false
+	}
+	return !folder || fileRecord.Type == "folder"
 }
 
 func commitFolderID(c *gin.Context) string {
@@ -205,7 +215,7 @@ func (h *FileCommitHandler) CreateCommit(c *gin.Context) {
 		fileIDs = append(fileIDs, change.FileID)
 	}
 	common.SetOperationResource(c, "file_ids", fileIDs)
-	commit, err := h.commitService.CreateCommit(ctx, folderID, user.ID, req.Message, req.Files)
+	commit, err := h.commitService.CreateCommit(ctx, dao.DB, folderID, user.ID, req.Message, req.Files)
 	if err != nil {
 		// A delete change for a file that is still in the folder, or a rename
 		// with an empty or overlong target, is caller input, not a server
@@ -683,10 +693,7 @@ func (h *FileCommitHandler) GetFileVersionHistory(c *gin.Context) {
 
 	ctx := c.Request.Context()
 	file, err := h.fileDAO.GetByID(ctx, dao.DB, fileID)
-	if err != nil || file == nil || permission.NewDatabaseChecker(dao.DB).CheckResource(ctx, permission.ResourceRef{
-		Kind: permission.ResourceKindFile,
-		ID:   fileID,
-	}, permission.OperationRead) != nil {
+	if err != nil || file == nil || !h.fileAccessible(c, fileID, false) {
 		common.RespondError(c, common.CodeNotFound, "File not found")
 		return
 	}

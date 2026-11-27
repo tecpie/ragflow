@@ -50,6 +50,7 @@ export function buildChatSettingFormSchema(t: (key: string) => string) {
     search1api_api_key: z.string().optional(),
     searchapi_api_key: z.string().optional(),
     serply_api_key: z.string().optional(),
+    specstream_api_key: z.string().optional(),
     tavily_api_key: z.string().optional(),
     youcom_api_key: z.string().optional(),
     web_search_provider: z
@@ -66,6 +67,7 @@ export function buildChatSettingFormSchema(t: (key: string) => string) {
         WebSearchProvider.Search1API,
         WebSearchProvider.SearchApi,
         WebSearchProvider.Serply,
+        WebSearchProvider.SpecStream,
         WebSearchProvider.Tavily,
         WebSearchProvider.YouCom,
       ])

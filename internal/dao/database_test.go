@@ -26,6 +26,7 @@ import (
 
 	"ragflow/internal/common"
 	"ragflow/internal/entity"
+	"ragflow/internal/server/config"
 
 	"github.com/glebarez/sqlite"
 	"github.com/lib/pq"
@@ -602,5 +603,30 @@ func TestAutoMigrateRuntimeModelsNamesFailingTable(t *testing.T) {
 	err = autoMigrateRuntimeModels(t.Context(), db)
 	if err == nil || !strings.Contains(err.Error(), "runtime table ingestion_task") {
 		t.Fatalf("autoMigrateRuntimeModels error = %v, want failing table name", err)
+	}
+}
+
+func TestBuildMySQLMetaDSN(t *testing.T) {
+	base := config.MySQLConfig{
+		User:         "ragflow",
+		Password:     "secret",
+		Host:         "mysql",
+		Port:         3306,
+		DatabaseName: "rag_flow",
+		Charset:      "utf8mb4",
+	}
+
+	got := buildMySQLMetaDSN(base)
+	want := "ragflow:secret@tcp(mysql:3306)/rag_flow?charset=utf8mb4&loc=Local&parseTime=True"
+	if got != want {
+		t.Fatalf("default DSN = %q, want %q", got, want)
+	}
+
+	tlsConfig := base
+	tlsConfig.TLS = "skip-verify"
+	got = buildMySQLMetaDSN(tlsConfig)
+	want = "ragflow:secret@tcp(mysql:3306)/rag_flow?charset=utf8mb4&loc=Local&parseTime=True&tls=skip-verify"
+	if got != want {
+		t.Fatalf("TLS DSN = %q, want %q", got, want)
 	}
 }

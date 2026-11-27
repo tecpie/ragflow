@@ -570,12 +570,12 @@ export default {
       chunkMethodTab: 'Chunk 방법',
       testResults: '결과',
       testSetting: '설정',
-      retrievalTesting: '검색 테스트',
+      retrievalTesting: '검색',
       retrievalTestingDescription:
-        'RAGFlow가 LLM에 전달하고자 하는 내용을 정확히 가져올 수 있는지 확인하는 검색 테스트를 실행하세요.',
+        'RAGFlow가 LLM에 전달하고자 하는 내용을 정확히 가져올 수 있는지 확인하는 검색을 실행하세요.',
       Parse: '파싱',
       dataset: '데이터셋',
-      testing: '검색 테스트',
+      testing: '검색',
       files: '파일',
       configuration: '설정',
       knowledgeGraph: '지식 그래프',
@@ -611,7 +611,7 @@ export default {
       noTestResultsForNotRuned:
         '아직 테스트가 실행되지 않았습니다. 결과가 여기에 표시됩니다.',
       testingDescription:
-        'RAGFlow가 LLM에 전달하고자 하는 내용을 정확히 가져올 수 있는지 확인하는 검색 테스트를 실행하세요. 키워드 유사도 가중치나 유사도 임계값 등 기본 설정을 조정하여 최적의 결과를 얻었다면, 해당 변경 사항은 자동으로 저장되지 않으므로 채팅 어시스턴트 설정 또는 검색 에이전트 컴포넌트 설정에 적용해야 합니다.',
+        'RAGFlow가 LLM에 전달하고자 하는 내용을 정확히 가져올 수 있는지 확인하는 검색을 실행하세요. 키워드 유사도 가중치나 유사도 임계값 등 기본 설정을 조정하여 최적의 결과를 얻었다면, 해당 변경 사항은 자동으로 저장되지 않으므로 채팅 어시스턴트 설정 또는 검색 에이전트 컴포넌트 설정에 적용해야 합니다.',
       similarityThreshold: '유사도 임계값',
       similarityThresholdTip:
         'RAGFlow는 검색 시 가중 키워드 유사도와 가중 벡터 코사인 유사도의 조합을 사용하거나, 리랭커 모델이 선택된 경우 가중 키워드 유사도와 가중 리랭킹 점수의 조합을 사용합니다. 이 매개변수는 사용자 쿼리와 청크 간의 유사도 임계값을 설정합니다. 유사도 점수가 이 임계값보다 낮은 청크는 결과에서 제외됩니다. 기본 임계값은 20입니다. 즉, 하이브리드 유사도 점수가 20 이상인 청크만 검색됩니다. 벡터 유사도 가중치가 0으로 설정된 경우 이 임계값은 적용되지 않습니다.',
@@ -3681,7 +3681,7 @@ export default {
       mergePath: '경로 병합',
       mergePathTip:
         '활성화하면 변수 바로 뒤의 점 접미사가 경로 쿼리로 병합됩니다. 예: {node@result.name}.',
-      historyVersion: '버전 이력',
+      historyVersion: '버전',
       version: {
         created: '생성됨',
         details: '버전 세부 사항',
@@ -3918,7 +3918,7 @@ export default {
       qAChunkerDescription: '이 Chunker는 추가 설정이 필요하지 않습니다.',
       tableChunkerDescription: '이 Chunker는 추가 설정이 필요하지 않습니다.',
       pageChunkerDescription: '이 Chunker는 추가 설정이 필요하지 않습니다.',
-      extractor: 'Transformer',
+      extractor: 'Extractor',
       extractorDescription:
         'LLM을 사용하여 문서 chunk에서 요약, 분류 등 구조화된 인사이트를 추출합니다.',
       compiler: 'Compiler',

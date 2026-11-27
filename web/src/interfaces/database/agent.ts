@@ -339,7 +339,6 @@ export interface IAgentLogsRequest {
   desc?: boolean;
   page?: number;
   page_size?: number;
-  exp_user_id?: string; // tenant id
 }
 
 export interface IAgentComponentIO {
