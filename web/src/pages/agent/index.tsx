@@ -313,40 +313,41 @@ export default function Agent() {
                 runButton
               ))}
             <CanvasChecklist issues={issues} />
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="secondary"
-                  size="icon"
-                  aria-label={t('flow.management')}
-                >
-                  <Ellipsis />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent>
-                {hasReadPermission(operatorPermission) && (
-                  <AgentDropdownMenuItem onClick={() => showGlobalParamSheet()}>
-                    <MessageSquareCode />
-                    {t('flow.conversationVariable')}
-                  </AgentDropdownMenuItem>
-                )}
-                <AgentDropdownMenuItem onClick={handleExportJson}>
-                  <Upload />
-                  {t('flow.export')}
-                </AgentDropdownMenuItem>
-                {isPipeline || (
-                  <>
-                    <DropdownMenuSeparator />
-                    <AgentDropdownMenuItem
-                      onClick={() => navigateToAgentLogs(id as string)()}
-                    >
-                      <Logs />
-                      {t('flow.log')}
+            {isPipeline ? (
+              <Button variant="secondary" onClick={handleExportJson}>
+                <Upload />
+                {t('flow.export')}
+              </Button>
+            ) : (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="secondary"
+                    size="icon"
+                    aria-label={t('flow.management')}
+                  >
+                    <Ellipsis />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                  {hasReadPermission(operatorPermission) && (
+                    <AgentDropdownMenuItem onClick={showGlobalParamSheet}>
+                      <MessageSquareCode />
+                      {t('flow.conversationVariable')}
                     </AgentDropdownMenuItem>
-                  </>
-                )}
-                {isPipeline ||
-                  (location.hostname !== 'cloud.ragflow.io' && (
+                  )}
+                  <AgentDropdownMenuItem onClick={handleExportJson}>
+                    <Upload />
+                    {t('flow.export')}
+                  </AgentDropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <AgentDropdownMenuItem
+                    onClick={() => navigateToAgentLogs(id as string)()}
+                  >
+                    <Logs />
+                    {t('flow.log')}
+                  </AgentDropdownMenuItem>
+                  {location.hostname !== 'cloud.ragflow.io' && (
                     <>
                       <DropdownMenuSeparator />
                       <AgentDropdownMenuItem onClick={handleEmbedClick}>
@@ -354,9 +355,10 @@ export default function Agent() {
                         {t('common.embedIntoSite')}
                       </AgentDropdownMenuItem>
                     </>
-                  ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
         </PageHeader>
         <ModelResourceTenantIdContext.Provider value={agentDetail?.tenant_id}>

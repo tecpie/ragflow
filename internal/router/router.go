@@ -155,6 +155,10 @@ func (r *Router) Setup(engine *gin.Engine) {
 	// Log all HTTP requests.
 	engine.Use(common.GinLogger())
 
+	// Read-only monitoring namespace. Mounted on the engine so it inherits the
+	// global middleware but can use its own authentication.
+	RegisterEEMonitorRouter(engine, r)
+
 	// Health check
 	engine.GET("/health", r.systemHandler.Health)
 
@@ -179,9 +183,6 @@ func (r *Router) Setup(engine *gin.Engine) {
 
 		// User login by email endpoint
 		apiNoAuth.POST("/auth/login", r.userHandler.LoginByEmail)
-		// The login page asks which external providers exist before it renders;
-		// answering here keeps that request out of the 404 path.
-		apiNoAuth.GET("/auth/login/channels", r.authHandler.ListLoginChannels)
 
 		// Register
 		apiNoAuth.POST("/users", r.userHandler.Register)

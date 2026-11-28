@@ -29,6 +29,14 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func filterSearchResponse(*gin.Context, *[]map[string]interface{}, *[]map[string]interface{}) bool {
+	return true
+}
+
+func filterDifyRecords(context.Context, []difyRecord) error { return nil }
+
+func filterChunkResponse(_ context.Context, data any) (any, error) { return data, nil }
+
 // billingQuotaUser resolves the caller that the plan quota applies to.
 func billingQuotaUser(c *gin.Context) (*entity.User, common.ErrorCode, error) {
 	user, code, message := GetUser(c)
@@ -45,12 +53,6 @@ func billingEnforceApps(_ *gin.Context, _ string) bool { return true }
 // billingEnforceStorage admits every upload: the community edition has no
 // storage quota.
 func billingEnforceStorage(_ *gin.Context, _ string, _ int64) bool { return true }
-
-// loginChannels lists the external identity providers this build can
-// authenticate against. OAuth/OIDC login is an enterprise capability, so the
-// community edition offers none and the login page shows only the email/password
-// form; the ee build replaces this file with the configured providers.
-func loginChannels() []LoginChannel { return nil }
 
 // isOAuthLoginNoRoute reports the OAuth login URL with an empty channel: the
 // Python API resolves it to a Werkzeug MethodNotAllowed, and the community
