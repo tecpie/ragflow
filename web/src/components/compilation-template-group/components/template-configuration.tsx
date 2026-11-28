@@ -180,9 +180,7 @@ export function TemplateConfiguration({
               tooltip={t('knowledgeCompilation.ontologyNameTip')}
             >
               <Input
-                placeholder={t(
-                  'knowledgeCompilation.ontologyNamePlaceholder',
-                )}
+                placeholder={t('knowledgeCompilation.ontologyNamePlaceholder')}
               />
             </RAGFlowFormItem>
             <RAGFlowFormItem
@@ -240,30 +238,31 @@ export function TemplateConfiguration({
               <TreeTemplateFields index={selectedTemplateIndex} />
             ) : (
               <>
-                {kind !== CompilationTemplateKind.Artifacts && !isEmpty(kind) && (
-                  <>
-                    <SwitchFormField
-                      name={`templates.${selectedTemplateIndex}.config.rechunk`}
-                      label={t('knowledgeCompilation.rechunkInput')}
-                      tooltip={t('knowledgeCompilation.rechunkInputTip')}
-                      vertical={false}
-                    />
-                    {rechunk && (
-                      <RAGFlowFormItem
-                        name={`templates.${selectedTemplateIndex}.config.rechunk_rules`}
-                        label={t('knowledgeCompilation.rechunkRules')}
-                      >
-                        <Textarea
-                          placeholder={t(
-                            'knowledgeCompilation.rechunkRulesPlaceholder',
-                          )}
-                          rows={6}
-                          resize="vertical"
-                        />
-                      </RAGFlowFormItem>
-                    )}
-                  </>
-                )}
+                {kind !== CompilationTemplateKind.Artifacts &&
+                  !isEmpty(kind) && (
+                    <>
+                      <SwitchFormField
+                        name={`templates.${selectedTemplateIndex}.config.rechunk`}
+                        label={t('knowledgeCompilation.rechunkInput')}
+                        tooltip={t('knowledgeCompilation.rechunkInputTip')}
+                        vertical={false}
+                      />
+                      {rechunk && (
+                        <RAGFlowFormItem
+                          name={`templates.${selectedTemplateIndex}.config.rechunk_rules`}
+                          label={t('knowledgeCompilation.rechunkRules')}
+                        >
+                          <Textarea
+                            placeholder={t(
+                              'knowledgeCompilation.rechunkRulesPlaceholder',
+                            )}
+                            rows={6}
+                            resize="vertical"
+                          />
+                        </RAGFlowFormItem>
+                      )}
+                    </>
+                  )}
                 {sectionNames.length > 0 && activeSectionTab && (
                   <Tabs
                     value={activeSectionTab}
@@ -298,7 +297,6 @@ export function TemplateConfiguration({
                 )}
               </>
             )}
-
           </>
         )}
         {children}
